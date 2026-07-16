@@ -4,3 +4,6 @@
 
 # local Claude settings
 .claude/settings.local.json
+
+# resume ledger (written into the scan directory)
+.vtc_processed.log

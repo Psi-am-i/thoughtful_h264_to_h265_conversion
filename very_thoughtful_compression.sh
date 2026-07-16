@@ -71,37 +71,29 @@ check_videotoolbox() {
 
 # ── Bitrate strategy ──────────────────────────────────────────────────────────
 # The target bitrate comes from a quality TIER chosen per-run (see prompt below).
-# Each tier is an ABSOLUTE quality ceiling anchored at a resolution, calibrated
-# against streaming-service bitrates (Netflix/Amazon): sources at or below the
-# anchor resolution stay imperceptibly different from the source; larger sources
-# are deliberately squeezed down to that grade (pick a higher tier to keep full
-# 4K/8K quality). Sources smaller than the anchor scale down per-pixel so an SD
-# file never gets 1080p-sized bitrate:
+# Each tier is a fixed DENSITY — bits per pixel per frame (bpp) — anchored to an
+# H.264 bitrate at 1080p/30fps and calibrated against streaming-service quality
+# (EXCELLENT ≈ Netflix's top 1080p rung, plus headroom for a generic encoder):
 #
-#   cap_kbps = tier_mbps*1000 * min(src_pixels / tier_pixels, 1.0) * codec_factor
+#   target_kbps = tier_bpp * pixels * fps * codec_factor / 1000
 #
-# codec_factor is 1.0 for H.264 output. For H.265 it reflects that HEVC reaches
-# H.264 quality at roughly half the bitrate — and that H.264's efficiency falls
-# off above 1080p (it was never designed for 4K+), so the HEVC advantage grows:
-#     <= 1080p -> 0.55      <= 4K -> 0.50      above -> 0.45
+# Because bpp is normalised by resolution AND frame rate, one tier scales to any
+# source automatically — a 4K file gets ~4x a 1080p file, a 60fps file ~2x a
+# 30fps file — with no per-resolution rules. codec_factor is 1.0 for H.264; for
+# H.265 it reflects HEVC reaching the same quality at less bitrate, the advantage
+# growing with resolution (validated against coding-efficiency studies):
+#     <= 1080p -> 0.60      <= 4K -> 0.50      above -> 0.45
 #
-# Below the cap, the adaptive ratio still trims by source bpp so moderately fat
-# files shrink proportionally rather than all pinning to the ceiling:
-#     bpp >= 0.08 (generous source) -> keep 55%
-#     bpp <= 0.03 (lean source)     -> keep 70%   (linear between)
-#
-# "Already compressed" guard: if a source's bpp is at/below BPP_SKIP_FLOOR it is
-# already tightly encoded for its resolution — re-encoding buys almost nothing
-# and only adds a generation of loss, so it is skipped outright.
+# The target is ABSOLUTE (a function of the tier and the source's pixels/fps), NOT
+# a fraction of the source's current bitrate — so re-runs CONVERGE: once a file is
+# at or under its tier target it is left alone, instead of being trimmed a little
+# further every pass. A source is re-encoded only when it is more than
+# TIER_OVER_TOLERANCE over its target.
 BITRATE_FLOOR=1500          # never target below this (avoids garbage output)
-BPP_SKIP_FLOOR=0.050        # source at/below this bpp = already efficient, skip
-HEVC_EFF_HD="${HEVC_EFFICIENCY_HD:-0.55}"   # H.265/H.264 bitrate parity <= 1080p
+TIER_OVER_TOLERANCE=1.10    # re-encode only a source that is >10% over its target
+HEVC_EFF_HD="${HEVC_EFFICIENCY_HD:-0.60}"   # H.265 bitrate vs H.264 same quality, <= 1080p
 HEVC_EFF_4K="${HEVC_EFFICIENCY_4K:-0.50}"   # ... <= 4K
 HEVC_EFF_8K="${HEVC_EFFICIENCY_8K:-0.45}"   # ... above 4K
-BPP_HIGH=0.08
-BPP_LOW=0.03
-RATIO_HIGH=0.55
-RATIO_LOW=0.7
 
 # Max-fidelity transcode ceiling — used only for the compatibility transcode of
 # legacy/MP4-incompatible codecs (MPEG-2/VC-1/Xvid/WMV): quality-targeted CRF
@@ -124,16 +116,15 @@ case "${_cchoice:-1}" in
 esac
 export OUT_CODEC
 
-printf '\nQuality tier? Each is a quality ceiling: sources at or below its resolution come out\nimperceptibly different from the source; bigger sources are deliberately squeezed down\nto that grade. (Mbps shown are H.264-equivalent; H.265 output automatically uses\nproportionally less bitrate for the same quality.)\n  1) STANDARD   — imperceptible at 480p/576p   (~2.5 Mbps ≈ DVD / Netflix SD)\n  2) HIGH       — imperceptible at 720p        (~5 Mbps   ≈ top Netflix/Amazon 720p)\n  3) EXCELLENT  — imperceptible at 1080p       (~10 Mbps  — above top Netflix/Amazon 1080p)  [default]\n  4) STELLAR    — imperceptible at 4K          (~32 Mbps  ≈ Netflix 4K UHD grade)\n  5) INSANE     — imperceptible at 8K          (~100 Mbps — beyond streaming; archival)\n' >&2
-read -r -p "  Choice [1-5]: " _tchoice </dev/tty 2>/dev/tty || _tchoice=3
+printf '\nQuality tier? Each tier is a fixed quality DENSITY (bits per pixel), anchored to an\nH.264 bitrate at 1080p/30fps and calibrated against streaming services. The target\nscales automatically with a file'"'"'s resolution and frame rate; H.265 output uses\n~40-55%% less bitrate for the same quality.\n  1) FINE       — ~4 Mbps 1080p H.264   — space-first / light streaming\n  2) GOOD       — ~5 Mbps 1080p H.264   — solid streaming quality\n  3) EXCELLENT  — ~6.8 Mbps 1080p H.264 — matches top streaming, with encoder headroom  [default]\n  4) INSANE     — ~9 Mbps 1080p H.264   — near-transparent for streaming-sourced files\n' >&2
+read -r -p "  Choice [1-4]: " _tchoice </dev/tty 2>/dev/tty || _tchoice=3
 case "${_tchoice:-3}" in
-  1) TIER_NAME=STANDARD;  TIER_MBPS=2.5; TIER_PIXELS=$((1024*576));   TIER_RES_LABEL="480p/576p" ;;
-  2) TIER_NAME=HIGH;      TIER_MBPS=5;   TIER_PIXELS=$((1280*720));   TIER_RES_LABEL="720p" ;;
-  4) TIER_NAME=STELLAR;   TIER_MBPS=32;  TIER_PIXELS=$((3840*2160));  TIER_RES_LABEL="4K" ;;
-  5) TIER_NAME=INSANE;    TIER_MBPS=100; TIER_PIXELS=$((7680*4320));  TIER_RES_LABEL="8K" ;;
-  *) TIER_NAME=EXCELLENT; TIER_MBPS=10;  TIER_PIXELS=$((1920*1080));  TIER_RES_LABEL="1080p" ;;
+  1) TIER_NAME=FINE;      TIER_REF_MBPS=4.0 ;;
+  2) TIER_NAME=GOOD;      TIER_REF_MBPS=5.0 ;;
+  4) TIER_NAME=INSANE;    TIER_REF_MBPS=9.0 ;;
+  *) TIER_NAME=EXCELLENT; TIER_REF_MBPS=6.8 ;;
 esac
-export TIER_NAME TIER_MBPS TIER_PIXELS TIER_RES_LABEL
+export TIER_NAME TIER_REF_MBPS
 
 # Sensible minimum saving depends on the codec: a healthy H.265 re-encode saves
 # 30-45%, so a small predicted saving means the source was already efficient and
@@ -285,15 +276,50 @@ PROBLEM_LOG="$(mktemp /tmp/hevc_problems.XXXXXX)"
 # Each kept output appends "src_bytes<TAB>out_bytes" here (append is atomic for
 # short writes, so parallel xargs workers can share it); summed for the report.
 SAVINGS_LOG="$(mktemp /tmp/hevc_savings.XXXXXX)"
+# Every file records its outcome here ("tag<TAB>path") so the end-of-run summary
+# can account for ALL files, not just the ones that were replaced or had problems.
+OUTCOME_LOG="$(mktemp /tmp/hevc_outcomes.XXXXXX)"
 STOP_FILE="/tmp/hevc_stop"
-export PROBLEM_LOG SAVINGS_LOG STOP_FILE
-trap 'rm -f "$PROBLEM_LOG" "$SAVINGS_LOG"' EXIT
+export PROBLEM_LOG SAVINGS_LOG OUTCOME_LOG STOP_FILE
+trap 'rm -f "$PROBLEM_LOG" "$SAVINGS_LOG" "$OUTCOME_LOG"' EXIT
+
+# Resume ledger: persistent (unlike the temp logs above) so a re-run after a stop
+# skips files already finished under the SAME settings. Lives at the scan root by
+# default; override with LEDGER_FILE=..., or disable with LEDGER=0.
+LEDGER_SIG="${TIER_NAME}|${OUT_CODEC}|rmx${REMUX_TO_MP4:-0}|xc${COMPAT_TRANSCODE:-0}|${OUTPUT_MODE:-inplace}"
+if [[ "${LEDGER:-1}" == "0" ]]; then
+  LEDGER_FILE=""
+else
+  LEDGER_FILE="${LEDGER_FILE:-$SRC/.vtc_processed.log}"
+  if ! ( : >> "$LEDGER_FILE" ) 2>/dev/null; then
+    printf '\nWARN: cannot write resume ledger at %s — resume disabled for this run\n' "$LEDGER_FILE" >&2
+    LEDGER_FILE=""
+  fi
+fi
+export LEDGER_FILE LEDGER_SIG
 
 TTY=/dev/tty
 log(){ printf '%s\n' "$*" > "$TTY"; }
 ts(){ date +%H:%M:%S; }
 problem(){ printf '%s\t%s\n' "$2" "$1" >> "$PROBLEM_LOG"; }
 record_saving(){ printf '%s\t%s\n' "$1" "$2" >> "$SAVINGS_LOG"; }
+record_outcome(){ printf '%s\t%s\n' "$1" "$2" >> "$OUTCOME_LOG"; }
+
+# ── Resume ledger ─────────────────────────────────────────────────────────────
+# A completed file is recorded as "<settings-sig> TAB abspath TAB size TAB mtime".
+# The settings signature means a re-run with the SAME tier/codec/options skips
+# done files, while changing any of them re-evaluates everything. Appends are
+# atomic for short lines, so parallel workers can share the one file.
+ledger_key(){
+  local f="$1" d b sz mt
+  d="$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)" || d="$(dirname "$f")"
+  b="$(basename "$f")"
+  sz="$(file_size "$f" 2>/dev/null || echo 0)"
+  mt="$(stat -f%m "$f" 2>/dev/null || stat -c%Y "$f" 2>/dev/null || echo 0)"
+  printf '%s\t%s/%s\t%s\t%s' "${LEDGER_SIG:-}" "$d" "$b" "${sz:-0}" "${mt:-0}"
+}
+ledger_has(){ [[ -n "${LEDGER_FILE:-}" && -f "${LEDGER_FILE:-}" ]] && grep -qxF -- "$1" "$LEDGER_FILE"; }
+ledger_add(){ [[ -n "${LEDGER_FILE:-}" ]] && printf '%s\n' "$1" >> "$LEDGER_FILE" 2>/dev/null || true; }
 fsize(){ du -sh "$1" 2>/dev/null | awk '{print $1}'; }
 sname(){ local b; b="$(basename "$1")"; printf '%s' "${b%.*}"; }
 
@@ -421,37 +447,25 @@ calc_bitrate() {
   local src_bps="$1" width="$2" height="$3" fps="$4"
   local result
   result=$(python3 -c "
-src_bps    = $src_bps
-width      = $width
-height     = $height
-fps        = $fps
-src_kbps   = src_bps / 1000
-pixels     = width * height
-bpp        = src_bps / (pixels * fps) if (pixels > 0 and fps > 0) else 0.05
-bpp_high   = $BPP_HIGH
-bpp_low    = $BPP_LOW
-ratio_high = $RATIO_HIGH
-ratio_low  = $RATIO_LOW
-if bpp >= bpp_high:
-    ratio = ratio_high
-elif bpp <= bpp_low:
-    ratio = ratio_low
-else:
-    t = (bpp - bpp_low) / (bpp_high - bpp_low)
-    ratio = ratio_low + t * (ratio_high - ratio_low)
-tier_px = $TIER_PIXELS
-eff_px  = min(pixels, tier_px) if pixels > 0 else tier_px
+src_bps  = $src_bps
+width    = $width
+height   = $height
+fps      = $fps if $fps > 0 else 30.0
+src_kbps = src_bps / 1000.0
+pixels   = width * height
+# Tier is a fixed H.264 bits-per-pixel-per-frame density (from the 1080p30 anchor).
+tier_bpp = $TIER_REF_MBPS * 1e6 / (1920 * 1080 * 30)
 if '$OUT_CODEC' == 'h265':
-    if   eff_px <= 1920*1080: codec_factor = $HEVC_EFF_HD
-    elif eff_px <= 3840*2160: codec_factor = $HEVC_EFF_4K
-    else:                     codec_factor = $HEVC_EFF_8K
+    cf = $HEVC_EFF_HD if pixels <= 1920*1080 else ($HEVC_EFF_4K if pixels <= 3840*2160 else $HEVC_EFF_8K)
 else:
-    codec_factor = 1.0
-cap    = $TIER_MBPS * 1000 * (eff_px / tier_px) * codec_factor
-floor  = min($BITRATE_FLOOR, cap)
-kbps   = max(floor, min(src_kbps * ratio, cap))
-print(int(kbps))
-print(f'bpp={bpp:.4f} ratio={ratio:.0%} cap={int(cap)}k src={src_kbps:.0f}k -> target={int(kbps)}k')
+    cf = 1.0
+# Absolute target for this file's resolution & frame rate — not a ratio of source.
+target = tier_bpp * pixels * fps * cf / 1000.0
+target = max($BITRATE_FLOOR, target)
+if src_kbps > 0: target = min(target, src_kbps)          # never inflate a source
+srcbpp = src_bps / (pixels * fps) if (pixels > 0 and fps > 0) else 0
+print(int(target))
+print(f'srcbpp={srcbpp:.4f} cf={cf:.2f} src={src_kbps:.0f}k -> target={int(target)}k')
 ")
   local kbps bpp_info
   kbps="$(echo "$result" | sed -n '1p')"
@@ -480,49 +494,32 @@ except: print(30.0)
 
   local result decision info
   result="$(python3 -c "
-src_bps = $src_bps; width = $width; height = $height; fps = $fps
-src_kbps = src_bps / 1000
+src_bps = $src_bps; width = $width; height = $height; fps = $fps if $fps > 0 else 30.0
+src_kbps = src_bps / 1000.0
 pixels   = width * height
-bpp      = src_bps / (pixels * fps) if pixels > 0 and fps > 0 else 0.05
-bpp_high   = $BPP_HIGH;   bpp_low   = $BPP_LOW
-ratio_high = $RATIO_HIGH; ratio_low = $RATIO_LOW
-if bpp >= bpp_high:   ratio = ratio_high
-elif bpp <= bpp_low:  ratio = ratio_low
-else:
-    t = (bpp - bpp_low) / (bpp_high - bpp_low)
-    ratio = ratio_low + t * (ratio_high - ratio_low)
-tier_px = $TIER_PIXELS
-eff_px  = min(pixels, tier_px) if pixels > 0 else tier_px
+tier_bpp = $TIER_REF_MBPS * 1e6 / (1920 * 1080 * 30)
 if '$OUT_CODEC' == 'h265':
-    if   eff_px <= 1920*1080: codec_factor = $HEVC_EFF_HD
-    elif eff_px <= 3840*2160: codec_factor = $HEVC_EFF_4K
-    else:                     codec_factor = $HEVC_EFF_8K
+    cf = $HEVC_EFF_HD if pixels <= 1920*1080 else ($HEVC_EFF_4K if pixels <= 3840*2160 else $HEVC_EFF_8K)
 else:
-    codec_factor = 1.0
-cap    = $TIER_MBPS * 1000 * (eff_px / tier_px) * codec_factor
-floor  = min($BITRATE_FLOOR, cap)
-target = max(floor, min(src_kbps * ratio, cap))
-est    = target / src_kbps
-saving = (1 - est) * 100
-if bpp <= $BPP_SKIP_FLOOR:
-    decision = 'skip-efficient'
-elif est >= $MIN_SAVING_RATIO:
-    decision = 'skip'
+    cf = 1.0
+target = max($BITRATE_FLOOR, tier_bpp * pixels * fps * cf / 1000.0)
+over   = (src_kbps / target) if target > 0 else 0
+# Leave a file alone once it is at (or within tolerance of) its tier target;
+# only re-encode a source that is meaningfully OVER target. This is what makes
+# re-runs converge instead of shaving the file down again every pass.
+if src_kbps <= target * $TIER_OVER_TOLERANCE:
+    decision = 'skip-at-tier'
 else:
     decision = 'encode'
 print(decision)
-print(f'est_saving={saving:.1f}% bpp={bpp:.4f} src={src_kbps:.0f}k -> target={target:.0f}k')
+print(f'src={src_kbps:.0f}k vs target={target:.0f}k ({over:.2f}x target)')
 ")"
 
   decision="$(echo "$result" | sed -n '1p')"
   info="$(echo "$result" | sed -n '2p')"
 
-  if [[ "$decision" == "skip-efficient" ]]; then
-    [[ "$quiet" != "quiet" ]] && log "$(ts) SKIP  : already efficiently compressed ($info) — $n"
-    return 1
-  fi
-  if [[ "$decision" == "skip" ]]; then
-    [[ "$quiet" != "quiet" ]] && log "$(ts) SKIP  : not worth encoding ($info) — $n"
+  if [[ "$decision" == "skip-at-tier" ]]; then
+    [[ "$quiet" != "quiet" ]] && log "$(ts) SKIP  : already at/under ${TIER_NAME} target ($info) — $n"
     return 1
   fi
   return 0
@@ -545,7 +542,23 @@ classify_codec() {
   esac
 }
 
+# Wrapper: consult the resume ledger before doing any work, and record the file
+# once it reaches a terminal (non-error) decision so a re-run skips it. The key
+# is computed BEFORE processing (while the source still exists on disk).
 process_one() {
+  local src="$1" file="$2"
+  local _lkey=""
+  if [[ -n "${LEDGER_FILE:-}" ]]; then
+    _lkey="$(ledger_key "$file")"
+    ledger_has "$_lkey" && { log "$(ts) RESUME: already done this run's settings — $(sname "$file")"; record_outcome resume "$file"; return 0; }
+  fi
+  local _rc=0
+  _process_one_impl "$src" "$file" || _rc=$?
+  [[ "$_rc" -eq 0 && -n "$_lkey" ]] && ledger_add "$_lkey"
+  return "$_rc"
+}
+
+_process_one_impl() {
   local src="$1" file="$2"
 
   local rel out
@@ -570,6 +583,7 @@ process_one() {
 
   if [[ -f "$out" && "$out" != "$file" ]]; then
     log "$(ts) SKIP  : already converted — $n"
+    record_outcome skip-existing "$file"
     return 0
   fi
 
@@ -593,7 +607,7 @@ process_one() {
         if prescan_worth_encoding "$file" quiet; then MODE=shrink; else MODE=remux; fi
       else
         # Already MP4 (or remux declined): only re-encode if it's worth it.
-        if prescan_worth_encoding "$file"; then MODE=shrink; else return 0; fi
+        if prescan_worth_encoding "$file"; then MODE=shrink; else record_outcome skip-at-tier "$file"; return 0; fi
       fi
       ;;
     modern)
@@ -601,6 +615,8 @@ process_one() {
       if [[ "${REMUX_TO_MP4:-0}" == "1" && "$already_mp4" -eq 0 ]]; then
         MODE=remux
       else
+        log "$(ts) SKIP  : already ${codec} in MP4 — nothing to do — $n"
+        record_outcome skip-modern "$file"
         return 0
       fi
       ;;
@@ -609,11 +625,13 @@ process_one() {
         MODE=transcode
       else
         log "$(ts) SKIP  : ${codec} (MP4-incompatible; transcode declined) — $n"
+        record_outcome skip-incompatible "$file"
         return 0
       fi
       ;;
     *)
       log "$(ts) SKIP  : codec=${codec} (left untouched) — $n"
+      record_outcome skip-codec "$file"
       return 0
       ;;
   esac
@@ -673,20 +691,18 @@ except: print(30.0)
       bitrate="$(calc_bitrate "$src_bps" "$width" "$height" "$fps")"
     else
       bitrate="$(python3 -c "
-w=$width; h=$height
-tier_px=$TIER_PIXELS
-eff_px=min(w*h, tier_px) if w*h > 0 else tier_px
+w=$width; h=$height; fps=$fps if $fps > 0 else 30.0
+pixels=w*h
+tier_bpp=$TIER_REF_MBPS*1e6/(1920*1080*30)
 if '$OUT_CODEC' == 'h265':
-    if   eff_px <= 1920*1080: cf = $HEVC_EFF_HD
-    elif eff_px <= 3840*2160: cf = $HEVC_EFF_4K
-    else:                     cf = $HEVC_EFF_8K
+    cf = $HEVC_EFF_HD if pixels <= 1920*1080 else ($HEVC_EFF_4K if pixels <= 3840*2160 else $HEVC_EFF_8K)
 else:
     cf = 1.0
-cap=$TIER_MBPS*1000*(eff_px/tier_px)*cf
-print(f'{int(cap)}k')
+target=max($BITRATE_FLOOR, tier_bpp*pixels*fps*cf/1000.0)
+print(f'{int(target)}k')
 ")"
-      log "$(ts) WARN  : could not probe bitrate, using tier cap ($bitrate) — $n"
-      problem "$file" "WARN: could not probe source bitrate; used tier cap (${bitrate}) — verify output quality"
+      log "$(ts) WARN  : could not probe bitrate, using tier target ($bitrate) — $n"
+      problem "$file" "WARN: could not probe source bitrate; used tier target (${bitrate}) — verify output quality"
     fi
   elif [[ "$MODE" == "transcode" ]]; then
     if [[ -n "$src_bps" && "$src_bps" =~ ^[0-9]+$ ]]; then
@@ -808,6 +824,7 @@ print(f'{int(cap)}k')
   if [[ "$encode_ok" -eq 0 ]]; then
     log "$(ts) ERROR : encode failed — $n"
     problem "$file" "ERROR: encode failed (both audio-copy and AAC fallback) — file skipped"
+    record_outcome error "$file"
     return 1
   fi
 
@@ -827,6 +844,7 @@ print(f'{int(cap)}k')
     if [[ "$out_size" -ge "$threshold" ]]; then
       rm -f "$tmp"
       log "$(ts) SKIP  : saving too small, keeping original — $n  [${elapsed}s]"
+      record_outcome skip-min-saving "$file"
       return 0
     fi
   else
@@ -890,6 +908,7 @@ print(f'{int(cap)}k')
 
   if [[ -s "$out" ]]; then
     record_saving "$src_size" "$out_size"
+    record_outcome "$MODE" "$file"
     case "${SOURCE_ACTION:-archive}" in
       delete)
         if [[ -n "$subs_dropped_reason" ]]; then
@@ -935,17 +954,20 @@ print(f'{int(cap)}k')
     log "$(ts) WARN  : output empty after encode — $n"
     problem "$file" "WARN: output missing or empty after encode — source not deleted"
     rm -f "$out" 2>/dev/null || true
+    record_outcome error "$file"
+    return 1
   fi
 }
 
-export -f process_one classify_codec prescan_worth_encoding probe_video probe_container_bitrate \
-           probe_format file_size calc_bitrate log ts ff_run ff_run_progress problem record_saving \
-           fsize sname check_stop_requested
+export -f process_one _process_one_impl classify_codec prescan_worth_encoding probe_video probe_container_bitrate \
+           probe_format file_size calc_bitrate log ts ff_run ff_run_progress problem record_saving record_outcome \
+           fsize sname check_stop_requested ledger_key ledger_has ledger_add
 export FFMPEG FFPROBE TMPROOT SOURCE_ACTION ARCHIVE_DIR \
-       OUTPUT_MODE OUTPUT_DIR OUTPUT_FLAT PROBLEM_LOG SAVINGS_LOG STOP_FILE TTY
-export BITRATE_FLOOR BPP_SKIP_FLOOR MIN_SAVING_RATIO BPP_HIGH BPP_LOW RATIO_HIGH RATIO_LOW
+       OUTPUT_MODE OUTPUT_DIR OUTPUT_FLAT PROBLEM_LOG SAVINGS_LOG OUTCOME_LOG STOP_FILE TTY
+export BITRATE_FLOOR TIER_OVER_TOLERANCE MIN_SAVING_RATIO
 export HEVC_EFF_HD HEVC_EFF_4K HEVC_EFF_8K XCODE_CAP_HD XCODE_CAP_4K
-export OUT_CODEC TIER_NAME TIER_MBPS TIER_PIXELS TIER_RES_LABEL
+export OUT_CODEC TIER_NAME TIER_REF_MBPS
+export LEDGER_FILE LEDGER_SIG
 export REMUX_TO_MP4 COMPAT_TRANSCODE
 
 # (plain case block — a case inside $() breaks macOS bash 3.2's parser)
@@ -965,13 +987,11 @@ log "ORIGINALS:   $_orig_desc"
 log "JOBS:        $JOBS"
 log "CODEC:       $( [[ "$OUT_CODEC" == "h264" ]] && echo "H.264 / AVC (universal playback, ~2x larger)" || echo "H.265 / HEVC (~50% smaller at the same quality)" )"
 log "ENCODER:     $( [[ "${USE_VT:-0}" -eq 1 ]] && echo "Hardware (VideoToolbox)" || echo "Software (libx264/libx265, capped-CRF)" )"
-log "TIER:        ${TIER_NAME} — imperceptible at ≤ ${TIER_RES_LABEL}; ceiling ${TIER_MBPS} Mbps H.264-equiv$( [[ "$OUT_CODEC" == "h265" ]] && python3 -c "
-px=$TIER_PIXELS
-cf=$HEVC_EFF_HD if px<=1920*1080 else ($HEVC_EFF_4K if px<=3840*2160 else $HEVC_EFF_8K)
-print(f' (→ ~{$TIER_MBPS*cf:.1f} Mbps H.265)', end='')" )"
-log "BITRATE:     ≤ tier ceiling (scaled down for smaller sources) | adaptive ${RATIO_HIGH}-${RATIO_LOW} of source below it | floor=${BITRATE_FLOOR}k"
-log "SKIP-EFFIC.: sources already ≤ ${BPP_SKIP_FLOOR} bpp are left untouched (already well compressed)"
-log "MIN_SAVING:  output must be ≥$(python3 -c "print(int((1-$MIN_SAVING_RATIO)*100))")% smaller than source to replace it"
+log "TIER:        ${TIER_NAME} — ${TIER_REF_MBPS} Mbps H.264 @1080p30$( [[ "$OUT_CODEC" == "h265" ]] && python3 -c "print(f' (~{$TIER_REF_MBPS*$HEVC_EFF_HD:.1f} Mbps H.265 @1080p)', end='')" ), scaling with resolution & frame rate"
+log "BITRATE:     absolute target = tier bpp × pixels × fps$( [[ "$OUT_CODEC" == "h265" ]] && echo " × ${HEVC_EFF_HD}/${HEVC_EFF_4K}/${HEVC_EFF_8K} (HD/4K/8K)" ) | floor=${BITRATE_FLOOR}k"
+log "RE-ENCODE:   only sources >$(python3 -c "print(int(($TIER_OVER_TOLERANCE-1)*100))")% over their tier target (files already at target are left alone)"
+log "MIN_SAVING:  a shrink is kept only if its output is ≥$(python3 -c "print(int((1-$MIN_SAVING_RATIO)*100))")% smaller than the source"
+log "RESUME:      $( [[ -n "${LEDGER_FILE:-}" ]] && echo "ledger $LEDGER_FILE" || echo "disabled" )"
 log "SUBTITLES:   text subs embedded (mov_text) or extracted to .srt; if image subs (PGS/DVD)"
 log "             would be lost, the original is archived — even in delete mode"
 log "STOP:        touch $STOP_FILE   (finish current file, skip the rest)"
@@ -985,6 +1005,48 @@ find "$SRC" \
   | xargs -0 -n 1 -P "$JOBS" bash -c 'process_one "$@"' _ "$SRC" || true
 # `|| true`: a failed encode makes process_one (and so xargs) exit non-zero,
 # which under set -e would kill the script here — before the run report prints.
+
+# ── Run summary ───────────────────────────────────────────────────────────────
+# Account for EVERY scanned file by outcome (each appended one row to OUTCOME_LOG),
+# so a run over already-optimal files reports what it did instead of looking idle.
+if [[ -s "$OUTCOME_LOG" ]]; then
+  log ""
+  python3 - "$OUTCOME_LOG" <<'PY' > "$TTY"
+import sys
+from collections import Counter
+c = Counter()
+with open(sys.argv[1]) as fh:
+    for line in fh:
+        line = line.rstrip('\n')
+        if line:
+            c[line.split('\t', 1)[0]] += 1
+total = sum(c.values())
+rows = [
+    ("re-encoded (shrunk)",                "shrink"),
+    ("transcoded (compatibility)",         "transcode"),
+    ("remuxed into MP4 (lossless)",        "remux"),
+    ("left as-is: already at tier",        "skip-at-tier"),
+    ("left as-is: already H.265/AV1/VP9",  "skip-modern"),
+    ("left as-is: output already existed", "skip-existing"),
+    ("left as-is: saving too small",       "skip-min-saving"),
+    ("left as-is: incompatible codec",     "skip-incompatible"),
+    ("left as-is: unsupported codec",      "skip-codec"),
+    ("skipped: already done (resume)",     "resume"),
+    ("ERRORS (source untouched)",          "error"),
+]
+changed = c.get('shrink', 0) + c.get('transcode', 0) + c.get('remux', 0)
+errors  = c.get('error', 0)
+left    = total - changed - errors
+print("══════════════════════════════════════════════════════════")
+print(f" RUN SUMMARY — {total} file(s) scanned")
+print(f"   changed {changed}    left as-is {left}    errors {errors}")
+print("  ────────────────────────────────────────────────────────")
+for label, key in rows:
+    if c.get(key, 0):
+        print(f"   {label:<36s} {c[key]:>4d}")
+print("══════════════════════════════════════════════════════════")
+PY
+fi
 
 # ── Total space savings ───────────────────────────────────────────────────────
 # Sum src/out bytes over every file we actually replaced (each appended a row to
