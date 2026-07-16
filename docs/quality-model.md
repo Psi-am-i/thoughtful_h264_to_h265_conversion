@@ -17,9 +17,10 @@ Each tier is anchored to an **H.264 bitrate at 1080p / 30fps** and converted to 
 
 | Tier | 1080p30 H.264 | bpp anchor |
 |------|---------------|-----------|
-| FINE | 4.0 Mbps | 0.0643 |
+| OK | 4.0 Mbps | 0.0643 |
 | GOOD | 5.0 Mbps | 0.0804 |
 | EXCELLENT (default) | 6.8 Mbps | 0.1093 |
+| STELLAR | 8.0 Mbps | 0.1286 |
 | INSANE | 9.0 Mbps | 0.1447 |
 
 `bpp = ref_mbps × 1e6 ÷ (1920 × 1080 × 30)`.

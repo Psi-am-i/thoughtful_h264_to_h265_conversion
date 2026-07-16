@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
+from dataclasses import dataclass
+
 from . import encode
 from .config import OutputMode, RunConfig, SourceAction
 from .ffprobe import MediaInfo, probe
@@ -159,6 +161,41 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
             notes.append(Note("NOTE", f"output MP4 is missing subtitle track(s) — {dropped}; "
                                       f"the original (kept in place) still has them"))
     return notes
+
+
+# ── Dry-run planning (decide without encoding) ────────────────────────────────
+@dataclass
+class PlanRow:
+    path: Path
+    info: MediaInfo
+    mode: Mode | None          # set if the file would be processed
+    outcome: Outcome | None    # set if the file would be skipped
+    target_kbps: int
+
+    @property
+    def src_kbps(self) -> float:
+        return self.info.effective_bps / 1000.0
+
+    def projected_saving(self) -> float | None:
+        """Estimated size saving fraction for a shrink/transcode; None otherwise."""
+        if self.mode in (Mode.SHRINK, Mode.TRANSCODE) and self.src_kbps > 0:
+            return max(0.0, 1.0 - self.target_kbps / self.src_kbps)
+        if self.mode is Mode.REMUX:
+            return 0.0
+        return None
+
+
+def plan(config: RunConfig) -> list[PlanRow]:
+    """Probe + decide for every file WITHOUT encoding — powers `--dry-run`."""
+    rows: list[PlanRow] = []
+    for f in iter_video_files(config):
+        info = probe(f, config.ffprobe)
+        if not info.ok or not info.vcodec:
+            rows.append(PlanRow(f, info, None, Outcome.SKIP_CODEC, 0))
+            continue
+        mode, outcome, target = decide(config, info)
+        rows.append(PlanRow(f, info, mode, outcome, target))
+    return rows
 
 
 # ── Per-file processing ───────────────────────────────────────────────────────

@@ -30,9 +30,10 @@ def _approx(a: float, b: float, tol: float = 1e-3) -> bool:
 
 
 def test_tier_bpp_anchors():
-    assert _approx(Tier.FINE.bpp, 0.0643)
+    assert _approx(Tier.OK.bpp, 0.0643)
     assert _approx(Tier.GOOD.bpp, 0.0804)
     assert _approx(Tier.EXCELLENT.bpp, 0.1093)
+    assert _approx(Tier.STELLAR.bpp, 0.1286)
     assert _approx(Tier.INSANE.bpp, 0.1447)
 
 
@@ -87,7 +88,7 @@ def test_never_inflate_source():
 
 def test_floor():
     # A tiny frame would compute below the floor; it is clamped up.
-    assert target_kbps(Tier.FINE, 160 * 120, 24, OutCodec.H265) == 1500
+    assert target_kbps(Tier.OK, 160 * 120, 24, OutCodec.H265) == 1500
 
 
 def test_source_bpp():

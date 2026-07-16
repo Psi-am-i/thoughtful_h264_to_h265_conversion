@@ -116,12 +116,13 @@ case "${_cchoice:-1}" in
 esac
 export OUT_CODEC
 
-printf '\nQuality tier? Each tier is a fixed quality DENSITY (bits per pixel), anchored to an\nH.264 bitrate at 1080p/30fps and calibrated against streaming services. The target\nscales automatically with a file'"'"'s resolution and frame rate; H.265 output uses\n~40-55%% less bitrate for the same quality.\n  1) FINE       — ~4 Mbps 1080p H.264   — space-first / light streaming\n  2) GOOD       — ~5 Mbps 1080p H.264   — solid streaming quality\n  3) EXCELLENT  — ~6.8 Mbps 1080p H.264 — matches top streaming, with encoder headroom  [default]\n  4) INSANE     — ~9 Mbps 1080p H.264   — near-transparent for streaming-sourced files\n' >&2
-read -r -p "  Choice [1-4]: " _tchoice </dev/tty 2>/dev/tty || _tchoice=3
+printf '\nQuality tier? Each tier is a fixed quality DENSITY (bits per pixel), anchored to an\nH.264 bitrate at 1080p/30fps and calibrated against streaming services. The target\nscales automatically with a file'"'"'s resolution and frame rate; H.265 output uses\n~40-55%% less bitrate for the same quality.\n  1) OK         — ~4 Mbps 1080p H.264   — space-first / light streaming\n  2) GOOD       — ~5 Mbps 1080p H.264   — solid streaming quality\n  3) EXCELLENT  — ~6.8 Mbps 1080p H.264 — matches top streaming, with encoder headroom  [default]\n  4) STELLAR    — ~8 Mbps 1080p H.264   — above streaming, approaching Blu-ray\n  5) INSANE     — ~9 Mbps 1080p H.264   — near-transparent for streaming-sourced files\n' >&2
+read -r -p "  Choice [1-5]: " _tchoice </dev/tty 2>/dev/tty || _tchoice=3
 case "${_tchoice:-3}" in
-  1) TIER_NAME=FINE;      TIER_REF_MBPS=4.0 ;;
+  1) TIER_NAME=OK;        TIER_REF_MBPS=4.0 ;;
   2) TIER_NAME=GOOD;      TIER_REF_MBPS=5.0 ;;
-  4) TIER_NAME=INSANE;    TIER_REF_MBPS=9.0 ;;
+  4) TIER_NAME=STELLAR;   TIER_REF_MBPS=8.0 ;;
+  5) TIER_NAME=INSANE;    TIER_REF_MBPS=9.0 ;;
   *) TIER_NAME=EXCELLENT; TIER_REF_MBPS=6.8 ;;
 esac
 export TIER_NAME TIER_REF_MBPS
