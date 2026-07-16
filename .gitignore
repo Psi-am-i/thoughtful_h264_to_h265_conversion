@@ -7,3 +7,9 @@
 
 # resume ledger (written into the scan directory)
 .vtc_processed.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
