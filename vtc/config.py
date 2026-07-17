@@ -41,6 +41,23 @@ class Encoder(str, Enum):
     SOFTWARE = "software"      # libx264 / libx265 capped-CRF
 
 
+class AudioPolicy(str, Enum):
+    PASSTHROUGH = "passthrough"   # copy tracks; convert only if the container can't hold them
+    AAC = "aac"                   # re-encode all audio to AAC
+    AC3 = "ac3"                   # re-encode to AC-3 (Dolby Digital) — home-theatre multichannel
+    FLAC = "flac"                 # lossless — forces MKV
+
+
+class Container(str, Enum):
+    AUTO = "auto"   # MP4, but MKV when it must (lossless audio, image subs to keep, many tracks)
+    MP4 = "mp4"
+    MKV = "mkv"
+
+
+# Audio codecs an MP4 container carries cleanly (others get converted on passthrough).
+MP4_AUDIO_CODECS = {"aac", "ac3", "eac3", "mp3", "alac", "mp4als"}
+
+
 @dataclass
 class RunConfig:
     src: Path
@@ -53,6 +70,14 @@ class RunConfig:
     # Compatibility
     remux_to_mp4: bool = True               # rehome MP4-friendly codecs into MP4 losslessly
     compat_transcode: bool = True           # transcode MP4-incompatible legacy codecs
+
+    # Audio & container
+    audio_policy: AudioPolicy = AudioPolicy.PASSTHROUGH
+    audio_bitrate_stereo: int = 256         # kbps, AAC/AC-3, <=2 channels
+    audio_bitrate_multichannel: int = 448   # kbps, AAC/AC-3, >2 channels
+    container: Container = Container.AUTO
+    keep_image_subs: bool = True            # prefer MKV over dropping PGS/DVD subtitle tracks
+    mkv_if_tracks_over: int = 0             # 0 = off; force MKV when audio+sub tracks exceed this
 
     # Execution
     encoder: Encoder = Encoder.AUTO

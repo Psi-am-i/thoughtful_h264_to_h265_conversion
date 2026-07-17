@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from . import __version__, pipeline, report
-from .config import Encoder, OutputMode, RunConfig, SourceAction
+from .config import AudioPolicy, Container, Encoder, OutputMode, RunConfig, SourceAction
 from .model import OutCodec, Tier, hevc_factor
 from .pipeline import PlanRow
 from .report import human_bytes
@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     c = p.add_argument_group("compatibility")
     c.add_argument("--no-remux", action="store_true", help="do not rehome MP4-friendly codecs into MP4")
     c.add_argument("--no-transcode", action="store_true", help="leave MP4-incompatible legacy codecs untouched")
+    c.add_argument("--container", choices=["auto", "mp4", "mkv"], default="auto",
+                   help="output container (default: auto — MP4, MKV when it must)")
+    c.add_argument("--audio", choices=["passthrough", "aac", "ac3", "flac"], default="passthrough",
+                   help="audio policy (default: passthrough; flac forces MKV)")
+    c.add_argument("--drop-image-subs", action="store_true",
+                   help="drop image subs (PGS/DVD) instead of preferring MKV to keep them")
     e = p.add_argument_group("execution")
     e.add_argument("--encoder", choices=["auto", "hardware", "software"], default="auto",
                    help="encoder backend (default: auto)")
@@ -85,6 +91,9 @@ def config_from_args(a: argparse.Namespace) -> RunConfig:
         min_saving_ratio=1.0 - a.min_saving,
         remux_to_mp4=not a.no_remux,
         compat_transcode=not a.no_transcode,
+        container=Container(a.container),
+        audio_policy=AudioPolicy(a.audio),
+        keep_image_subs=not a.drop_image_subs,
         encoder=Encoder(a.encoder),
         jobs=a.jobs,
         output_mode=OutputMode.SEPARATE if a.output else OutputMode.INPLACE,

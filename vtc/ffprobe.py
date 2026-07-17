@@ -25,6 +25,14 @@ class SubtitleTrack:
 
 
 @dataclass
+class AudioTrack:
+    index: int
+    codec: str
+    channels: int = 2
+    language: str = "und"
+
+
+@dataclass
 class MediaInfo:
     path: Path
     ok: bool                       # False if the file could not be probed
@@ -37,11 +45,16 @@ class MediaInfo:
     duration: float = 0.0
     pix_fmt: str | None = None
     subtitles: list[SubtitleTrack] = field(default_factory=list)
+    audio: list[AudioTrack] = field(default_factory=list)
     error: str = ""
 
     @property
     def pixels(self) -> int:
         return self.width * self.height
+
+    @property
+    def max_audio_channels(self) -> int:
+        return max((a.channels for a in self.audio), default=0)
 
     @property
     def effective_bps(self) -> int:
@@ -115,6 +128,14 @@ def probe(path: Path, ffprobe: str = "ffprobe") -> MediaInfo:
                 index=_to_int(s.get("index")),
                 codec=codec,
                 is_text=codec in _TEXT_SUB_CODECS,
+                language=lang,
+            ))
+        elif kind == "audio":
+            lang = (s.get("tags", {}) or {}).get("language", "und")
+            info.audio.append(AudioTrack(
+                index=_to_int(s.get("index")),
+                codec=(s.get("codec_name") or "").lower(),
+                channels=_to_int(s.get("channels")) or 2,
                 language=lang,
             ))
     return info

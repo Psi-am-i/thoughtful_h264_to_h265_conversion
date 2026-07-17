@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .config import Encoder, RunConfig
+from .config import MP4_AUDIO_CODECS, AudioPolicy, Container, Encoder, RunConfig
 from .ffprobe import MediaInfo, SubtitleTrack
 from .model import OutCodec
 from .result import EncodeResult, Mode, ProgressCB
@@ -114,6 +114,55 @@ def build_video_args(
     return ["-c:v", "libx265", "-crf", str(crf265), "-preset", preset,
             "-maxrate", bitrate, "-bufsize", bufsize,
             "-profile:v", profile, "-tag:v", "hvc1"]
+
+
+# ── container + audio policy ──────────────────────────────────────────────────
+
+def resolve_container(config: RunConfig, info: MediaInfo) -> Container:
+    """Decide the output container for this file.
+
+    Forced MP4/MKV is honoured. AUTO is MP4 unless something can only ride in
+    Matroska: lossless (FLAC) audio, image-based subtitles you asked to keep
+    (PGS/DVD — MP4 cannot hold them), or more tracks than the MKV threshold.
+    """
+    if config.container in (Container.MP4, Container.MKV):
+        return config.container
+    if config.audio_policy == AudioPolicy.FLAC:
+        return Container.MKV
+    if config.keep_image_subs and info.image_subs:
+        return Container.MKV
+    if config.mkv_if_tracks_over and (len(info.audio) + len(info.subtitles)) > config.mkv_if_tracks_over:
+        return Container.MKV
+    return Container.MP4
+
+
+def _audio_bitrate(config: RunConfig, info: MediaInfo) -> int:
+    return (config.audio_bitrate_multichannel if info.max_audio_channels > 2
+            else config.audio_bitrate_stereo)
+
+
+def _audio_attempts(config: RunConfig, info: MediaInfo, container: Container) -> list[list[str]]:
+    """Ordered `-c:a ...` attempts for the chosen policy/container.
+
+    PASSTHROUGH copies (MKV holds anything; MP4 falls back to AAC for codecs it
+    can't carry). Forced AAC/AC-3/FLAC are a single attempt.
+    """
+    policy = config.audio_policy
+    br = _audio_bitrate(config, info)
+    aac = ["-c:a", "aac", "-b:a", f"{br}k"]
+    if policy == AudioPolicy.AAC:
+        return [aac]
+    if policy == AudioPolicy.AC3:
+        return [["-c:a", "ac3", "-b:a", f"{br}k"]]
+    if policy == AudioPolicy.FLAC:
+        return [["-c:a", "flac"]]
+    # PASSTHROUGH
+    if container == Container.MKV:
+        return [["-c:a", "copy"]]
+    # MP4: copy if every track is MP4-friendly is likely; else AAC. Try both.
+    if info.audio and all(a.codec in MP4_AUDIO_CODECS for a in info.audio):
+        return [["-c:a", "copy"]]
+    return [["-c:a", "copy"], aac]
 
 
 # ── ffmpeg execution ──────────────────────────────────────────────────────────
@@ -212,6 +261,13 @@ def _extract_sidecars(
     return made, failed
 
 
+def _unlink(p: Path) -> None:
+    try:
+        p.unlink()
+    except OSError:
+        pass
+
+
 def run_encode(
     config: RunConfig,
     info: MediaInfo,
@@ -220,90 +276,82 @@ def run_encode(
     out: Path,
     target_kbps: int,
     hardware: bool,
+    container: Container | None = None,
     progress: ProgressCB | None = None,
 ) -> EncodeResult:
-    """Encode `src` to `out` per `mode`, reproducing the bash attempt matrix.
+    """Encode `src` to `out` per `mode` and container. Writes directly to `out`.
 
-    Writes directly to `out` (the pipeline handles placement/replacement). Tries
-    embedding text subs (mov_text) then without; within each, audio stream-copy
-    then AAC fallback. Falls back to sidecar .srt extraction when embedding
-    fails. Never raises.
+    MKV: one shot copying every subtitle stream (text AND image — PGS/DVD survive),
+    audio per policy. MP4: the attempt matrix — embed text subs (mov_text) then
+    without; audio per policy (copy -> AAC fallback on passthrough); sidecar .srt
+    when embedding fails; image subs are dropped and reported. Never raises.
     """
+    if container is None:
+        container = resolve_container(config, info)
     ffmpeg = config.ffmpeg
     vargs = build_video_args(config, info, mode, target_kbps, hardware)
-
+    audio_attempts = _audio_attempts(config, info, container)
     text_subs = info.text_subs
     image_subs = info.image_subs
 
-    # Attempt matrix: embed text subs first (if any), then without.
-    sub_attempts = ["embed", "none"] if text_subs else ["none"]
-
     encode_ok = False
     subs_embedded = False
-
-    for sub_mode in sub_attempts:
-        sub_maps: list[str] = []
-        sub_flags: list[str] = []
-        if sub_mode == "embed":
-            for sub in text_subs:
-                sub_maps += ["-map", f"0:{sub.index}"]
-            sub_flags = ["-c:s", "mov_text"]
-
-        for audio_mode in ("copy", "aac"):
-            if audio_mode == "copy":
-                audio_flags = ["-c:a", "copy"]
-            else:
-                audio_flags = ["-c:a", "aac", "-b:a", "384k"]
-
-            args = [
-                "-y", "-i", str(src),
-                "-map", "0:v:0", "-map", "0:a?", *sub_maps,
-                *vargs,
-                *audio_flags, *sub_flags,
-                "-movflags", "+faststart",
-                str(out),
-            ]
-            if _run_ffmpeg(ffmpeg, args, label=out.name,
-                           duration=info.duration, progress=progress):
-                encode_ok = True
-                subs_embedded = (sub_mode == "embed")
-                break
-            # Failed attempt: clear any partial output before the next try.
-            try:
-                out.unlink()
-            except OSError:
-                pass
-        if encode_ok:
-            break
-
-    if not encode_ok:
-        return EncodeResult(
-            ok=False,
-            out_path=out,
-            error="encode failed (both audio-copy and AAC fallback)",
-        )
-
-    # Sidecar fallback: embedding failed but the encode succeeded — extract each
-    # text track from the SOURCE to .srt next to the output.
     sidecars_made = 0
     sidecar_fail = 0
-    if text_subs and not subs_embedded:
-        sidecars_made, sidecar_fail = _extract_sidecars(ffmpeg, src, out, text_subs)
-
-    # Anything about to be irrecoverably lost? Image subs never make it into MP4;
-    # text subs that failed both embed and sidecar extraction are lost too.
     reasons: list[str] = []
-    if image_subs:
-        codecs = ", ".join(s.codec or "unknown" for s in image_subs)
-        reasons.append(
-            f"{len(image_subs)} image-based subtitle track(s) ({codecs}) "
-            f"cannot be carried into MP4"
-        )
-    if sidecar_fail > 0:
-        reasons.append(
-            f"{sidecar_fail} text subtitle track(s) could not be embedded or extracted"
-        )
-    dropped_reason = "; ".join(reasons)
+
+    if container == Container.MKV:
+        # Matroska carries every stream — copy all subtitles, keep everything.
+        for aargs in audio_attempts:
+            args = [
+                "-y", "-i", str(src),
+                "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?",
+                *vargs, *aargs, "-c:s", "copy",
+                str(out),
+            ]
+            if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration, progress=progress):
+                encode_ok = True
+                subs_embedded = bool(text_subs or image_subs)
+                break
+            _unlink(out)
+    else:  # MP4 — embed text subs / audio matrix / sidecar / drop image subs
+        sub_attempts = ["embed", "none"] if text_subs else ["none"]
+        for sub_mode in sub_attempts:
+            sub_maps: list[str] = []
+            sub_flags: list[str] = []
+            if sub_mode == "embed":
+                for sub in text_subs:
+                    sub_maps += ["-map", f"0:{sub.index}"]
+                sub_flags = ["-c:s", "mov_text"]
+            for aargs in audio_attempts:
+                args = [
+                    "-y", "-i", str(src),
+                    "-map", "0:v:0", "-map", "0:a?", *sub_maps,
+                    *vargs, *aargs, *sub_flags,
+                    "-movflags", "+faststart",
+                    str(out),
+                ]
+                if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration, progress=progress):
+                    encode_ok = True
+                    subs_embedded = (sub_mode == "embed")
+                    break
+                _unlink(out)
+            if encode_ok:
+                break
+
+    if not encode_ok:
+        return EncodeResult(ok=False, out_path=out,
+                            error="encode failed (all audio/subtitle strategies)")
+
+    if container != Container.MKV:
+        if text_subs and not subs_embedded:
+            sidecars_made, sidecar_fail = _extract_sidecars(ffmpeg, src, out, text_subs)
+        if image_subs:
+            codecs = ", ".join(s.codec or "unknown" for s in image_subs)
+            reasons.append(f"{len(image_subs)} image-based subtitle track(s) ({codecs}) "
+                           f"cannot be carried into MP4")
+        if sidecar_fail > 0:
+            reasons.append(f"{sidecar_fail} text subtitle track(s) could not be embedded or extracted")
 
     try:
         out_bytes = out.stat().st_size
@@ -311,10 +359,7 @@ def run_encode(
         out_bytes = 0
 
     return EncodeResult(
-        ok=True,
-        out_path=out,
-        out_bytes=out_bytes,
-        subs_embedded=subs_embedded,
-        sidecars_made=sidecars_made,
-        dropped_subs_reason=dropped_reason,
+        ok=True, out_path=out, out_bytes=out_bytes,
+        subs_embedded=subs_embedded, sidecars_made=sidecars_made,
+        dropped_subs_reason="; ".join(reasons),
     )

@@ -17,7 +17,7 @@ from typing import Callable
 from dataclasses import dataclass
 
 from . import encode
-from .config import OutputMode, RunConfig, SourceAction
+from .config import Container, OutputMode, RunConfig, SourceAction
 from .ffprobe import MediaInfo, probe
 from .ledger import Ledger
 from .model import OutCodec, classify_codec, over_target, target_kbps
@@ -57,15 +57,15 @@ def _rel(config: RunConfig, path: Path) -> Path:
         return Path(path.name)
 
 
-def output_path(config: RunConfig, src_file: Path) -> Path:
-    """Where the produced .mp4 goes for this source."""
+def output_path(config: RunConfig, src_file: Path, ext: str = ".mp4") -> Path:
+    """Where the produced file goes for this source (`ext` from the container)."""
     rel = _rel(config, src_file)
     if config.output_mode == OutputMode.SEPARATE:
         assert config.output_dir is not None
         if config.output_flat:
-            return config.output_dir / (rel.stem + ".mp4")
-        return config.output_dir / rel.with_suffix(".mp4")
-    return src_file.with_suffix(".mp4")
+            return config.output_dir / (rel.stem + ext)
+        return config.output_dir / rel.with_suffix(ext)
+    return src_file.with_suffix(ext)
 
 
 # ── Decision ──────────────────────────────────────────────────────────────────
@@ -201,17 +201,9 @@ def plan(config: RunConfig) -> list[PlanRow]:
 # ── Per-file processing ───────────────────────────────────────────────────────
 def process_file(config: RunConfig, ledger: Ledger, hardware: bool,
                  src_file: Path, progress: ProgressCB | None = None) -> FileResult:
-    out = output_path(config, src_file)
-
     lkey = ledger.key(src_file) if ledger.enabled else ""
     if ledger.enabled and ledger.has(lkey):
         return FileResult(src_file, Outcome.RESUME)
-
-    if out.exists() and out != src_file:
-        r = FileResult(src_file, Outcome.SKIP_EXISTING)
-        if ledger.enabled:
-            ledger.add(lkey)
-        return r
 
     info = probe(src_file, config.ffprobe)
     if not info.ok or not info.vcodec:
@@ -226,11 +218,26 @@ def process_file(config: RunConfig, ledger: Ledger, hardware: bool,
         return r
 
     assert mode is not None
+    container = encode.resolve_container(config, info)
+    ext = ".mkv" if container == Container.MKV else ".mp4"
+    out = output_path(config, src_file, ext)
+
+    # Remuxing a file into the container it already lives in is a no-op.
+    if mode is Mode.REMUX and out == src_file:
+        if ledger.enabled:
+            ledger.add(lkey)
+        return FileResult(src_file, Outcome.SKIP_MODERN)
+    if out.exists() and out != src_file:
+        r = FileResult(src_file, Outcome.SKIP_EXISTING)
+        if ledger.enabled:
+            ledger.add(lkey)
+        return r
+
     src_bytes = src_file.stat().st_size
     TMPROOT.mkdir(parents=True, exist_ok=True)
-    tmp = TMPROOT / f".{out.stem}.{os.getpid()}.{id(src_file) & 0xffff}.mp4"
+    tmp = TMPROOT / f".{out.stem}.{os.getpid()}.{id(src_file) & 0xffff}{ext}"
 
-    res = encode.run_encode(config, info, mode, src_file, tmp, target, hardware, progress)
+    res = encode.run_encode(config, info, mode, src_file, tmp, target, hardware, container, progress)
     if not res.ok:
         tmp.unlink(missing_ok=True)
         return FileResult(src_file, Outcome.ERROR,
