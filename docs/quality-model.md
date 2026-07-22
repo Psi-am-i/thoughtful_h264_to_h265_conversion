@@ -1,7 +1,8 @@
 # Quality model — how tiers, targets, and re-encode decisions work
 
-This documents the bitrate/quality logic in `very_thoughtful_compression.sh` as of
-the 2026-07 rework. It is also the reference spec for the planned Python port.
+This documents the bitrate/quality logic now implemented in the `vtc` Python
+engine (`vtc/model.py`, `vtc/pipeline.py`, `vtc/encode.py`) — the reference spec
+that the retired `very_thoughtful_compression.sh` originally established.
 
 ## The core idea: a tier is a quality *density*, not a bitrate
 
@@ -107,12 +108,15 @@ Correctness does not depend on the ledger — the absolute-target gate already p
 re-cutting. The ledger is a resume/speed optimisation. Disable with `LEDGER=0`;
 relocate with `LEDGER_FILE=...`.
 
-## Knobs (env overrides)
+## Knobs
 
-| Var | Default | Meaning |
-|---|---|---|
-| `TIER_OVER_TOLERANCE` | 1.10 | re-encode only if source is >10% over target |
-| `BITRATE_FLOOR` | 1500 | never target below this (kbps) |
-| `HEVC_EFFICIENCY_HD/4K/8K` | 0.60 / 0.50 / 0.45 | H.265 bitrate vs H.264 at same quality |
-| `LEDGER` / `LEDGER_FILE` | 1 / `<scan>/.vtc_processed.log` | resume ledger toggle / path |
-| `FORCE_VT` | (auto) | 1 = force hardware, 0 = force software |
+Model constants live in `vtc/model.py` and per-run settings in `vtc/config.py`
+(`RunConfig`); the CLI exposes them as flags.
+
+| Constant / setting | Default | Meaning | CLI |
+|---|---|---|---|
+| `TIER_OVER_TOLERANCE` | 1.10 | re-encode only if source is >10% over target | — |
+| `BITRATE_FLOOR_KBPS` | 1500 | never target below this (kbps) | — |
+| `HEVC_FACTOR_HD/4K/8K` | 0.60 / 0.50 / 0.45 | H.265 bitrate vs H.264 at same quality | — |
+| ledger enabled / file | on / `<scan>/.vtc_processed.log` | resume ledger toggle / path | `--no-ledger` / `--ledger-file` |
+| encoder backend | auto | hardware (VideoToolbox) vs software | `--encoder {auto,hardware,software}` |
