@@ -21,14 +21,47 @@ import json
 import threading
 from pathlib import Path
 
+import os
+import shutil
+import sys
+
 from . import pipeline
 from .config import Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
 from .model import OutCodec, Tier
 from .result import Outcome
 
+
+# ── bundle-aware resource + tool resolution ──────────────────────────────────
+# The packaged app (PyInstaller) ships the HTML and a static ffmpeg/ffprobe
+# beside the executable; a source / `pip install` run finds the HTML next to
+# this module and ffmpeg/ffprobe on PATH. One resolver covers both.
+def _resource_base() -> Path:
+    base = getattr(sys, "_MEIPASS", None)          # set only inside a frozen app
+    return Path(base) if base else Path(__file__).resolve().parent
+
+
+def _resolve_tool(name: str, env_var: str) -> str:
+    """bundled binary -> $ENV override -> PATH -> bare name (dev fallback)."""
+    exe = name + (".exe" if os.name == "nt" else "")
+    bundled = _resource_base() / exe
+    if bundled.exists():
+        return str(bundled)
+    override = os.environ.get(env_var)
+    if override and Path(override).exists():
+        return override
+    return shutil.which(name) or name
+
+
+def _bundled_html() -> Path:
+    return _resource_base() / "vtc_app_v3.html"
+
+
+FFMPEG = _resolve_tool("ffmpeg", "FFMPEG_BINARY")
+FFPROBE = _resolve_tool("ffprobe", "FFPROBE_BINARY")
+
 # ── mockup answer-index -> engine value (mirrors the M model in the HTML) ─────
-_CODECS = [OutCodec.H265, OutCodec.H264, None]          # 2 = AV1 (not supported yet)
+_CODECS = [OutCodec.H264, OutCodec.H265, None, None]    # 0=H264, 1=H265, 2=AV1, 3=VVC (2/3 unsupported)
 _TIERS = [Tier.OK, Tier.GOOD, Tier.EXCELLENT, Tier.STELLAR, Tier.INSANE]
 _SAVING = [0.15, 0.25, 0.40]
 _COMPAT = [(True, True), (True, False), (False, False)]  # (remux, transcode)
@@ -53,6 +86,7 @@ def build_config(src: Path, a: dict) -> RunConfig:
         remux_to_mp4=remux, compat_transcode=transcode,
         encoder=_ENCODER[a["encoder"]],
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
+        ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
 
 
@@ -160,7 +194,7 @@ class Api:
         for f in pipeline.iter_video_files(RunConfig(src=src)):
             if self._src != src:              # folder changed under us — abandon
                 return
-            info = probe(f, "ffprobe")
+            info = probe(f, FFPROBE)
             done += 1
             if info.ok and info.vcodec:
                 try:
@@ -272,7 +306,11 @@ def main(argv: list[str] | None = None) -> int:
         print("pywebview is required:  pip install pywebview", file=sys.stderr)
         return 1
     argv = sys.argv[1:] if argv is None else argv
-    html = Path(argv[0]) if argv else (Path.home() / "Downloads" / "vtc_app_v3.html")
+    # explicit path wins; otherwise the copy bundled beside this module / in the app
+    html = Path(argv[0]) if argv else _bundled_html()
+    if not html.is_file():
+        legacy = Path.home() / "Downloads" / "vtc_app_v3.html"   # dev fallback
+        html = legacy if legacy.is_file() else html
     if not html.is_file():
         print(f"HTML not found: {html}", file=sys.stderr)
         return 2
