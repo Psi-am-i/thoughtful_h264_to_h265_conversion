@@ -39,8 +39,10 @@ def test_build_video_args_shrink_h265_software():
     args = build_video_args(cfg, info, Mode.SHRINK, 4080, hardware=False)
     assert "libx265" in args
     assert "-crf" in args and args[args.index("-crf") + 1] == "21"
+    # capped-CRF ceiling sits AT the tier target with a tight (~1s) bufsize, so the
+    # software average holds near it and re-runs converge (over_target absorbs the slop)
     assert "-maxrate" in args and args[args.index("-maxrate") + 1] == "4080k"
-    assert "-bufsize" in args and args[args.index("-bufsize") + 1] == "8160k"
+    assert "-bufsize" in args and args[args.index("-bufsize") + 1] == "4080k"
     assert "-preset" in args and args[args.index("-preset") + 1] == "medium"
     assert "-tag:v" in args and args[args.index("-tag:v") + 1] == "hvc1"
     # 8-bit source -> main profile
@@ -71,6 +73,9 @@ def test_build_video_args_h264_software():
     args = build_video_args(cfg, info, Mode.SHRINK, 6800, hardware=False)
     assert "libx264" in args
     assert args[args.index("-crf") + 1] == "20"
+    # software ceiling capped at the tier target with tight bufsize so re-runs converge
+    assert args[args.index("-maxrate") + 1] == "6800k"
+    assert args[args.index("-bufsize") + 1] == "6800k"
     assert args[args.index("-profile:v") + 1] == "high"
     assert args[args.index("-pix_fmt") + 1] == "yuv420p"
     print("  ok  build_video_args SHRINK h264 software")

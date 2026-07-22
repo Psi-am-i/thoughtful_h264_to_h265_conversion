@@ -96,15 +96,29 @@ def build_video_args(
     else:  # SHRINK
         crf264, crf265, preset = 20, 21, "medium"
 
-    bitrate = f"{target_kbps}k"
-    bufsize = f"{target_kbps * 2}k"
+    bitrate = f"{target_kbps}k"        # hardware ABR aims at this average directly
+
+    # Software is capped-CRF: the CRF sets quality and -maxrate is only a ceiling. The
+    # original bug was a LOOSE ceiling (bufsize = 2x target) that let the average land
+    # ~16% over target — past the convergence gate — so every re-run re-encoded the
+    # same file forever, spending a generation of quality each pass.
+    #
+    # Fix: cap AT the tier target with a tight (~1s) VBV buffer so the average actually
+    # holds near it. Not at target x 1.10 (the skip line): a software encode lands ~1-2%
+    # above its own maxrate (VBV slop), so a ceiling sitting on the skip line tips just
+    # over it and still won't converge. Cap at the target and the tier_over_tolerance
+    # does its intended job — absorbing that slop — so the next run sees the file as
+    # at-tier and leaves it alone. Verified to converge (~101% of target) even on
+    # near-incompressible content; easy content still lands below via the CRF.
+    maxrate = f"{target_kbps}k"
+    bufsize = f"{target_kbps}k"
 
     if config.out_codec == OutCodec.H264:
         if hardware:
             return ["-c:v", "h264_videotoolbox", "-b:v", bitrate,
                     "-profile:v", "high", "-pix_fmt", "yuv420p"]
         return ["-c:v", "libx264", "-crf", str(crf264), "-preset", preset,
-                "-maxrate", bitrate, "-bufsize", bufsize,
+                "-maxrate", maxrate, "-bufsize", bufsize,
                 "-profile:v", "high", "-pix_fmt", "yuv420p"]
 
     profile = _hevc_profile(info)
@@ -112,7 +126,7 @@ def build_video_args(
         return ["-c:v", "hevc_videotoolbox", "-b:v", bitrate,
                 "-profile:v", profile, "-tag:v", "hvc1", "-bf", "0", "-fps_mode", "cfr"]
     return ["-c:v", "libx265", "-crf", str(crf265), "-preset", preset,
-            "-maxrate", bitrate, "-bufsize", bufsize,
+            "-maxrate", maxrate, "-bufsize", bufsize,
             "-profile:v", profile, "-tag:v", "hvc1"]
 
 
