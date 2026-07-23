@@ -313,7 +313,7 @@ _BRIDGE_JS = r"""
   window.__vtcRunStart = (total, est)=> pgStart(total, est);             // engine: run begins
   window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
-  window.__vtcRegenPreviews = (codec)=> { try { api.regenerate_previews(codec||'h265'); } catch(e){} };
+  window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
     acc.push(r);
     pgDone1({ f:r.name, t:r.t, sev:r.sev });
@@ -346,6 +346,9 @@ class Api:
         self._probed_for: Path | None = None
         self._total_files = 0
         self._total_tb = 0.0
+        self._preview_gen = 0              # bumped whenever previews are (re)requested;
+        self._preview_start = 0.0         # a running worker aborts if its gen is stale
+        self._preview_seg = 5.0           # sample length (seconds)
 
     # -- folder pick + fast scan -------------------------------------------------
     def pick_folder(self):
@@ -365,9 +368,12 @@ class Api:
                 pass
         self._probes, self._probed_for = [], None
         self._total_files, self._total_tb = files, total / 1e12
+        self._preview_start = 0.0         # new folder -> sample from the middle again
         threading.Thread(target=self._warm_probes, args=(src,), daemon=True).start()
         # Build the real preview encodes in the background while they configure (#3).
-        threading.Thread(target=self._preview_worker, args=(src,), daemon=True).start()
+        self._preview_gen += 1
+        threading.Thread(target=self._preview_worker,
+                         args=(src, OutCodec.H265, self._preview_gen), daemon=True).start()
         return {"k": str(src), "files": files, "tb": total / 1e12}
 
     # -- previews: extract a 5s sample, encode it at each tier, stream URLs --------
@@ -375,8 +381,9 @@ class Api:
         if self.window:
             self.window.evaluate_js(f"window.{fn} && window.{fn}({json.dumps(payload)})")
 
-    def _preview_worker(self, src: Path, codec: OutCodec = OutCodec.H265):
+    def _preview_worker(self, src: Path, codec: OutCodec = OutCodec.H265, gen: int = 0):
         codec_label = "H.264" if codec == OutCodec.H264 else "H.265"
+        stale = lambda: self._src != src or (gen and gen != self._preview_gen)
         try:
             pdir, port = _ensure_preview_server()
             for f in pdir.glob("*.mp4"):        # only clear old previews, not the served HTML
@@ -392,8 +399,12 @@ class Api:
             if not info.ok or not info.vcodec or info.width <= 0:
                 self._emit("__vtcPreviewError", "could not read the first file"); return
             dur = info.duration or 0.0
-            seglen = min(5.0, dur) if dur > 0 else 5.0
-            start = max(0.0, (dur - seglen) / 2.0)                 # from the middle
+            seglen = min(self._preview_seg, dur) if dur > 0 else self._preview_seg
+            # start position: the chosen fraction through the file, else the middle
+            if self._preview_start > 0 and dur > 0:
+                start = max(0.0, min(dur - seglen, self._preview_start * dur))
+            else:
+                start = max(0.0, (dur - seglen) / 2.0)
             is_hevc = (info.vcodec or "").lower() == "hevc"
             src_codec_label = {"h264": "H.264", "hevc": "H.265", "av1": "AV1", "vp9": "VP9"}.get(
                 (info.vcodec or "").lower(), (info.vcodec or "?").upper())
@@ -410,6 +421,8 @@ class Api:
                 stdin=subprocess.DEVNULL, capture_output=True, text=True)
             if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
                 self._emit("__vtcPreviewError", "could not extract a sample clip"); return
+            if stale():
+                return                              # a newer request superseded us
 
             sinfo = probe(sample, FFPROBE)
             self._emit("__vtcPreviewStart",
@@ -418,7 +431,7 @@ class Api:
             hw = encode.select_hw_encoder(RunConfig(src=src, out_codec=codec, ffmpeg=FFMPEG))
 
             for idx, (key, label, tier) in enumerate(_PREVIEW_PANELS):
-                if self._src != src:                # source changed under us — stop
+                if stale():                         # source changed OR a newer request came in
                     return
                 panel_codec = src_codec_label if tier is None else codec_label
                 if tier is None:
@@ -511,11 +524,23 @@ class Api:
         log.info("hw_capabilities: %s", rep)
         return rep
 
-    def regenerate_previews(self, codec: str = "h265"):
-        """Re-run the sample encodes for the current source, at the chosen codec."""
+    def regenerate_previews(self, codec: str = "h265", start=None):
+        """Re-run the sample encodes for the current source, at the chosen codec and
+        (optionally) from a chosen start fraction 0..1 through the file. A fresh
+        generation supersedes any worker still running, so rapid clicks can't race."""
         oc = OutCodec.H264 if str(codec).lower() == "h264" else OutCodec.H265
-        if self._src is not None:
-            threading.Thread(target=self._preview_worker, args=(self._src, oc), daemon=True).start()
+        if start is not None:
+            try:
+                self._preview_start = max(0.0, min(1.0, float(start)))
+            except (TypeError, ValueError):
+                pass
+        if self._src is None:
+            return {"ok": False, "error": "no folder"}
+        self._preview_gen += 1
+        log.info("regenerate_previews: codec=%s start=%s gen=%s",
+                 oc.value, self._preview_start, self._preview_gen)
+        threading.Thread(target=self._preview_worker,
+                         args=(self._src, oc, self._preview_gen), daemon=True).start()
         return {"ok": True}
 
     def stop_run(self):

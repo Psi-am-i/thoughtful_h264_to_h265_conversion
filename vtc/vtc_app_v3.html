@@ -541,8 +541,20 @@ body{
 /* The canvas is a fixed 1400x875, so vh units here would be measuring the
    BROWSER window rather than the app — the deck must be a plain fixed height. */
 .deck-body{height:290px;overflow:hidden;padding:12px 24px}
-/* only the prose panes scroll — they are long by nature. The previews fit. */
-#p-docs.on, #p-ref.on{height:100%;overflow:auto}
+/* the docs/about panes are two columns that each scroll on their own; the pane
+   itself doesn't scroll (so the two columns stay side by side). Previews fit. */
+#p-docs.on, #p-about.on{height:100%;overflow:hidden}
+.docs-two{display:grid;grid-template-columns:1.15fr 1fr;gap:26px;height:100%;min-height:0}
+.docs-col{overflow-y:auto;min-height:0;height:100%;padding-right:10px}
+.ref-col .ref-block{margin-bottom:16px}
+.ref-h{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.about-mark{line-height:1;margin-bottom:2px}
+.about-a{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.3em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.about-b{display:block;font-size:26px;font-weight:700;letter-spacing:-.01em;margin-top:3px}
+.about-by{color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.1em;margin:3px 0 12px}
+.about-ver{color:var(--ink-3);font-size:11px;margin-top:12px}
 #p-prev .sec-s{margin-bottom:6px;font-size:14px;max-width:none;flex:0 0 auto}
 .dpane{display:none} .dpane.on{display:block;animation:fade .3s ease both}
 /* previews: a column that fits by construction. The frames flex, so whatever the
@@ -595,36 +607,45 @@ body{
 .pv-codec button{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
   letter-spacing:.08em;padding:4px 9px;border:0;cursor:pointer;background:#efece3;color:var(--ink-3)}
 .pv-codec button.on{background:var(--accent);color:#fff}
+.pv-pos{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3);letter-spacing:.06em}
+.pv-pos input[type=range]{width:74px;accent-color:var(--accent);cursor:pointer}
+.pv-pos b{color:var(--ink-2);font-weight:600;min-width:44px}
 .tp-tool{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
   letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;cursor:pointer;
   background:linear-gradient(180deg,#f7f5ee,#e6e3da);border:1px solid var(--rule);
   border-radius:var(--r);color:var(--ink-2)}
 .tp-tool:hover{background:linear-gradient(180deg,#fff,#ece9e0);color:var(--ink)}
 
-/* full screen: the five panels, large, on one clock */
-#big-sheet .sheet-c{width:min(1500px,100%);background:#1a1815;border-color:#332f28}
-/* #big-grid holds the real #grid full-width; in the big view we TILE the panels
-   (3 across) instead of one long row, so each 1:1 crop actually gets bigger. */
-#big-grid{display:block;width:100%}
-#big-grid > #grid{width:100%;grid-template-columns:repeat(3,1fr);gap:14px}
-#big-grid .cell-t{color:#e9e6dd}
-#big-grid .cell-m{color:#8b857a}
-#big-grid .cell-m b{color:#b5afa2}
-#big-grid .frame{max-height:none;aspect-ratio:16/10}
-#big-sheet .sheet-h{border-color:#332f28}
-#big-sheet .sheet-t{color:#f2efe6}
-#big-sheet .sheet-f{border-color:#332f28}
-#big-sheet .transport{border-color:#332f28}
+/* full screen: TILE the panels to fill the space, labels OVER the video, minimal
+   chrome — every pixel goes to the crops, not to padding. */
+#big-sheet{padding:0}
+#big-sheet .sheet-c{width:100%;max-width:none;height:100%;margin:0;border-radius:0;
+  background:#0f0e0c;border:0;display:flex;flex-direction:column}
+#big-sheet .sheet-h{border-color:#241f1a;padding:8px 18px}
+#big-sheet .sheet-e{color:var(--accent)} #big-sheet .sheet-t{color:#f2efe6;font-size:19px;margin-top:2px}
+#big-sheet .sheet-b{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px;overflow:hidden}
+#big-sheet .sheet-f{border-color:#241f1a;padding:7px 18px}
+/* the grid fills the body: 3 columns, rows split the height evenly */
+#big-grid{flex:1;min-height:0;display:block}
+#big-grid > #grid{width:100%;height:100%;grid-template-columns:repeat(3,1fr);
+  grid-auto-rows:1fr;gap:5px;align-items:stretch}
+#big-grid .cell{position:relative;min-height:0}
+#big-grid .frame{width:100%;height:100%;aspect-ratio:auto;max-height:none;border:0;border-radius:3px}
+/* dark scrim + labels laid over the bottom-left of each video */
+#big-grid .cell::after{content:"";position:absolute;left:0;right:0;bottom:0;height:58px;z-index:1;
+  background:linear-gradient(180deg,transparent,rgba(0,0,0,.72));pointer-events:none;border-radius:0 0 3px 3px}
+#big-grid .cell-t{position:absolute;left:11px;bottom:23px;z-index:2;margin:0;color:#fff;
+  font-size:14px;text-shadow:0 1px 4px rgba(0,0,0,.9)}
+#big-grid .cell-m{position:absolute;left:11px;bottom:6px;z-index:2;margin:0;
+  text-shadow:0 1px 4px rgba(0,0,0,.9)}
+#big-grid .cell-m b{color:#fff} #big-grid .cell-m .cd{color:#d8d4cb}
+#big-grid .cell-m .df{color:#ff8a5c} #big-grid .cell-m .df.sm{color:#c9c4ba} #big-grid .cell-m .sep{color:#8b857a}
+/* transport: a slim bar */
+#big-tp{padding:0}
+#big-sheet .transport{border-color:#241f1a;margin-top:0;padding-top:7px}
+#big-sheet .ticks{color:#6b6459}
 #big-sheet .tp-t{color:#8b857a} #big-sheet .tp-t b{color:#f2efe6}
 #big-sheet .scrub{background:#3a352d} #big-sheet .scrub-f{background:#5a5347}
-@media(max-width:1000px){#big-grid{grid-template-columns:repeat(3,1fr)}}
-/* true fullscreen: fill the physical screen, tile the previews to fill it (3 across, centred) */
-#big-sheet:fullscreen{padding:0;background:#0f0e0c}
-#big-sheet:fullscreen .sheet-c{width:100%;max-width:none;height:100%;margin:0;border-radius:0;display:flex;flex-direction:column}
-#big-sheet:fullscreen .sheet-b{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-#big-sheet:fullscreen #big-grid{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:20px}
-#big-sheet:fullscreen #big-grid > #grid{width:100%;max-width:calc(100vh * 1.55);grid-template-columns:repeat(3,1fr)}
-#big-sheet:fullscreen #big-grid .frame{aspect-ratio:16/9}
 
 /* one clock for all five */
 .transport{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:10px;
@@ -765,10 +786,13 @@ body{
       <div class="deck-tabs">
         <button class="dtab on" data-p="prev">Previews</button>
         <button class="dtab" data-p="docs">How it decides</button>
-        <button class="dtab" data-p="ref">Reference</button>
+        <button class="dtab" data-p="about">About</button>
         <!-- section controls live in the section's own toolbar, and only while
              that section is showing: they do nothing for the other two panes -->
         <div class="deck-tools" id="deck-tools">
+          <label class="pv-pos mono" title="Where in the first file the 5s sample is taken from">
+            sample&nbsp;<input type="range" id="pv-pos" min="0" max="100" value="50"><b id="pv-pos-v">middle</b>
+          </label>
           <div class="pv-codec" id="pv-codec" title="Preview codec — regenerates the samples">
             <button data-c="h265" class="on">H.265</button>
             <button data-c="h264">H.264</button>
@@ -805,7 +829,8 @@ body{
           <span id="big-tp-home" hidden></span>
         </div>
         <div class="dpane" id="p-docs">
-          <div class="prose">
+         <div class="docs-two">
+          <div class="docs-col prose">
             <p>Batch tools apply one setting to every file. A library isn't uniform — some files were encoded with generous headroom, others were squeezed dry years ago. Re-encoding the second kind buys almost nothing and costs a generation of quality.</p>
             <p>So each file is measured first: <b>bits per pixel per frame</b>, derived from its real bitrate, resolution and frame rate. Your tier is a bpp too — a density, not a bitrate — so the target for <em>this</em> file is simply <b>tier bpp × its pixels × its frame rate × the codec factor</b>. A 4K file gets about four times a 1080p one, a 60fps file twice a 30fps one, with no per-resolution rules anywhere.</p>
             <p>The target is <b>absolute</b>: a function of the tier and the file's own pixels and fps, never a fraction of what the file currently weighs. That distinction is the whole design. Compute a target as "70% of the current bitrate" and every re-run re-anchors to the file it just shrank — 3.5 GB, then 2.2, then 1.2 — grinding the same file down forever. An absolute target converges: one encode lands at the tier, and every run after that sees a file already at tier and leaves it alone.</p>
@@ -816,10 +841,9 @@ body{
             <p><b>A stopped run picks up where it left off.</b> Every file that reaches a decision is recorded in a resume ledger at the scan root, tagged with a signature of the settings that produced it. Re-run with the same settings and those files are skipped without re-probing. Change any setting and the signature changes, so everything is re-evaluated. Correctness never depends on it — the absolute target already prevents re-cutting — so the ledger is only ever a speed optimisation.</p>
             <p><b>Honesty note.</b> Quality assumes typical film and TV at 24–30 fps; very grainy or 50/60 fps material may want a tier up. Software (libx264/libx265) uses quality-targeted capped-CRF and is slightly better per bit than hardware VideoToolbox at the same target — hardware is simply much faster. Streaming services hit their numbers with per-shot encoders you don't have, so these anchors sit above theirs on purpose.</p>
           </div>
-        </div>
-        <div class="dpane" id="p-ref">
-          <div class="doc-grid">
-            <div>
+          <div class="docs-col ref-col">
+            <div class="ref-block">
+              <div class="ref-h mono">Quality tiers</div>
               <table class="tbl">
 <thead><tr><th>Tier</th><th class="num">bpp</th><th class="num">H.264</th><th class="num">H.265</th><th>What it's for</th></tr></thead>
                 <tbody>
@@ -832,7 +856,8 @@ body{
               </table>
               <div class="mono" style="font-size:8px;color:var(--ink-3);margin-top:7px">Mbps are H.264 at 1080p30. Every file re-derives its own target from its real pixels and frame rate — 4K ~4×, 60fps ~2×. Floor 1500 kbps; never above the source.</div>
             </div>
-            <div>
+            <div class="ref-block">
+              <div class="ref-h mono">Codecs at the same quality</div>
               <table class="tbl">
                 <thead><tr><th>Codec</th><th class="num">Space</th><th class="num">Compat</th><th class="num">Stream</th><th class="num">Speed</th></tr></thead>
                 <tbody>
@@ -845,6 +870,26 @@ body{
                 </tbody>
               </table>
               <div class="mono" style="font-size:8px;color:var(--ink-3);margin-top:7px">1–10, higher is better. ★ = near-max with a hardware encoder. Space is a property of the codec — identical in any container.</div>
+            </div>
+          </div>
+         </div>
+        </div>
+        <div class="dpane" id="p-about">
+          <div class="docs-two">
+            <div class="docs-col prose">
+              <div class="about-mark"><span class="about-a">Very Thoughtful</span><span class="about-b">Compression</span></div>
+              <p class="about-by mono">by Picnic Labs</p>
+              <p>A codec-aware re-encoder for large video libraries. It measures every file first — bits per pixel per frame — and only re-encodes the ones actually over your chosen quality tier, so already-lean files are left untouched and repeated runs converge instead of grinding files smaller. Modern codecs are never needlessly re-encoded; MP4-incompatible legacy formats are rescued at full fidelity; subtitles are never silently destroyed.</p>
+              <p>Everything runs on your machine. Nothing is uploaded, and nothing is written until you press Start.</p>
+              <p class="mono about-ver">Version 0.1.0 · Apple Silicon</p>
+            </div>
+            <div class="docs-col prose">
+              <div class="ref-h mono">Licenses &amp; credits</div>
+              <p><b>FFmpeg.</b> This app bundles FFmpeg (ffmpeg + ffprobe) to do the actual decoding and encoding, licensed under the <b>GNU GPL v3</b>. FFmpeg is a separate program invoked as a subprocess; this app's own code is not a derivative work of it. The bundled binaries are unmodified static builds. Corresponding source is available from
+                <span class="mono">ffmpeg.org/releases</span> and <span class="mono">github.com/FFmpeg/FFmpeg</span>. The full GPL v3 text and an attribution NOTICE ship in the <span class="mono">licenses/</span> folder beside the app.</p>
+              <p><b>Hardware encoding.</b> On Apple Silicon, encoding uses Apple <b>VideoToolbox</b>; on Windows, whichever of NVIDIA NVENC / Intel QSV / AMD AMF the machine actually has, verified at launch, falling back to software.</p>
+              <p><b>Your files.</b> Originals are handled exactly the way you choose — archived, deleted only after the new file verifies, or kept — and every outcome is named in the run report. There is no telemetry.</p>
+              <div class="myth" style="margin-top:10px"><b>Feedback?</b> The whole interface text can be exported as a Markdown template and edited — ask for the copy deck.</div>
             </div>
           </div>
         </div>
@@ -886,7 +931,7 @@ body{
 <div class="sheet" id="big-sheet">
   <div class="sheet-c">
     <div class="sheet-h">
-      <div class="sheet-e mono">Same frame · same crop · at 1:1</div>
+      <div class="sheet-e mono">Drag a panel to pan · scrub to compare a moment · every panel is the same 1:1 crop</div>
       <h2 class="sheet-t" id="big-t">Your footage at each tier</h2>
     </div>
     <div class="sheet-b">
@@ -1843,7 +1888,7 @@ function drawReport(){
   // The tabs count the FULL run, not the sample of rows shown beneath them.
   // Showing "Needs a look · 3" under a block reading 107 was just confusing.
   const counts={ok:R.done, fail:R.fail, skip:R.skip};
-  $('#r-tabs').innerHTML=[['ok','Success'],['fail','Needs a look'],['skip','Left alone']]
+  $('#r-tabs').innerHTML=[['ok','Success'],['skip','Left alone'],['fail','Needs a look']]
     .map(([k,l])=>`<button data-t="${k}" class="${rTab===k?'on':''}">${l} · ${counts[k].toLocaleString()}</button>`).join('');
   $('#r-tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{ rTab=b.dataset.t; drawReport(); });
   const rows=R.rows.filter(r=>r.t===rTab);
@@ -2118,15 +2163,20 @@ $('#src').onclick=()=>{
 // "Refresh previews" re-runs the sample encodes from the current source (e.g.
 // after changing codec). The engine regenerates; standalone there is nothing to do.
 $('#load').textContent='Refresh previews';
-let pvCodec='h265';
-$('#load').onclick=()=>{ if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec); };
+let pvCodec='h265', pvPos=0.5;
+$('#load').onclick=()=>{ if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec, pvPos); };
+// choose where in the first file the 5s sample comes from, then regenerate
+const pvPosLabel=v=> v<=2?'start':v>=98?'end':v===50?'middle':v+'%';
+$('#pv-pos').oninput=e=>{ $('#pv-pos-v').textContent=pvPosLabel(+e.target.value); };
+$('#pv-pos').onchange=e=>{ pvPos=+e.target.value/100;
+  if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec, pvPos); };
 // switch preview codec and regenerate the samples at the new codec
 $('#pv-codec').querySelectorAll('button').forEach(b=>{
   b.onclick=()=>{
     if(b.classList.contains('on')) return;
     $('#pv-codec').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
     pvCodec=b.dataset.c;
-    if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec);
+    if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec, pvPos);
   };
 });
 function pvLoop(){
