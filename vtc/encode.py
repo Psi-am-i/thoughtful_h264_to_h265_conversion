@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .config import MP4_AUDIO_CODECS, AudioPolicy, Container, Encoder, RunConfig
@@ -305,17 +306,25 @@ def _run_ffmpeg(
                 errsink.append(str(e))
             return False
 
-    # Progress-wired path: stream `-progress pipe:1`.
+    # Progress-wired path: stream `-progress pipe:1`. stderr goes to a temp file so
+    # a failure here still reports why (the GUI runs on this path) without risking a
+    # pipe-buffer deadlock while we drain stdout.
     cmd = [ffmpeg, "-progress", "pipe:1", "-nostats", *args]
+    err_f = None
     try:
+        err_f = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=err_f,
             text=True,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        if err_f is not None:
+            err_f.close()
+        if errsink is not None:
+            errsink.append(str(e))
         return False
 
     try:
@@ -331,6 +340,15 @@ def _run_ffmpeg(
     except Exception:  # noqa: BLE001 — progress must never break the encode
         pass
     proc.wait()
+    if proc.returncode != 0 and errsink is not None:
+        try:
+            err_f.seek(0)
+            tail = [ln.strip() for ln in err_f.read().strip().splitlines() if ln.strip()]
+            errsink.append(" / ".join(tail[-2:]) if tail else f"ffmpeg exit {proc.returncode}")
+        except OSError:
+            pass
+    if err_f is not None:
+        err_f.close()
     return proc.returncode == 0
 
 
@@ -420,7 +438,7 @@ def run_encode(
                 *vargs, *aargs, "-c:s", "copy",
                 str(out),
             ]
-            if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration,
+            if _run_ffmpeg(ffmpeg, args, label=src.name, duration=info.duration,
                            progress=progress, errsink=errs):
                 encode_ok = True
                 subs_embedded = bool(text_subs or image_subs)
@@ -443,7 +461,7 @@ def run_encode(
                     "-movflags", "+faststart",
                     str(out),
                 ]
-                if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration,
+                if _run_ffmpeg(ffmpeg, args, label=src.name, duration=info.duration,
                                progress=progress, errsink=errs):
                     encode_ok = True
                     subs_embedded = (sub_mode == "embed")

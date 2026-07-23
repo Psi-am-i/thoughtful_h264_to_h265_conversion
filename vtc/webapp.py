@@ -188,6 +188,11 @@ _BRIDGE_JS = r"""
   };
   document.querySelectorAll('#picks .pick').forEach(b=> b.onclick = ()=> pickFolder(+b.dataset.f));
 
+  // The brow "SOURCE" control changes the folder. In real mode that's one native
+  // dialog — go straight to it instead of first revealing a one-item "Browse…" list.
+  var srcBtn = document.getElementById('src');
+  if(srcBtn) srcBtn.onclick = ()=> pickFolder(-1);
+
   // Estimate -> real per-file plan math (measured once files are probed).
   const baseEstimate = window.drawEstimate;
   window.drawEstimate = ()=>{
@@ -208,10 +213,17 @@ _BRIDGE_JS = r"""
   window.__vtcProbeProgress = ()=> { if(SRC) drawEstimate(); }; // refine estimate as files are probed
   window.__vtcProbesReady = ()=> { if(SRC) drawEstimate(); };   // final: fully measured
 
-  // Run -> real pipeline.run streamed back per file, then the mockup's report.
+  // Run -> real pipeline.run streamed back per file, with LIVE progress, then the report.
   const acc = [];
-  window.__vtcOnResult = (r)=>{ acc.push(r); };                 // r: {name, outcome, saved_bytes, note}
+  window.__vtcRunStart = (total)=> pgStart(total);                       // engine: run begins
+  window.__vtcEncodeProgress = (name, frac)=> pgFile(name, frac);        // engine: current file %
+  window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
+  window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
+    acc.push(r);
+    pgDone1({ f:r.name, t:r.t, sev:r.sev });
+  };
   window.__vtcOnDone = (summary)=>{
+    pgFinish();
     RUN = {
       rows: acc.map(r=>({ f:r.name, t:r.t, d:r.d, sev:r.sev })),
       done: summary.done, skip: summary.skip, fail: summary.fail,
@@ -222,7 +234,7 @@ _BRIDGE_JS = r"""
   window.runNow = ()=>{
     shutSheet('#confirm-sheet');
     acc.length = 0;
-    api.run(answers);            // fire-and-forget; results stream via __vtcOnResult/__vtcOnDone
+    api.run(answers);            // fire-and-forget; progress + results stream back via hooks
   };
 })();
 """
@@ -323,6 +335,15 @@ class Api:
         log.info("hw_capabilities: %s", rep)
         return rep
 
+    def stop_run(self):
+        """Ask the run to stop after the current file(s) (graceful, no corruption)."""
+        try:
+            pipeline.STOP_FILE.touch()
+            log.info("stop requested")
+        except OSError as e:
+            log.error("stop_run: %s", e)
+        return {"stopping": True}
+
     def run(self, answers: dict):
         if self._src is None:
             return {"error": "no folder"}
@@ -331,6 +352,7 @@ class Api:
         except ValueError as e:
             log.error("run: bad config: %s", e)
             return {"error": str(e)}
+        pipeline.STOP_FILE.unlink(missing_ok=True)   # clear any prior stop flag
         threading.Thread(target=self._run_worker, args=(config,), daemon=True).start()
         return {"started": True}
 
@@ -341,7 +363,25 @@ class Api:
                  hw or "software", config.remux_to_mp4, config.compat_transcode,
                  config.source_action.value)
 
+        total = sum(1 for _ in pipeline.iter_video_files(config))
+        if self.window:
+            self.window.evaluate_js(f"window.__vtcRunStart && window.__vtcRunStart({total})")
+
+        last = {"frac": -1.0}                       # throttle progress chatter
+
+        def prog(label, frac):
+            if not self.window:
+                return
+            f = -1.0 if frac is None else float(frac)
+            if frac is not None and abs(f - last["frac"]) < 0.01:
+                return                              # only emit on a ~1% move
+            last["frac"] = f
+            self.window.evaluate_js(
+                f"window.__vtcEncodeProgress && window.__vtcEncodeProgress("
+                f"{json.dumps(label)}, {'null' if frac is None else f})")
+
         def emit(r):
+            last["frac"] = -1.0                     # next file starts fresh
             if r.outcome is Outcome.ERROR:
                 log.error("  FAIL %s: %s", r.path.name,
                           r.notes[0].message if r.notes else "encode failed")
@@ -351,7 +391,7 @@ class Api:
                 self.window.evaluate_js(
                     f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(_row(r))})")
 
-        results = pipeline.run(config, on_result=emit)
+        results = pipeline.run(config, progress=prog, on_result=emit)
         summary = _summary(results)
         log.info("run done: %s", summary)
         if self.window:
