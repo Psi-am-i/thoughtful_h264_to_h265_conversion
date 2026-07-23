@@ -114,17 +114,34 @@ def _archive_dest(config: RunConfig, src_file: Path) -> Path:
 
 def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
            res: EncodeResult) -> list[Note]:
-    """Move tmp->out, relocate sidecars, and handle the original. Returns notes."""
+    """Move tmp->out, relocate sidecars, and handle the original. Returns notes.
+
+    Critical ordering: when the output lands on the SAME path as the source (an
+    in-place re-encode where the extension doesn't change, e.g. h264.mp4 ->
+    h265.mp4), writing the output destroys the original. So anything that must
+    keep the original (archive, or delete-but-subs-were-dropped) MUST move it out
+    of the way BEFORE the output is written — never after.
+    """
     notes: list[Note] = []
     dropped = res.dropped_subs_reason
     overwrites_source = out == src_file
+    action = config.source_action
+    archived_dir: Path | None = None
 
-    # Rescue the original before it is overwritten in place, if subs would be lost.
-    rescued_dir: Path | None = None
-    if dropped and overwrites_source:
-        rescued_dir = _archive_dest(config, src_file)
-        rescued_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src_file), str(rescued_dir / src_file.name))
+    def _archive_original() -> None:
+        nonlocal archived_dir
+        dest = _archive_dest(config, src_file)
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src_file), str(dest / src_file.name))
+        archived_dir = dest
+
+    # The original is preserved (archived) rather than discarded when: the action
+    # is ARCHIVE; or subtitles were dropped (we never silently lose them, even on
+    # DELETE/KEEP). If that original is about to be overwritten in place, move it
+    # to the archive FIRST — this is the fix for the archive-not-happening bug.
+    keep_original = (action == SourceAction.ARCHIVE) or bool(dropped)
+    if overwrites_source and keep_original and src_file.exists():
+        _archive_original()
 
     out.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(tmp), str(out))
@@ -135,27 +152,23 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
         notes.append(Note("NOTE", f"{res.sidecars_made} subtitle track(s) written as sidecar .srt "
                                   f"(could not be embedded in the MP4)"))
 
-    action = config.source_action
+    # Handle the original for the non-overwrite case (out != src_file) + notes.
     if action == SourceAction.DELETE:
         if dropped:
-            if rescued_dir is None:
-                rescued_dir = _archive_dest(config, src_file)
-                rescued_dir.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src_file), str(rescued_dir / src_file.name))
-            notes.append(Note("NOTE", f"original archived to {rescued_dir} instead of deleted — {dropped}"))
+            if archived_dir is None and src_file.exists():
+                _archive_original()      # subs dropped -> archive instead of delete
+            notes.append(Note("NOTE", f"original archived to {archived_dir} instead of deleted — {dropped}"))
         elif not overwrites_source and src_file.exists():
             src_file.unlink()
     elif action == SourceAction.ARCHIVE:
-        if not overwrites_source and src_file.exists():
-            dest = _archive_dest(config, src_file)
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src_file), str(dest / src_file.name))
+        if archived_dir is None and not overwrites_source and src_file.exists():
+            _archive_original()
         if dropped:
             notes.append(Note("NOTE", f"output MP4 is missing subtitle track(s) — {dropped}; "
                                       f"the archived original still has them"))
-    else:  # KEEP
-        if rescued_dir is not None:
-            notes.append(Note("NOTE", f"original moved to {rescued_dir} (it was being overwritten "
+    else:  # KEEP (only ever used with a separate output path, so never overwrites)
+        if archived_dir is not None:
+            notes.append(Note("NOTE", f"original moved to {archived_dir} (it was being overwritten "
                                       f"in place) — {dropped}"))
         elif dropped:
             notes.append(Note("NOTE", f"output MP4 is missing subtitle track(s) — {dropped}; "
