@@ -464,16 +464,31 @@ body{
 .r-empty{padding:22px 4px;color:var(--ink-3);font-size:13.5px;text-align:center}
 
 /* ── progress (live during a run) ─────────────────────────── */
+/* "Working" compresses and releases, like the wordmark — it should feel alive */
+.pg-working{display:flex;align-items:baseline;gap:2px}
+.pg-word{display:inline-block;animation:pgsqueeze 2.4s cubic-bezier(.4,0,.3,1) infinite}
+@keyframes pgsqueeze{0%,100%{letter-spacing:.02em}45%{letter-spacing:-.045em;transform:scaleX(.97)}}
+.pg-dots{display:inline-flex}
+.pg-dots i{font-style:normal;animation:pgdot 1.4s ease-in-out infinite}
+.pg-dots i:nth-child(2){animation-delay:.2s} .pg-dots i:nth-child(3){animation-delay:.4s}
+@keyframes pgdot{0%,60%,100%{opacity:.25}30%{opacity:1}}
+/* the big for-show countdown clock */
+.pg-clock-wrap{text-align:center;padding:6px 0 16px}
+.pg-clock{font-size:64px;font-weight:600;letter-spacing:.01em;line-height:1;color:var(--ink);
+  font-variant-numeric:tabular-nums}
+.pg-clock-l{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-3);margin-top:8px}
 .pg-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
 .pg-count{font-size:15px;color:var(--ink)} .pg-count b{font-size:22px;font-weight:700}
-.pg-eta{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.pg-pct{font-size:15px;color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
 .pg-bar{height:9px;background:#d4d1c6;border-radius:5px;overflow:hidden}
 .pg-bar.sm{height:5px}
 .pg-bar-f{height:100%;width:0;background:var(--accent);transition:width .3s ease}
 .pg-cur{margin-top:18px}
-.pg-cur-n{font-size:14px;color:var(--ink-2);margin-bottom:6px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'IBM Plex Mono',monospace}
-.pg-recent{margin-top:18px;max-height:34vh;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:13px}
+.pg-cur-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px}
+.pg-cur-n{font-size:14px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-family:'IBM Plex Mono',monospace;min-width:0}
+.pg-stats{font-size:12.5px;color:var(--ink-3);white-space:nowrap;flex:0 0 auto;letter-spacing:.02em}
+.pg-recent{margin-top:18px;max-height:30vh;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:13px}
 .pg-r{display:grid;grid-template-columns:1fr auto;gap:12px;padding:5px 2px;
   border-bottom:1px solid var(--rule);color:var(--ink-2)}
 .pg-r span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -569,9 +584,17 @@ body{
 .cell-t{font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;
   letter-spacing:.06em;color:var(--ink);margin-top:6px;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
-.cell-m{display:flex;gap:4px;margin-top:1px;
-  font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-3);white-space:nowrap}
-.cell-m b{color:var(--ink-2);font-weight:500}
+.cell-m{display:flex;align-items:baseline;gap:6px;margin-top:2px;flex-wrap:wrap;
+  font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3);line-height:1.3}
+.cell-m b{color:var(--ink);font-weight:600}
+.cell-m .cd{color:var(--ink-2)}
+.cell-m .df{color:var(--accent)} .cell-m .df.sm{color:var(--ink-3)}
+.cell-m .sep{font-style:normal;color:var(--ink-3);opacity:.6}
+/* preview codec toggle in the deck toolbar */
+.pv-codec{display:inline-flex;border:1px solid var(--rule);border-radius:var(--r);overflow:hidden}
+.pv-codec button{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+  letter-spacing:.08em;padding:4px 9px;border:0;cursor:pointer;background:#efece3;color:var(--ink-3)}
+.pv-codec button.on{background:var(--accent);color:#fff}
 .tp-tool{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
   letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;cursor:pointer;
   background:linear-gradient(180deg,#f7f5ee,#e6e3da);border:1px solid var(--rule);
@@ -580,9 +603,10 @@ body{
 
 /* full screen: the five panels, large, on one clock */
 #big-sheet .sheet-c{width:min(1500px,100%);background:#1a1815;border-color:#332f28}
-/* #big-grid just holds the real #grid full-width; #grid keeps its own columns */
+/* #big-grid holds the real #grid full-width; in the big view we TILE the panels
+   (3 across) instead of one long row, so each 1:1 crop actually gets bigger. */
 #big-grid{display:block;width:100%}
-#big-grid > #grid{width:100%}
+#big-grid > #grid{width:100%;grid-template-columns:repeat(3,1fr);gap:14px}
 #big-grid .cell-t{color:#e9e6dd}
 #big-grid .cell-m{color:#8b857a}
 #big-grid .cell-m b{color:#b5afa2}
@@ -598,9 +622,9 @@ body{
 #big-sheet:fullscreen{padding:0;background:#0f0e0c}
 #big-sheet:fullscreen .sheet-c{width:100%;max-width:none;height:100%;margin:0;border-radius:0;display:flex;flex-direction:column}
 #big-sheet:fullscreen .sheet-b{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-#big-sheet:fullscreen #big-grid{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px}
-#big-sheet:fullscreen #big-grid > #grid{width:100%}
-#big-sheet:fullscreen #big-grid .frame{aspect-ratio:16/10}
+#big-sheet:fullscreen #big-grid{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:20px}
+#big-sheet:fullscreen #big-grid > #grid{width:100%;max-width:calc(100vh * 1.55);grid-template-columns:repeat(3,1fr)}
+#big-sheet:fullscreen #big-grid .frame{aspect-ratio:16/9}
 
 /* one clock for all five */
 .transport{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:10px;
@@ -745,6 +769,10 @@ body{
         <!-- section controls live in the section's own toolbar, and only while
              that section is showing: they do nothing for the other two panes -->
         <div class="deck-tools" id="deck-tools">
+          <div class="pv-codec" id="pv-codec" title="Preview codec — regenerates the samples">
+            <button data-c="h265" class="on">H.265</button>
+            <button data-c="h264">H.264</button>
+          </div>
           <button class="tp-tool" id="load">Use my video…</button>
           <button class="tp-tool" id="big">Full screen</button>
           <input type="file" id="file" accept="video/*" hidden>
@@ -876,16 +904,23 @@ body{
   <div class="sheet-c">
     <div class="sheet-h">
       <div class="sheet-e mono">Encoding · nothing else is touched</div>
-      <h2 class="sheet-t" id="pg-title">Working…</h2>
+      <h2 class="sheet-t pg-working"><span class="pg-word">Working</span><span class="pg-dots"><i>.</i><i>.</i><i>.</i></span></h2>
     </div>
     <div class="sheet-b">
+      <div class="pg-clock-wrap">
+        <div class="pg-clock mono" id="pg-clock">--:--</div>
+        <div class="pg-clock-l mono">estimated time remaining</div>
+      </div>
       <div class="pg-top">
         <div class="pg-count mono"><b id="pg-done">0</b> / <span id="pg-total">0</span> files</div>
-        <div class="pg-eta mono" id="pg-eta">estimating…</div>
+        <div class="pg-pct mono" id="pg-pct">0%</div>
       </div>
       <div class="pg-bar"><div class="pg-bar-f" id="pg-overall"></div></div>
       <div class="pg-cur">
-        <div class="pg-cur-n" id="pg-cur-n">Starting…</div>
+        <div class="pg-cur-head">
+          <div class="pg-cur-n" id="pg-cur-n">Starting…</div>
+          <div class="pg-stats mono" id="pg-stats"></div>
+        </div>
         <div class="pg-bar sm"><div class="pg-bar-f" id="pg-cur-f"></div></div>
       </div>
       <div class="pg-recent" id="pg-recent"></div>
@@ -1620,30 +1655,55 @@ const shutSheet=id=>{
 // ═══ live progress ═══════════════════════════════════════
 // Shared hooks: the pywebview bridge drives these from the real engine; the
 // standalone mock (below) simulates them so the screen can be seen without a run.
-let PG={total:0,done:0,t0:0};
-function fmtETA(s){ if(s<60) return Math.max(1,s)+'s'; const m=Math.floor(s/60);
-  if(m<60) return m+'m '+String(s%60).padStart(2,'0')+'s'; const h=Math.floor(m/60); return h+'h '+String(m%60).padStart(2,'0')+'m'; }
-function pgStart(total){
-  PG={total:total||0,done:0,t0:Date.now()};
+let PG={total:0,done:0,t0:0,remaining:0,timer:null};
+function fmtClock(s){
+  s=Math.max(0,Math.round(s));
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  const pad=n=>String(n).padStart(2,'0');
+  return h>0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+function pgTick(){                            // count the clock down 1s, for show
+  PG.remaining=Math.max(0, PG.remaining-1);
+  $('#pg-clock').textContent = PG.remaining>0 ? fmtClock(PG.remaining) : (PG.done>=PG.total ? 'done' : '~a moment');
+}
+function pgStart(total, est){
+  if(PG.timer) clearInterval(PG.timer);
+  PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), timer:null};
   $('#pg-total').textContent=PG.total.toLocaleString(); $('#pg-done').textContent='0';
+  $('#pg-pct').textContent='0%';
   $('#pg-overall').style.width='0'; $('#pg-cur-f').style.width='0';
-  $('#pg-cur-n').textContent='Starting…'; $('#pg-recent').innerHTML='';
-  $('#pg-eta').textContent='estimating…'; $('#pg-title').textContent='Working…';
+  $('#pg-cur-n').textContent='Starting…'; $('#pg-stats').textContent=''; $('#pg-recent').innerHTML='';
+  $('#pg-clock').textContent = est ? fmtClock(est) : 'estimating…';
   $('#pg-stop').disabled=false; $('#pg-stop').textContent='Stop after current file';
   openSheet('#progress-sheet');
+  PG.timer=setInterval(pgTick, 1000);
 }
-function pgFile(name, frac){
+function pgFile(name, frac, stats){
   if(name) $('#pg-cur-n').textContent=name;
-  $('#pg-cur-f').style.width=((frac==null?0:Math.max(0,Math.min(1,frac)))*100)+'%';
+  const f=(frac==null?0:Math.max(0,Math.min(1,frac)));
+  $('#pg-cur-f').style.width=(f*100)+'%';
+  // sanitise ffmpeg's numbers: fps, bitrate (kbit/s -> Mbps), plus % of this file
+  let bits=[];
+  if(frac!=null) bits.push(Math.round(f*100)+'%');
+  if(stats){
+    if(stats.fps && +stats.fps>0) bits.push(Math.round(+stats.fps)+' fps');
+    if(stats.bitrate){ const kb=parseFloat(stats.bitrate); if(kb>0) bits.push((kb/1000).toFixed(1)+' Mbps'); }
+    if(stats.speed && parseFloat(stats.speed)>0) bits.push(parseFloat(stats.speed).toFixed(1)+'×');
+  }
+  $('#pg-stats').textContent=bits.join('  ·  ');
 }
 function pgDone1(row){
   PG.done++;
   $('#pg-done').textContent=PG.done.toLocaleString();
-  $('#pg-overall').style.width=((PG.total?PG.done/PG.total:0)*100)+'%';
-  $('#pg-cur-f').style.width='0';
+  const frac=PG.total?PG.done/PG.total:0;
+  $('#pg-overall').style.width=(frac*100)+'%';
+  $('#pg-pct').textContent=Math.round(frac*100)+'%';
+  $('#pg-cur-f').style.width='0'; $('#pg-stats').textContent='';
+  // refine the countdown from real throughput: measured seconds-per-file so far
   const el=(Date.now()-PG.t0)/1000;
-  if(PG.total>PG.done && PG.done>0){ $('#pg-eta').textContent='~'+fmtETA(Math.round(el/PG.done*(PG.total-PG.done)))+' left'; }
-  else if(PG.total && PG.done>=PG.total){ $('#pg-eta').textContent='finishing…'; }
+  if(PG.done>0 && PG.total>PG.done){ PG.remaining=Math.round(el/PG.done*(PG.total-PG.done)); }
+  else if(PG.done>=PG.total){ PG.remaining=0; }
+  $('#pg-clock').textContent = PG.remaining>0 ? fmtClock(PG.remaining) : (PG.done>=PG.total?'done':'~a moment');
   if(row){
     const tag=row.t==='ok'?'done':row.t==='skip'?'left alone':row.sev==='err'?'error':row.sev==='warn'?'warn':'note';
     const d=document.createElement('div'); d.className='pg-r';
@@ -1651,7 +1711,7 @@ function pgDone1(row){
     $('#pg-recent').prepend(d);
   }
 }
-function pgFinish(){ shutSheet('#progress-sheet'); }
+function pgFinish(){ if(PG.timer){ clearInterval(PG.timer); PG.timer=null; } shutSheet('#progress-sheet'); }
 $('#pg-stop').onclick=()=>{ if(window.__vtcStop) window.__vtcStop();
   $('#pg-stop').textContent='Stopping after current…'; $('#pg-stop').disabled=true; };
 
@@ -1659,12 +1719,13 @@ function runNow(){
   shutSheet('#confirm-sheet');
   RUN=modelRun();                                   // precompute the mock result
   const total=SRC?SRC.files:(RUN.rows.length||1);
-  pgStart(total);
+  pgStart(total, total*90);      // mock estimate: ~90s/file
   // Simulate a run so the progress screen is visible standalone; the real app
   // drives pgStart/pgFile/pgDone1/pgFinish from the engine via the bridge instead.
   const rows=RUN.rows.slice(); const batch=Math.max(1,Math.floor(total/14)); let phase=0;
   const tick=()=>{
-    if(phase++%2===0){ pgFile(rows[Math.min(PG.done,rows.length-1)]?.f||('file '+(PG.done+1)), Math.random()); }
+    if(phase++%2===0){ pgFile(rows[Math.min(PG.done,rows.length-1)]?.f||('file '+(PG.done+1)),
+        Math.random(), {fps:(120+Math.random()*180)|0, bitrate:(4000+Math.random()*6000).toFixed(0), speed:(1+Math.random()*3).toFixed(1)}); }
     else { for(let k=0;k<batch && PG.done<total;k++) pgDone1(rows[Math.min(PG.done,rows.length-1)]); }
     if(PG.done<total){ setTimeout(tick, 140); }
     else { setTimeout(()=>{ pgFinish(); drawReport(); openSheet('#report-sheet'); }, 450); }
@@ -1878,7 +1939,7 @@ document.querySelectorAll('.dtab').forEach(t=>{
 // panels. The engine encodes the sample at each tier and streams the panels in
 // (see the pywebview bridge); standalone, the deck waits for a real run.
 const PV = { n:0, sw:0, sh:0, dur:5, fps:24, cropX:0, cropY:0, playing:false,
-             ready:new Set(), started:false };
+             ready:new Set(), started:false, meta:{}, codec:'' };
 const pvVideos = ()=> [...document.querySelectorAll('#grid video')];
 const human = b => b>=1e9 ? (b/1e9).toFixed(2)+' GB' : b>=1e6 ? (b/1e6).toFixed(0)+' MB' : Math.max(1,(b/1e3)|0)+' KB';
 
@@ -1898,7 +1959,7 @@ function buildPreviewGrid(n){
        <div class="frame"><video muted playsinline preload="auto"></video>
          <div class="spin"><i></i><span>encoding</span></div></div>
        <div class="cell-t" data-t="${i}">-</div>
-       <div class="cell-m"><b data-m="${i}"></b></div>
+       <div class="cell-m" data-mrow="${i}"></div>
      </div>`).join('');
   setEncodingUI(true);
   $('#ticks').innerHTML=[0,1,2,3,4,5].map(x=>`<span>${x}s</span>`).join('');
@@ -1919,8 +1980,24 @@ function pvApply(){                 // place every video so the frame is a 1:1 c
     v.style.transform=`translate(${-PV.cropX}px,${-PV.cropY}px)`;
   });
 }
+// each panel shows: quality (label) · codec · size · how much bigger than the smallest
+function pvRenderMeta(){
+  const vals=Object.values(PV.meta).map(m=>m.bytes).filter(b=>b>0);
+  const min=vals.length?Math.min(...vals):0;
+  Object.entries(PV.meta).forEach(([i,m])=>{
+    const el=$('#grid').querySelector(`.cell-m[data-mrow="${i}"]`); if(!el) return;
+    if(m.error){ el.innerHTML='<span class="cd">failed</span>'; return; }
+    const parts=[];
+    if(m.codec) parts.push(`<span class="cd">${m.codec}</span>`);
+    if(m.bytes) parts.push(`<b>${human(m.bytes)}</b>`);
+    if(m.bytes && min) parts.push(m.bytes<=min
+        ? `<span class="df sm">smallest</span>`
+        : `<span class="df">+${Math.round((m.bytes/min-1)*100)}%</span>`);
+    el.innerHTML=parts.join('<i class="sep">·</i>');
+  });
+}
 window.__vtcPreviewStart = (info)=>{
-  PV.sw=info.w||1920; PV.sh=info.h||1080;
+  PV.sw=info.w||1920; PV.sh=info.h||1080; PV.meta={}; PV.codec=info.codec||'';
   PV.cropX=Math.max(0,(PV.sw-320)/2); PV.cropY=Math.max(0,(PV.sh-180)/2);   // center-ish
   buildPreviewGrid(info.n||6);
 };
@@ -1928,9 +2005,9 @@ window.__vtcPreviewPanel = (p)=>{
   if(!PV.started) buildPreviewGrid(6);
   const cell=$('#grid').querySelector(`.cell[data-i="${p.i}"]`); if(!cell) return;
   const te=$('#grid').querySelector(`[data-t="${p.i}"]`); if(te) te.textContent=p.label||('#'+p.i);
-  const mb=$('#grid').querySelector(`[data-m="${p.i}"]`);
-  if(p.error){ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent='failed'; if(mb) mb.textContent='-'; return; }
-  if(mb) mb.textContent=human(p.bytes||0);
+  PV.meta[p.i]={codec:p.codec, bytes:p.bytes||0, error:!!p.error};
+  pvRenderMeta();
+  if(p.error){ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent='failed'; return; }
   const v=cell.querySelector('video');
   v.onloadedmetadata=()=>{
     if(v.videoWidth){ PV.sw=v.videoWidth; PV.sh=v.videoHeight; }
@@ -2041,7 +2118,17 @@ $('#src').onclick=()=>{
 // "Refresh previews" re-runs the sample encodes from the current source (e.g.
 // after changing codec). The engine regenerates; standalone there is nothing to do.
 $('#load').textContent='Refresh previews';
-$('#load').onclick=()=>{ if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(); };
+let pvCodec='h265';
+$('#load').onclick=()=>{ if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec); };
+// switch preview codec and regenerate the samples at the new codec
+$('#pv-codec').querySelectorAll('button').forEach(b=>{
+  b.onclick=()=>{
+    if(b.classList.contains('on')) return;
+    $('#pv-codec').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+    pvCodec=b.dataset.c;
+    if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec);
+  };
+});
 function pvLoop(){
   if(PV.playing){
     const L=pvLeader();

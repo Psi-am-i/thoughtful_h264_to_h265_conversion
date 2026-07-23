@@ -73,9 +73,10 @@ class EncodeResult:
     error: str = ""
 
 
-# progress(label, fraction 0..1) — fraction may be None when indeterminate.
-ProgressCB = Callable[[str, float | None], None]
+# progress(label, fraction 0..1, stats) — fraction may be None when indeterminate;
+# stats is an optional {'fps','bitrate','speed'} snapshot from ffmpeg's -progress.
+ProgressCB = Callable[[str, float | None, dict | None], None]
 
 
-def _noop_progress(label: str, fraction: float | None) -> None:  # default sink
+def _noop_progress(label: str, fraction: float | None, stats: dict | None = None) -> None:  # default sink
     pass

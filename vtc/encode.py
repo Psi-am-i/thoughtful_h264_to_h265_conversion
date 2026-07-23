@@ -327,16 +327,24 @@ def _run_ffmpeg(
             errsink.append(str(e))
         return False
 
+    stats: dict = {}
     try:
         assert proc.stdout is not None
         for line in proc.stdout:
+            line = line.strip()
+            if line.startswith("fps="):
+                stats["fps"] = line[4:]
+            elif line.startswith("bitrate="):
+                stats["bitrate"] = line[8:]
+            elif line.startswith("speed="):
+                stats["speed"] = line[6:]
             m = _DUR_RE.search(line)
             if m and duration > 0:
                 done = int(m.group(1)) / 1_000_000.0
                 frac = max(0.0, min(1.0, done / duration))
-                progress(label, frac)
+                progress(label, frac, dict(stats))
             elif line.startswith("progress="):
-                progress(label, None)
+                progress(label, None, dict(stats))
     except Exception:  # noqa: BLE001 — progress must never break the encode
         pass
     proc.wait()

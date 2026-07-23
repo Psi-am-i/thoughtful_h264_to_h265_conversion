@@ -310,10 +310,10 @@ _BRIDGE_JS = r"""
 
   // Run -> real pipeline.run streamed back per file, with LIVE progress, then the report.
   const acc = [];
-  window.__vtcRunStart = (total)=> pgStart(total);                       // engine: run begins
-  window.__vtcEncodeProgress = (name, frac)=> pgFile(name, frac);        // engine: current file %
+  window.__vtcRunStart = (total, est)=> pgStart(total, est);             // engine: run begins
+  window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
-  window.__vtcRegenPreviews = ()=> { try { api.regenerate_previews(); } catch(e){} };
+  window.__vtcRegenPreviews = (codec)=> { try { api.regenerate_previews(codec||'h265'); } catch(e){} };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
     acc.push(r);
     pgDone1({ f:r.name, t:r.t, sev:r.sev });
@@ -350,6 +350,7 @@ class Api:
     # -- folder pick + fast scan -------------------------------------------------
     def pick_folder(self):
         import webview
+        log.info('pick_folder: opening native folder dialog')
         picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
         if not picked:
             return None
@@ -374,7 +375,8 @@ class Api:
         if self.window:
             self.window.evaluate_js(f"window.{fn} && window.{fn}({json.dumps(payload)})")
 
-    def _preview_worker(self, src: Path):
+    def _preview_worker(self, src: Path, codec: OutCodec = OutCodec.H265):
+        codec_label = "H.264" if codec == OutCodec.H264 else "H.265"
         try:
             pdir, port = _ensure_preview_server()
             for f in pdir.glob("*.mp4"):        # only clear old previews, not the served HTML
@@ -393,8 +395,10 @@ class Api:
             seglen = min(5.0, dur) if dur > 0 else 5.0
             start = max(0.0, (dur - seglen) / 2.0)                 # from the middle
             is_hevc = (info.vcodec or "").lower() == "hevc"
-            log.info("previews: %s (%dx%d, %.1fs) sample @ %.1fs",
-                     first.name, info.width, info.height, dur, start)
+            src_codec_label = {"h264": "H.264", "hevc": "H.265", "av1": "AV1", "vp9": "VP9"}.get(
+                (info.vcodec or "").lower(), (info.vcodec or "?").upper())
+            log.info("previews: %s (%dx%d, %.1fs) sample @ %.1fs codec=%s",
+                     first.name, info.width, info.height, dur, start, codec.value)
 
             # SOURCE panel = the actual source frames, losslessly cut and made playable.
             sample = pdir / "source.mp4"
@@ -410,19 +414,19 @@ class Api:
             sinfo = probe(sample, FFPROBE)
             self._emit("__vtcPreviewStart",
                        {"w": sinfo.width or info.width, "h": sinfo.height or info.height,
-                        "n": len(_PREVIEW_PANELS)})
-            hw = encode.select_hw_encoder(
-                RunConfig(src=src, out_codec=OutCodec.H265, ffmpeg=FFMPEG))
+                        "n": len(_PREVIEW_PANELS), "codec": codec_label})
+            hw = encode.select_hw_encoder(RunConfig(src=src, out_codec=codec, ffmpeg=FFMPEG))
 
             for idx, (key, label, tier) in enumerate(_PREVIEW_PANELS):
                 if self._src != src:                # source changed under us — stop
                     return
+                panel_codec = src_codec_label if tier is None else codec_label
                 if tier is None:
                     out = sample
                 else:
                     out = pdir / f"{key}.mp4"
-                    tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, OutCodec.H265)
-                    cfg2 = RunConfig(src=src, out_codec=OutCodec.H265, tier=tier, ffmpeg=FFMPEG)
+                    tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, codec)
+                    cfg2 = RunConfig(src=src, out_codec=codec, tier=tier, ffmpeg=FFMPEG)
                     vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
                     rr = subprocess.run(
                         [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
@@ -432,11 +436,11 @@ class Api:
                         log.error("preview %s failed: %s", key,
                                   (rr.stderr or "").strip().splitlines()[-1:])
                         self._emit("__vtcPreviewPanel", {"i": idx, "key": key, "label": label,
-                                                         "error": "encode failed"})
+                                                         "codec": panel_codec, "error": "encode failed"})
                         continue
                 size = out.stat().st_size
                 self._emit("__vtcPreviewPanel",
-                           {"i": idx, "key": key, "label": label, "bytes": size,
+                           {"i": idx, "key": key, "label": label, "codec": panel_codec, "bytes": size,
                             "url": f"http://127.0.0.1:{port}/{out.name}?v={size}"})
             self._emit("__vtcPreviewDone", "")
         except Exception as e:  # noqa: BLE001 — previews must never crash the app
@@ -507,10 +511,11 @@ class Api:
         log.info("hw_capabilities: %s", rep)
         return rep
 
-    def regenerate_previews(self):
-        """Re-run the sample encodes for the current source (e.g. after a change)."""
+    def regenerate_previews(self, codec: str = "h265"):
+        """Re-run the sample encodes for the current source, at the chosen codec."""
+        oc = OutCodec.H264 if str(codec).lower() == "h264" else OutCodec.H265
         if self._src is not None:
-            threading.Thread(target=self._preview_worker, args=(self._src,), daemon=True).start()
+            threading.Thread(target=self._preview_worker, args=(self._src, oc), daemon=True).start()
         return {"ok": True}
 
     def stop_run(self):
@@ -541,22 +546,37 @@ class Api:
                  hw or "software", config.remux_to_mp4, config.compat_transcode,
                  config.source_action.value)
 
-        total = sum(1 for _ in pipeline.iter_video_files(config))
+        files = list(pipeline.iter_video_files(config))
+        total = len(files)
+        # A rough total-time estimate so the UI can show a countdown immediately
+        # (refined per file in JS). Sum probed source durations, extrapolate to all
+        # files, divide by an encoder speed factor (hardware ~ many x realtime,
+        # software well under). Deliberately approximate — it's a "for show" clock.
+        durs = [info.duration for info, _ in self._probes if info.duration]
+        avg_dur = (sum(durs) / len(durs)) if durs else 45 * 60
+        speed = 8.0 if hw else 0.18
+        est_seconds = int(max(1, total) * avg_dur / speed)
         if self.window:
-            self.window.evaluate_js(f"window.__vtcRunStart && window.__vtcRunStart({total})")
+            self.window.evaluate_js(
+                f"window.__vtcRunStart && window.__vtcRunStart({total}, {est_seconds})")
 
-        last = {"frac": -1.0}                       # throttle progress chatter
+        import time as _time
+        last = {"frac": -1.0, "t": 0.0}             # throttle progress chatter
 
-        def prog(label, frac):
+        def prog(label, frac, stats=None):
             if not self.window:
                 return
             f = -1.0 if frac is None else float(frac)
-            if frac is not None and abs(f - last["frac"]) < 0.01:
-                return                              # only emit on a ~1% move
+            now = _time.monotonic()
+            # emit on a ~1% move OR at least every ~1.5s (so stats keep ticking)
+            if frac is not None and abs(f - last["frac"]) < 0.01 and (now - last["t"]) < 1.5:
+                return
             last["frac"] = f
+            last["t"] = now
             self.window.evaluate_js(
                 f"window.__vtcEncodeProgress && window.__vtcEncodeProgress("
-                f"{json.dumps(label)}, {'null' if frac is None else f})")
+                f"{json.dumps(label)}, {'null' if frac is None else f}, "
+                f"{json.dumps(stats or {})})")
 
         def emit(r):
             last["frac"] = -1.0                     # next file starts fresh
@@ -640,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Very Thoughtful Compression — debug log: {log_path}")
     api = Api()
     window = webview.create_window("Very Thoughtful Compression", target, js_api=api,
-                                   width=1280, height=980, min_size=(900, 700))
+                                   width=1360, height=1020, min_size=(940, 720))
     api.window = window
     window.events.loaded += lambda: window.evaluate_js(_BRIDGE_JS)
     webview.start()
