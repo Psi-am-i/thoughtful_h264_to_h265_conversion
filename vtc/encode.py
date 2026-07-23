@@ -47,18 +47,85 @@ def _encoders_list(ffmpeg: str) -> str:
     return out
 
 
-def use_hardware(config: RunConfig) -> bool:
-    """Resolve whether to use VideoToolbox hardware encoding.
+# Cache of "does this encoder actually WORK here" keyed by (ffmpeg, encoder).
+_ENCODER_WORKS_CACHE: dict[tuple[str, str], bool] = {}
 
-    HARDWARE -> True, SOFTWARE -> False, AUTO -> probe the ffmpeg encoder list
-    for the relevant *_videotoolbox encoder (mirrors check_videotoolbox()).
+
+def _encoder_works(ffmpeg: str, enc: str) -> bool:
+    """True only if `enc` can encode a frame here — not merely that it is listed.
+
+    'Listed' lies: an x86_64 ffmpeg under Rosetta lists hevc_videotoolbox but
+    fails every encode (-22); a Windows box lists hevc_nvenc with no NVIDIA GPU.
+    So actually try a 1-frame encode to the null muxer (fast, cached) — the honest
+    test of whatever hardware the user actually has.
     """
-    if config.encoder == Encoder.HARDWARE:
-        return True
+    key = (ffmpeg, enc)
+    cached = _ENCODER_WORKS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        r = subprocess.run(
+            [ffmpeg, "-hide_banner", "-v", "error",
+             "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=1",
+             "-frames:v", "1", "-c:v", enc, "-f", "null", "-"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=30,
+        )
+        ok = r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    _ENCODER_WORKS_CACHE[key] = ok
+    return ok
+
+
+# Hardware encoders per output codec, in preference order: VideoToolbox (Apple),
+# NVENC (NVIDIA), QSV (Intel), AMF (AMD). Each is used only if listed AND it passes
+# _encoder_works — otherwise the next, then software. Covers "who knows what
+# hardware people have" without trusting the encoder list.
+_HW_CANDIDATES = {
+    OutCodec.H265: ["hevc_videotoolbox", "hevc_nvenc", "hevc_qsv", "hevc_amf"],
+    OutCodec.H264: ["h264_videotoolbox", "h264_nvenc", "h264_qsv", "h264_amf"],
+}
+
+
+def select_hw_encoder(config: RunConfig) -> str | None:
+    """The hardware encoder to use, or None for software.
+
+    SOFTWARE -> None. HARDWARE/AUTO -> the first candidate for the codec that is
+    both listed and functionally works on this machine; None if none do (a broken
+    or absent hardware encoder falls back to software, never fails every file).
+    """
     if config.encoder == Encoder.SOFTWARE:
-        return False
-    enc = "h264_videotoolbox" if config.out_codec == OutCodec.H264 else "hevc_videotoolbox"
-    return enc in _encoders_list(config.ffmpeg)
+        return None
+    listed = _encoders_list(config.ffmpeg)
+    for enc in _HW_CANDIDATES.get(config.out_codec, []):
+        if f" {enc} " in listed and _encoder_works(config.ffmpeg, enc):
+            return enc
+    return None
+
+
+def hardware_report(ffmpeg: str) -> dict:
+    """What hardware encoding is actually available here, for startup/logging/UI.
+
+    Returns {'h264': name|None, 'h265': name|None, 'available': bool}. Probes
+    functionally (cached), so it reflects the real machine, not the encoder list.
+    """
+    listed = _encoders_list(ffmpeg)
+    out: dict = {}
+    for codec, key in ((OutCodec.H264, "h264"), (OutCodec.H265, "h265")):
+        found = None
+        for enc in _HW_CANDIDATES[codec]:
+            if f" {enc} " in listed and _encoder_works(ffmpeg, enc):
+                found = enc
+                break
+        out[key] = found
+    out["available"] = bool(out["h264"] or out["h265"])
+    return out
+
+
+def use_hardware(config: RunConfig) -> bool:
+    """Back-compat boolean: is a working hardware encoder available for this codec?"""
+    return select_hw_encoder(config) is not None
 
 
 # ── Video-arg builder ─────────────────────────────────────────────────────────
@@ -71,19 +138,44 @@ def _hevc_profile(info: MediaInfo) -> str:
     return "main"
 
 
+def _hw_video_args(info: MediaInfo, enc: str, target_kbps: int) -> list[str]:
+    """`-c:v` args for a specific hardware encoder, ABR-targeting the tier bitrate.
+
+    Hardware encoders have no true CRF, so all aim at -b:v = the tier target (which
+    is what makes them converge on a re-run). Flags differ by family:
+      *_videotoolbox (Apple) · *_nvenc (NVIDIA) · *_qsv (Intel) · *_amf (AMD).
+    """
+    b = f"{target_kbps}k"
+    is265 = "hevc" in enc
+    prof = _hevc_profile(info) if is265 else "high"           # main / main10 / high
+    tag = ["-tag:v", "hvc1"] if is265 else ["-pix_fmt", "yuv420p"]
+    if enc.endswith("videotoolbox"):
+        if is265:
+            return ["-c:v", enc, "-b:v", b, "-profile:v", prof, "-tag:v", "hvc1",
+                    "-bf", "0", "-fps_mode", "cfr"]
+        return ["-c:v", enc, "-b:v", b, "-profile:v", "high", "-pix_fmt", "yuv420p"]
+    if enc.endswith("nvenc"):
+        return ["-c:v", enc, "-b:v", b, "-maxrate", b, "-preset", "p5",
+                "-profile:v", prof, *tag]
+    if enc.endswith(("qsv", "amf")):
+        return ["-c:v", enc, "-b:v", b, "-maxrate", b, "-profile:v", prof, *tag]
+    return ["-c:v", enc, "-b:v", b, "-maxrate", b, *tag]      # unknown hw: plain ABR
+
+
 def build_video_args(
     config: RunConfig,
     info: MediaInfo,
     mode: Mode,
     target_kbps: int,
-    hardware: bool,
+    hw_encoder: str | None,
 ) -> list[str]:
     """The `-c:v ...` argument list only (no input/output/audio/subs).
 
     REMUX     -> stream copy (+ hvc1 tag if the source is already HEVC).
     SHRINK    -> capped-CRF at the tuned tier ceiling (crf 20/21, preset medium).
     TRANSCODE -> higher-fidelity capped-CRF (crf 18/20, preset slow).
-    Hardware (VideoToolbox) has no true CRF -> targets -b:v instead.
+    `hw_encoder` (a specific *_videotoolbox/nvenc/qsv/amf name, or None for
+    software) is chosen by select_hw_encoder — hardware ABR-targets -b:v instead.
     """
     if mode == Mode.REMUX:
         vargs = ["-c:v", "copy"]
@@ -91,12 +183,13 @@ def build_video_args(
             vargs += ["-tag:v", "hvc1"]
         return vargs
 
+    if hw_encoder:
+        return _hw_video_args(info, hw_encoder, target_kbps)
+
     if mode == Mode.TRANSCODE:
         crf264, crf265, preset = 18, 20, "slow"
     else:  # SHRINK
         crf264, crf265, preset = 20, 21, "medium"
-
-    bitrate = f"{target_kbps}k"        # hardware ABR aims at this average directly
 
     # Software is capped-CRF: the CRF sets quality and -maxrate is only a ceiling. The
     # original bug was a LOOSE ceiling (bufsize = 2x target) that let the average land
@@ -114,17 +207,11 @@ def build_video_args(
     bufsize = f"{target_kbps}k"
 
     if config.out_codec == OutCodec.H264:
-        if hardware:
-            return ["-c:v", "h264_videotoolbox", "-b:v", bitrate,
-                    "-profile:v", "high", "-pix_fmt", "yuv420p"]
         return ["-c:v", "libx264", "-crf", str(crf264), "-preset", preset,
                 "-maxrate", maxrate, "-bufsize", bufsize,
                 "-profile:v", "high", "-pix_fmt", "yuv420p"]
 
     profile = _hevc_profile(info)
-    if hardware:
-        return ["-c:v", "hevc_videotoolbox", "-b:v", bitrate,
-                "-profile:v", profile, "-tag:v", "hvc1", "-bf", "0", "-fps_mode", "cfr"]
     return ["-c:v", "libx265", "-crf", str(crf265), "-preset", preset,
             "-maxrate", maxrate, "-bufsize", bufsize,
             "-profile:v", profile, "-tag:v", "hvc1"]
@@ -191,11 +278,14 @@ def _run_ffmpeg(
     label: str,
     duration: float,
     progress: ProgressCB | None,
+    errsink: list[str] | None = None,
 ) -> bool:
     """Run one ffmpeg invocation. Returns True on exit code 0.
 
     When a progress callback is supplied, `-progress pipe:1` output is parsed for
     a 0..1 fraction (indeterminate/None if the source duration is unknown).
+    On failure, the tail of ffmpeg's stderr is appended to `errsink` (when given)
+    so the caller can report *why* it failed rather than a generic message.
     """
     if progress is None:
         try:
@@ -203,10 +293,16 @@ def _run_ffmpeg(
                 [ffmpeg, *args],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
             )
+            if r.returncode != 0 and errsink is not None:
+                tail = [ln.strip() for ln in (r.stderr or "").strip().splitlines() if ln.strip()]
+                errsink.append(" / ".join(tail[-2:]) if tail else f"ffmpeg exit {r.returncode}")
             return r.returncode == 0
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError) as e:
+            if errsink is not None:
+                errsink.append(str(e))
             return False
 
     # Progress-wired path: stream `-progress pipe:1`.
@@ -289,7 +385,7 @@ def run_encode(
     src: Path,
     out: Path,
     target_kbps: int,
-    hardware: bool,
+    hw_encoder: str | None,
     container: Container | None = None,
     progress: ProgressCB | None = None,
 ) -> EncodeResult:
@@ -303,7 +399,7 @@ def run_encode(
     if container is None:
         container = resolve_container(config, info)
     ffmpeg = config.ffmpeg
-    vargs = build_video_args(config, info, mode, target_kbps, hardware)
+    vargs = build_video_args(config, info, mode, target_kbps, hw_encoder)
     audio_attempts = _audio_attempts(config, info, container)
     text_subs = info.text_subs
     image_subs = info.image_subs
@@ -313,6 +409,7 @@ def run_encode(
     sidecars_made = 0
     sidecar_fail = 0
     reasons: list[str] = []
+    errs: list[str] = []                # ffmpeg stderr tails from failed attempts
 
     if container == Container.MKV:
         # Matroska carries every stream — copy all subtitles, keep everything.
@@ -323,7 +420,8 @@ def run_encode(
                 *vargs, *aargs, "-c:s", "copy",
                 str(out),
             ]
-            if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration, progress=progress):
+            if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration,
+                           progress=progress, errsink=errs):
                 encode_ok = True
                 subs_embedded = bool(text_subs or image_subs)
                 break
@@ -345,7 +443,8 @@ def run_encode(
                     "-movflags", "+faststart",
                     str(out),
                 ]
-                if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration, progress=progress):
+                if _run_ffmpeg(ffmpeg, args, label=out.name, duration=info.duration,
+                               progress=progress, errsink=errs):
                     encode_ok = True
                     subs_embedded = (sub_mode == "embed")
                     break
@@ -354,8 +453,9 @@ def run_encode(
                 break
 
     if not encode_ok:
+        detail = f" — {errs[-1]}" if errs else ""
         return EncodeResult(ok=False, out_path=out,
-                            error="encode failed (all audio/subtitle strategies)")
+                            error=f"encode failed (all audio/subtitle strategies){detail}")
 
     if container != Container.MKV:
         if text_subs and not subs_embedded:

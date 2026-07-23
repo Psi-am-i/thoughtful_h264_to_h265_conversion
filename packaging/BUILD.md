@@ -31,16 +31,21 @@ with `PYTHON=/opt/homebrew/bin/python3.13`.
 ### ffmpeg/ffprobe source & licensing
 
 Static builds are required — Homebrew's link against many dylibs and aren't
-portable. The script downloads them from [evermeet.cx](https://evermeet.cx/ffmpeg/)
-(**GPLv3**, redistributable) unless you supply your own, and **refuses** any
-`--enable-nonfree` build (not redistributable). Because the app calls ffmpeg as a
+portable. The script downloads **arm64** builds from
+[martin-riedl.de](https://ffmpeg.martin-riedl.de/) (**GPL**, redistributable)
+unless you supply your own via `$FFMPEG_STATIC` / `$FFPROBE_STATIC`, and
+**refuses** any `--enable-nonfree` build. Because the app calls ffmpeg as a
 subprocess (not linked), the app's own code is not a derivative work. Each zip
-carries a `licenses/` folder with the full GPLv3 text + attribution NOTICE.
+carries a `licenses/` folder with the full GPL text + attribution NOTICE.
 
-**Architecture:** evermeet builds are **x86_64**; the PyInstaller front-end is
-built for the host arch. On Apple Silicon you get an arm64 app running its bundled
-x86_64 ffmpeg via **Rosetta 2** (present/auto-installing on all Apple Silicon).
-For an Intel-native app, build under `arch -x86_64` or on an Intel Mac.
+**Architecture: arm64 / Apple Silicon only — this is deliberate.** An x86_64
+ffmpeg under Rosetta 2 *lists* `hevc_videotoolbox` but fails every hardware encode
+(`-22`), and a software-only app is not useful (libx265 is far too slow for a TV
+library). So the build **gates**: it verifies the bundled ffmpeg is arm64 and that
+`hevc_videotoolbox` actually encodes a test frame on the build host — otherwise it
+refuses to build. Build on an Apple Silicon Mac. (At runtime the app re-probes and
+falls back to software only if hardware genuinely can't run — see the engine's
+`select_hw_encoder`.)
 
 ### Gatekeeper (unsigned)
 

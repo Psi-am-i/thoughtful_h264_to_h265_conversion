@@ -8,7 +8,9 @@ sources are never transcoded (only remuxed); MP4-incompatible legacy codecs
 (MPEG-2, VC-1, Xvid, WMV) are rescued at full fidelity.
 
 Python, the engine, the interface, and a static ffmpeg + ffprobe are all bundled.
-You install nothing.
+You install nothing. The macOS build is Apple Silicon and encodes on the GPU via
+VideoToolbox; the Windows build uses whatever hardware encoder your machine has
+(NVIDIA NVENC / Intel QSV / AMD AMF), falling back to software only if none works.
 
 ** INSTALLATION **
 

@@ -21,15 +21,69 @@ import json
 import threading
 from pathlib import Path
 
+import logging
 import os
+import platform
 import shutil
+import subprocess
 import sys
+import tempfile
 
-from . import pipeline
+from . import encode, pipeline
 from .config import Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
 from .model import OutCodec, Tier
 from .result import Outcome
+
+
+# ── debug log ────────────────────────────────────────────────────────────────
+# A packaged app has no console, so everything of interest goes to a rotating-ish
+# file the user can hand back when something misbehaves. Path is logged on startup.
+log = logging.getLogger("vtc.app")
+
+
+def _log_path() -> Path:
+    if sys.platform == "darwin":
+        d = Path.home() / "Library" / "Logs"
+    elif os.name == "nt":
+        d = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "VeryThoughtfulCompression"
+    else:
+        d = Path.home() / ".local" / "state" / "vtc"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        d = Path(tempfile.gettempdir())
+    return d / "VeryThoughtfulCompression.log"
+
+
+def _setup_logging() -> Path:
+    path = _log_path()
+    if not log.handlers:
+        log.setLevel(logging.DEBUG)
+        try:
+            fh = logging.FileHandler(path, encoding="utf-8")
+            fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(message)s"))
+            log.addHandler(fh)
+        except OSError:
+            log.addHandler(logging.NullHandler())
+    return path
+
+
+def _log_environment() -> None:
+    """Record what the app resolved to and whether hardware encoding is real."""
+    log.info("=== Very Thoughtful Compression starting ===")
+    log.info("python %s on %s (%s)", platform.python_version(),
+             platform.platform(), platform.machine())
+    log.info("frozen=%s  resource_base=%s", bool(getattr(sys, "_MEIPASS", None)), _resource_base())
+    for label, tool in (("ffmpeg", FFMPEG), ("ffprobe", FFPROBE)):
+        ver = "?"
+        try:
+            ver = subprocess.run([tool, "-version"], capture_output=True, text=True,
+                                 timeout=15).stdout.splitlines()[0]
+        except Exception as e:  # noqa: BLE001
+            ver = f"<could not run: {e}>"
+        log.info("%s -> %s  [%s]", label, tool, ver)
+    log.info("hardware encoders: %s", encode.hardware_report(FFMPEG))
 
 
 # ── bundle-aware resource + tool resolution ──────────────────────────────────
@@ -95,6 +149,25 @@ _BRIDGE_JS = r"""
 (function(){
   if(!window.pywebview || !window.pywebview.api){ return; }   // standalone file: keep mock
   const api = window.pywebview.api;
+
+  // Check the machine's real hardware ability ON LOAD and make the ENCODER
+  // question tell the truth — disable Hardware if nothing works here, else name
+  // the actual encoder (videotoolbox / nvenc / qsv / amf).
+  api.hw_capabilities().then(cap=>{
+    window.__vtcHW = cap;
+    const q = (typeof M!=='undefined') && M.find(x=>x.id==='encoder');
+    if(!q) return;
+    if(!cap || !cap.available){
+      q.opts[0].disabled = true;
+      q.opts[0].tag = 'not available on this machine';
+      q.sub = 'No working hardware encoder was detected on this machine, so software is the only option here.';
+    } else {
+      const name = (cap.h265 || cap.h264 || 'hardware').replace(/_/g,' ');
+      q.opts[0].tag = name + ' · default';
+      q.sub = 'A working hardware encoder (' + name + ') was detected on this machine, so you get the choice.';
+    }
+    if(typeof step!=='undefined' && M[step] && M[step].id==='encoder' && typeof render==='function') render();
+  }).catch(()=>{});
 
   // Real mode has no "recent folders": Start goes straight to the native picker.
   try { FOLDERS.length = 0; } catch(e){}
@@ -243,23 +316,44 @@ class Api:
         }
 
     # -- the run: stream each file's result back, then a summary ----------------
+    def hw_capabilities(self):
+        """What hardware encoding is actually available — probed on demand at load
+        so the UI's encoder choice reflects this machine, not a guess."""
+        rep = encode.hardware_report(FFMPEG)
+        log.info("hw_capabilities: %s", rep)
+        return rep
+
     def run(self, answers: dict):
         if self._src is None:
             return {"error": "no folder"}
         try:
             config = build_config(self._src, answers)
         except ValueError as e:
+            log.error("run: bad config: %s", e)
             return {"error": str(e)}
         threading.Thread(target=self._run_worker, args=(config,), daemon=True).start()
         return {"started": True}
 
     def _run_worker(self, config: RunConfig):
+        hw = encode.select_hw_encoder(config)
+        log.info("run start: src=%s codec=%s tier=%s encoder=%s -> hw=%s remux=%s xcode=%s dest=%s",
+                 config.src, config.out_codec.value, config.tier.name, config.encoder.value,
+                 hw or "software", config.remux_to_mp4, config.compat_transcode,
+                 config.source_action.value)
+
         def emit(r):
+            if r.outcome is Outcome.ERROR:
+                log.error("  FAIL %s: %s", r.path.name,
+                          r.notes[0].message if r.notes else "encode failed")
+            else:
+                log.debug("  %s %s", r.outcome.value, r.path.name)
             if self.window:
                 self.window.evaluate_js(
                     f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(_row(r))})")
+
         results = pipeline.run(config, on_result=emit)
         summary = _summary(results)
+        log.info("run done: %s", summary)
         if self.window:
             self.window.evaluate_js(
                 f"window.__vtcOnDone && window.__vtcOnDone({json.dumps(summary)})")
@@ -299,7 +393,7 @@ def _summary(results: list) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import sys
+    log_path = _setup_logging()
     try:
         import webview
     except ModuleNotFoundError:
@@ -314,6 +408,9 @@ def main(argv: list[str] | None = None) -> int:
     if not html.is_file():
         print(f"HTML not found: {html}", file=sys.stderr)
         return 2
+    _log_environment()          # record tools + hardware ability on load
+    log.info("html: %s", html)
+    print(f"Very Thoughtful Compression — debug log: {log_path}")
     api = Api()
     window = webview.create_window("Very Thoughtful Compression", str(html), js_api=api,
                                    width=1280, height=980, min_size=(900, 700))

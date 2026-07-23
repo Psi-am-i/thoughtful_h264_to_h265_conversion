@@ -8,11 +8,13 @@
 # encode engine. Python, pywebview, the vtc engine, the interface HTML, and a
 # static ffmpeg + ffprobe are all bundled — recipients install nothing.
 #
-# ffmpeg/ffprobe source (redistributable GPLv3 static builds; --enable-nonfree
-# refused):
-#   1. $FFMPEG_STATIC / $FFPROBE_STATIC — binaries you already have
-#   2. downloaded from evermeet.cx (self-contained static GPLv3, x86_64 — runs on
-#      Intel natively and on Apple Silicon via Rosetta 2)
+# ffmpeg/ffprobe source (redistributable GPL static builds; --enable-nonfree
+# refused). MUST be arm64: an x86_64 ffmpeg under Rosetta LISTS hevc_videotoolbox
+# but fails every hardware encode (-22), and a software-only app is not useful —
+# so this build is Apple-Silicon-only and gates on VideoToolbox actually working.
+#   1. $FFMPEG_STATIC / $FFPROBE_STATIC — arm64 binaries you already have
+#   2. downloaded from martin-riedl.de (self-contained static GPL arm64 builds
+#      with a working hevc_videotoolbox / h264_videotoolbox)
 #
 set -euo pipefail
 
@@ -42,28 +44,43 @@ fetch_tool() {  # fetch_tool <name> <override-var-value> <evermeet-url>
     chmod +x "$dest"
 }
 
-echo "==> Obtaining static ffmpeg + ffprobe (redistributable GPL builds)"
-fetch_tool ffmpeg  "${FFMPEG_STATIC:-}"  "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
-fetch_tool ffprobe "${FFPROBE_STATIC:-}" "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
+MR="https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release"
+echo "==> Obtaining static arm64 ffmpeg + ffprobe (redistributable GPL builds)"
+fetch_tool ffmpeg  "${FFMPEG_STATIC:-}"  "$MR/ffmpeg.zip"
+fetch_tool ffprobe "${FFPROBE_STATIC:-}" "$MR/ffprobe.zip"
 FFMPEG_BIN="$BUILD_DIR/ffmpeg"
 FFPROBE_BIN="$BUILD_DIR/ffprobe"
 
+# Architecture gate: must be arm64 (Rosetta x86_64 breaks VideoToolbox).
+if ! file "$FFMPEG_BIN" | grep -q arm64; then
+    echo "ERROR: bundled ffmpeg is not arm64 — VideoToolbox will not work under Rosetta."
+    echo "Provide an arm64 static build via \$FFMPEG_STATIC / \$FFPROBE_STATIC."; exit 1
+fi
+
 # License gate: --enable-nonfree builds are NOT redistributable.
 if "$FFMPEG_BIN" -version 2>/dev/null | grep -q -- "--enable-nonfree"; then
-    echo "ERROR: this ffmpeg is built --enable-nonfree and cannot be redistributed."
-    echo "Use a GPL/LGPL build (the evermeet.cx default)."
-    exit 1
+    echo "ERROR: this ffmpeg is built --enable-nonfree and cannot be redistributed."; exit 1
 fi
 FFVER="$("$FFMPEG_BIN" -version 2>/dev/null | head -1)"
 echo "    $FFVER"
 
-# Encoder gate: VTC's software path needs libx264 + libx265.
-for enc in libx264 libx265; do
+# Encoder gate: needs libx264 + libx265 (software) AND the VideoToolbox encoders.
+for enc in libx264 libx265 h264_videotoolbox hevc_videotoolbox; do
     if ! "$FFMPEG_BIN" -hide_banner -encoders 2>/dev/null | grep -q " $enc "; then
         echo "ERROR: bundled ffmpeg is missing the '$enc' encoder."; exit 1
     fi
 done
 "$FFPROBE_BIN" -version >/dev/null || { echo "ERROR: ffprobe not runnable"; exit 1; }
+
+# Function gate: VideoToolbox must ACTUALLY encode here, not merely be listed.
+# This is the whole point — ship only a build whose hardware path works.
+echo "==> Verifying hevc_videotoolbox actually works on this machine"
+if ! "$FFMPEG_BIN" -hide_banner -v error -f lavfi -i testsrc2=size=128x128:rate=1 \
+        -frames:v 1 -c:v hevc_videotoolbox -f null - 2>/dev/null; then
+    echo "ERROR: hevc_videotoolbox failed a test encode. Build on Apple Silicon with"
+    echo "       an arm64 ffmpeg — a software-only app is not shippable."; exit 1
+fi
+echo "    hevc_videotoolbox: OK"
 
 echo "==> Selecting a build Python (3.11+)"
 BUILD_PYTHON=""

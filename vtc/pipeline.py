@@ -199,7 +199,7 @@ def plan(config: RunConfig) -> list[PlanRow]:
 
 
 # ── Per-file processing ───────────────────────────────────────────────────────
-def process_file(config: RunConfig, ledger: Ledger, hardware: bool,
+def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
                  src_file: Path, progress: ProgressCB | None = None) -> FileResult:
     lkey = ledger.key(src_file) if ledger.enabled else ""
     if ledger.enabled and ledger.has(lkey):
@@ -237,7 +237,7 @@ def process_file(config: RunConfig, ledger: Ledger, hardware: bool,
     TMPROOT.mkdir(parents=True, exist_ok=True)
     tmp = TMPROOT / f".{out.stem}.{os.getpid()}.{id(src_file) & 0xffff}{ext}"
 
-    res = encode.run_encode(config, info, mode, src_file, tmp, target, hardware, container, progress)
+    res = encode.run_encode(config, info, mode, src_file, tmp, target, hw_encoder, container, progress)
     if not res.ok:
         tmp.unlink(missing_ok=True)
         return FileResult(src_file, Outcome.ERROR,
@@ -265,12 +265,12 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
         on_result: ResultCB | None = None) -> list[FileResult]:
     """Process the whole scan tree. Returns one FileResult per file processed."""
     ledger = Ledger(config)
-    hardware = encode.use_hardware(config)
+    hw_encoder = encode.select_hw_encoder(config)
     files = list(iter_video_files(config))
     results: list[FileResult] = []
 
     def work(f: Path) -> FileResult:
-        return process_file(config, ledger, hardware, f, progress)
+        return process_file(config, ledger, hw_encoder, f, progress)
 
     stopped = False
     with ThreadPoolExecutor(max_workers=max(1, config.jobs)) as pool:
