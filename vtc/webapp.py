@@ -32,8 +32,8 @@ import tempfile
 from . import encode, pipeline
 from .config import Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
-from .model import OutCodec, Tier
-from .result import Outcome
+from .model import OutCodec, Tier, target_kbps
+from .result import Mode, Outcome
 
 
 # ── debug log ────────────────────────────────────────────────────────────────
@@ -113,6 +113,101 @@ def _bundled_html() -> Path:
 
 FFMPEG = _resolve_tool("ffmpeg", "FFMPEG_BINARY")
 FFPROBE = _resolve_tool("ffprobe", "FFPROBE_BINARY")
+
+
+# ── preview server: serve generated sample encodes to the webview <video>s ────
+# A tiny loopback HTTP server with Range (206) support — WKWebView will not play
+# a <video> without it. Rooted at a temp dir the previews are written into.
+import functools
+import http.server
+import socketserver
+
+_preview_dir: Path | None = None
+_preview_port: int | None = None
+
+
+class _RangeHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def do_GET(self):  # noqa: N802
+        path = self.translate_path(self.path)
+        if not os.path.isfile(path):
+            self.send_error(404)
+            return
+        size = os.path.getsize(path)
+        ctype = self.guess_type(path)
+        rng = self.headers.get("Range")
+        if rng and rng.startswith("bytes="):
+            try:
+                s, e = rng[6:].split("-", 1)
+                start = int(s) if s else 0
+                end = int(e) if e else size - 1
+            except ValueError:
+                start, end = 0, size - 1
+            start = max(0, start)
+            end = min(end, size - 1)
+            length = max(0, end - start + 1)
+            self.send_response(206)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header("Content-Length", str(length))
+            self.end_headers()
+            with open(path, "rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    try:
+                        self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
+                    remaining -= len(chunk)
+        else:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(path, "rb") as f:
+                try:
+                    shutil.copyfileobj(f, self.wfile)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+
+def _ensure_preview_server() -> tuple[Path, int]:
+    global _preview_dir, _preview_port
+    if _preview_dir is not None and _preview_port is not None:
+        return _preview_dir, _preview_port
+    _preview_dir = Path(tempfile.mkdtemp(prefix="vtc_prev_"))
+    handler = functools.partial(_RangeHandler, directory=str(_preview_dir))
+    srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler)
+    srv.daemon_threads = True
+    _preview_port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log.info("preview server on 127.0.0.1:%s -> %s", _preview_port, _preview_dir)
+    return _preview_dir, _preview_port
+
+
+# The variations shown side by side: the untouched SOURCE, then each quality tier.
+_PREVIEW_PANELS = [
+    ("source", "Source", None),
+    ("ok", "OK", Tier.OK),
+    ("good", "Good", Tier.GOOD),
+    ("excellent", "Excellent", Tier.EXCELLENT),
+    ("stellar", "Stellar", Tier.STELLAR),
+    ("insane", "Insane", Tier.INSANE),
+]
+
 
 # ── mockup answer-index -> engine value (mirrors the M model in the HTML) ─────
 _CODECS = [OutCodec.H264, OutCodec.H265, None, None]    # 0=H264, 1=H265, 2=AV1, 3=VVC (2/3 unsupported)
@@ -218,6 +313,7 @@ _BRIDGE_JS = r"""
   window.__vtcRunStart = (total)=> pgStart(total);                       // engine: run begins
   window.__vtcEncodeProgress = (name, frac)=> pgFile(name, frac);        // engine: current file %
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
+  window.__vtcRegenPreviews = ()=> { try { api.regenerate_previews(); } catch(e){} };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
     acc.push(r);
     pgDone1({ f:r.name, t:r.t, sev:r.sev });
@@ -269,7 +365,83 @@ class Api:
         self._probes, self._probed_for = [], None
         self._total_files, self._total_tb = files, total / 1e12
         threading.Thread(target=self._warm_probes, args=(src,), daemon=True).start()
+        # Build the real preview encodes in the background while they configure (#3).
+        threading.Thread(target=self._preview_worker, args=(src,), daemon=True).start()
         return {"k": str(src), "files": files, "tb": total / 1e12}
+
+    # -- previews: extract a 5s sample, encode it at each tier, stream URLs --------
+    def _emit(self, fn: str, payload) -> None:
+        if self.window:
+            self.window.evaluate_js(f"window.{fn} && window.{fn}({json.dumps(payload)})")
+
+    def _preview_worker(self, src: Path):
+        try:
+            pdir, port = _ensure_preview_server()
+            for f in pdir.glob("*.mp4"):        # only clear old previews, not the served HTML
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+            cfg = RunConfig(src=src, ffmpeg=FFMPEG, ffprobe=FFPROBE)
+            first = next(iter(pipeline.iter_video_files(cfg)), None)
+            if first is None:
+                self._emit("__vtcPreviewError", "no video files found here"); return
+            info = probe(first, FFPROBE)
+            if not info.ok or not info.vcodec or info.width <= 0:
+                self._emit("__vtcPreviewError", "could not read the first file"); return
+            dur = info.duration or 0.0
+            seglen = min(5.0, dur) if dur > 0 else 5.0
+            start = max(0.0, (dur - seglen) / 2.0)                 # from the middle
+            is_hevc = (info.vcodec or "").lower() == "hevc"
+            log.info("previews: %s (%dx%d, %.1fs) sample @ %.1fs",
+                     first.name, info.width, info.height, dur, start)
+
+            # SOURCE panel = the actual source frames, losslessly cut and made playable.
+            sample = pdir / "source.mp4"
+            vtag = ["-tag:v", "hvc1"] if is_hevc else []
+            r = subprocess.run(
+                [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
+                 "-t", f"{seglen:.3f}", "-map", "0:v:0", "-c:v", "copy", "-an",
+                 *vtag, "-movflags", "+faststart", str(sample)],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True)
+            if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
+                self._emit("__vtcPreviewError", "could not extract a sample clip"); return
+
+            sinfo = probe(sample, FFPROBE)
+            self._emit("__vtcPreviewStart",
+                       {"w": sinfo.width or info.width, "h": sinfo.height or info.height,
+                        "n": len(_PREVIEW_PANELS)})
+            hw = encode.select_hw_encoder(
+                RunConfig(src=src, out_codec=OutCodec.H265, ffmpeg=FFMPEG))
+
+            for idx, (key, label, tier) in enumerate(_PREVIEW_PANELS):
+                if self._src != src:                # source changed under us — stop
+                    return
+                if tier is None:
+                    out = sample
+                else:
+                    out = pdir / f"{key}.mp4"
+                    tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, OutCodec.H265)
+                    cfg2 = RunConfig(src=src, out_codec=OutCodec.H265, tier=tier, ffmpeg=FFMPEG)
+                    vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
+                    rr = subprocess.run(
+                        [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
+                         "-movflags", "+faststart", str(out)],
+                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                    if rr.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+                        log.error("preview %s failed: %s", key,
+                                  (rr.stderr or "").strip().splitlines()[-1:])
+                        self._emit("__vtcPreviewPanel", {"i": idx, "key": key, "label": label,
+                                                         "error": "encode failed"})
+                        continue
+                size = out.stat().st_size
+                self._emit("__vtcPreviewPanel",
+                           {"i": idx, "key": key, "label": label, "bytes": size,
+                            "url": f"http://127.0.0.1:{port}/{out.name}?v={size}"})
+            self._emit("__vtcPreviewDone", "")
+        except Exception as e:  # noqa: BLE001 — previews must never crash the app
+            log.exception("preview worker failed")
+            self._emit("__vtcPreviewError", str(e))
 
     def _warm_probes(self, src: Path):
         """Probe every file, publishing partial results periodically so the
@@ -334,6 +506,12 @@ class Api:
         rep = encode.hardware_report(FFMPEG)
         log.info("hw_capabilities: %s", rep)
         return rep
+
+    def regenerate_previews(self):
+        """Re-run the sample encodes for the current source (e.g. after a change)."""
+        if self._src is not None:
+            threading.Thread(target=self._preview_worker, args=(self._src,), daemon=True).start()
+        return {"ok": True}
 
     def stop_run(self):
         """Ask the run to stop after the current file(s) (graceful, no corruption)."""
@@ -449,10 +627,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"HTML not found: {html}", file=sys.stderr)
         return 2
     _log_environment()          # record tools + hardware ability on load
-    log.info("html: %s", html)
+    # Serve the app over the same local HTTP server that serves the previews, so the
+    # page origin is http:// — the generated preview <video>s then load without the
+    # file:// mixed-content restrictions WKWebView/EdgeChromium impose.
+    pdir, port = _ensure_preview_server()
+    try:
+        shutil.copyfile(html, pdir / "vtc_app_v3.html")
+        target = f"http://127.0.0.1:{port}/vtc_app_v3.html"
+    except OSError:
+        target = str(html)      # fall back to file:// if the copy fails
+    log.info("loading %s (html=%s)", target, html)
     print(f"Very Thoughtful Compression — debug log: {log_path}")
     api = Api()
-    window = webview.create_window("Very Thoughtful Compression", str(html), js_api=api,
+    window = webview.create_window("Very Thoughtful Compression", target, js_api=api,
                                    width=1280, height=980, min_size=(900, 700))
     api.window = window
     window.events.loaded += lambda: window.evaluate_js(_BRIDGE_JS)

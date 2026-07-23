@@ -542,24 +542,27 @@ body{
 /* Five across, always, and the whole pane has to FIT — no scrolling to reach the
    transport. The frames are 16:10 but capped by height, so on a wide window they
    stop growing rather than pushing the controls out of the deck. */
-.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;justify-items:center}
-.cell{cursor:pointer;background:none;border:0;padding:0;text-align:left;min-width:0;width:100%;
+.grid{display:grid;grid-template-columns:repeat(var(--pvn,6),1fr);gap:7px;align-items:start}
+.grid:not(.live){display:flex;align-items:center;justify-content:center;min-height:180px}
+.pv-empty{color:var(--ink-3);font-size:12.5px;letter-spacing:.03em;text-align:center;
+  max-width:62ch;line-height:1.55;padding:24px}
+.cell{background:none;border:0;padding:0;text-align:left;min-width:0;width:100%;
   display:flex;flex-direction:column;min-height:0}
-/* height-led: the strip gets whatever the column leaves, and each frame takes
-   its width from that via the aspect ratio — rather than being width-led and
-   pushing the transport off the bottom. */
-.frame{aspect-ratio:16/10;height:100%;width:auto;max-width:100%;margin:0 auto;
-  border:1px solid var(--rule);border-radius:var(--r);
-  position:relative;overflow:hidden;background:#1c1a16;transition:box-shadow .2s;
-  margin:0 auto;width:100%}
+/* The frame is a 1:1 WINDOW onto the encode: the <video> sits at its natural pixel
+   size and is translated, so the frame shows a crop at 100% — never scaled down.
+   That is the only honest way to compare quality across encodes. */
+.frame{width:100%;aspect-ratio:16/10;position:relative;overflow:hidden;
+  border:1px solid var(--rule);border-radius:var(--r);background:#0f0e0c;cursor:grab;
+  transition:box-shadow .2s}
+.grid.grabbing .frame{cursor:grabbing}
 .cell:hover .frame{box-shadow:0 0 0 1px var(--ink-3)}
-.cell.sel .frame{box-shadow:0 0 0 2px var(--accent)}
-.frame canvas{width:100%;height:100%;display:block}
-/* encoding state: a spinner sits over the frame until that variant finishes */
-.frame .spin{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:#1c1a16}
-.cell.encoding .frame canvas{opacity:0}
-.cell.encoding .frame .spin{display:flex}
+.frame video{position:absolute;top:0;left:0;display:block;max-width:none;background:#0f0e0c}
+/* a spinner sits over the frame until that variant has encoded and can play */
+.frame .spin{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:#1c1a16;z-index:2}
+.cell.ready .frame .spin{display:none}
+.cell.failed .frame .spin{display:flex;background:#231a17}
 .frame .spin i{width:22px;height:22px;border-radius:50%;border:2px solid #423d34;border-top-color:var(--accent);animation:spin .8s linear infinite}
+.cell.failed .frame .spin i{display:none}
 .frame .spin span{font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* the panel's name, under the frame, at a size you can actually read */
@@ -577,7 +580,9 @@ body{
 
 /* full screen: the five panels, large, on one clock */
 #big-sheet .sheet-c{width:min(1500px,100%);background:#1a1815;border-color:#332f28}
-#big-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+/* #big-grid just holds the real #grid full-width; #grid keeps its own columns */
+#big-grid{display:block;width:100%}
+#big-grid > #grid{width:100%}
 #big-grid .cell-t{color:#e9e6dd}
 #big-grid .cell-m{color:#8b857a}
 #big-grid .cell-m b{color:#b5afa2}
@@ -593,9 +598,9 @@ body{
 #big-sheet:fullscreen{padding:0;background:#0f0e0c}
 #big-sheet:fullscreen .sheet-c{width:100%;max-width:none;height:100%;margin:0;border-radius:0;display:flex;flex-direction:column}
 #big-sheet:fullscreen .sheet-b{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-#big-sheet:fullscreen #big-grid{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:14px;align-content:center;justify-content:center;padding:14px}
-#big-sheet:fullscreen #big-grid .cell{flex:0 1 calc(33.333% - 14px);min-height:0}
-#big-sheet:fullscreen #big-grid .frame{aspect-ratio:16/10;width:100%;height:auto;max-width:none}
+#big-sheet:fullscreen #big-grid{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px}
+#big-sheet:fullscreen #big-grid > #grid{width:100%}
+#big-sheet:fullscreen #big-grid .frame{aspect-ratio:16/10}
 
 /* one clock for all five */
 .transport{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:10px;
@@ -761,7 +766,7 @@ body{
               <svg viewBox="0 0 12 12"><path d="M3 1 L9 6 L3 11 Z"/><rect x="8.9" y="1" width="1.6" height="10"/></svg>
             </button>
             <div class="scrub" id="scrub"><div class="scrub-f" id="scrubf"></div><i id="head"></i></div>
-            <span class="tp-t mono"><b id="t">0.00</b>s / 5.00s</span>
+            <span class="tp-t mono"><b id="t">0.00</b>s / <span id="tdur">5.00</span>s</span>
             <div class="rates" id="rates">
               <button data-r="1" class="on">1&times;</button>
               <button data-r="0.5">&frac12;&times;</button>
@@ -853,8 +858,8 @@ body{
 <div class="sheet" id="big-sheet">
   <div class="sheet-c">
     <div class="sheet-h">
-      <div class="sheet-e mono">Same source · same frame · one clock</div>
-      <h2 class="sheet-t" id="big-t">Five encodes, side by side</h2>
+      <div class="sheet-e mono">Same frame · same crop · at 1:1</div>
+      <h2 class="sheet-t" id="big-t">Your footage at each tier</h2>
     </div>
     <div class="sheet-b">
       <div id="big-grid"></div>
@@ -1866,156 +1871,158 @@ document.querySelectorAll('.dtab').forEach(t=>{
 // One clock drives all five panels. They are the same five seconds of the same
 // source, so comparing them only means anything if they show the same instant —
 // which means a single timeline, not five independent players.
-const PANELS=[
-  {l:'HW · H.265',size:'3.9 GB',note:'8m',q:0.86,block:5},
-  {l:'HW · H.264',size:'6.8 GB',note:'6m',q:0.80,block:6},
-  {l:'SW · H.265',size:'3.6 GB',note:'2h11',q:0.94,block:3},
-  {l:'SW · AV1',size:'2.9 GB',note:'9h04',q:0.97,block:2},
-  {l:'SOURCE',size:'14.2 GB',note:'—',q:1.0,block:1},
-];
-const FPS=24, DUR=5, FRAMES=FPS*DUR;
-// `frame` is always an integer — the grain is seeded from it, so a fractional
-// frame would make the picture shimmer between steps. The float clock lives in
-// `clock` and only ever writes whole frames out.
-let frame=0, clock=0, playing=false, rate=1, lastT=null, sel=-1;
+// ═══ previews: real encodes of a 5s sample, compared 1:1 on a cropped region ═══
+// The point is to judge QUALITY, so every panel shows the SAME crop of the SAME
+// frame at 1:1 (one source pixel = one screen pixel) — you cannot see quality in
+// a shrunk-to-fit thumbnail, and the full frame is too small to compare across
+// panels. The engine encodes the sample at each tier and streams the panels in
+// (see the pywebview bridge); standalone, the deck waits for a real run.
+const PV = { n:0, sw:0, sh:0, dur:5, fps:24, cropX:0, cropY:0, playing:false,
+             ready:new Set(), started:false };
+const pvVideos = ()=> [...document.querySelectorAll('#grid video')];
+const human = b => b>=1e9 ? (b/1e9).toFixed(2)+' GB' : b>=1e6 ? (b/1e6).toFixed(0)+' MB' : Math.max(1,(b/1e3)|0)+' KB';
 
-function buildGrid(){
-  // The title goes UNDER the frame at size, not in a 7px badge on top of it:
-  // these are the five things being compared, so they should be readable.
-  // The per-panel time is gone — every panel is the same video at the same
-  // instant off the same clock, so five copies of the timecode said nothing.
-  $('#grid').innerHTML=PANELS.map((p,i)=>
-    `<button class="cell" data-i="${i}"><div class="frame"><canvas width="200" height="125"></canvas><div class="spin"><i></i><span>encoding</span></div></div>
-     <div class="cell-t">${p.l}</div>
-     <div class="cell-m"><b>${p.size}</b></div></button>`).join('');
-  $('#grid').querySelectorAll('.cell').forEach(c=>{
-    c.onclick=()=>{
-      const i=+c.dataset.i;
-      sel = sel===i ? -1 : i;      // selection only highlights; it never gates playback
-      $('#grid').querySelectorAll('.cell').forEach((x,j)=>x.classList.toggle('sel',j===sel));
-    };
-  });
-  $('#ticks').innerHTML=[0,1,2,3,4,5].map(s=>`<span>${s}s</span>`).join('');
-  paintFrames(); syncUI();
+function pvPlaceholder(msg){
+  PV.started=false; PV.ready.clear(); PV.playing=false;
+  $('#grid').classList.remove('live');
+  $('#grid').innerHTML = `<div class="pv-empty mono">${msg||'Choose a folder — your footage previews here at each quality tier.'}</div>`;
+  $('#prev-note').textContent = 'The same five seconds at each tier, compared 1:1 on a cropped region — so you can actually see the quality, not a shrunk thumbnail.';
+  setEncodingUI(true);
 }
+function buildPreviewGrid(n){
+  PV.n=n; PV.started=true; PV.ready.clear(); PV.playing=false;
+  $('#grid').classList.add('live');
+  $('#grid').style.setProperty('--pvn', n);
+  $('#grid').innerHTML = Array.from({length:n}, (_,i)=>
+    `<div class="cell" data-i="${i}">
+       <div class="frame"><video muted playsinline preload="auto"></video>
+         <div class="spin"><i></i><span>encoding</span></div></div>
+       <div class="cell-t" data-t="${i}">-</div>
+       <div class="cell-m"><b data-m="${i}"></b></div>
+     </div>`).join('');
+  setEncodingUI(true);
+  $('#ticks').innerHTML=[0,1,2,3,4,5].map(x=>`<span>${x}s</span>`).join('');
+}
+function pvFrameSize(){
+  const fr=$('#grid').querySelector('.frame');
+  return fr ? [fr.clientWidth, fr.clientHeight] : [160,90];
+}
+function pvClamp(){
+  const [fw,fh]=pvFrameSize();
+  PV.cropX=Math.max(0, Math.min(Math.max(0,PV.sw-fw), PV.cropX));
+  PV.cropY=Math.max(0, Math.min(Math.max(0,PV.sh-fh), PV.cropY));
+}
+function pvApply(){                 // place every video so the frame is a 1:1 crop
+  pvClamp();
+  pvVideos().forEach(v=>{
+    v.style.width=PV.sw+'px'; v.style.height=PV.sh+'px';        // natural size = 1:1
+    v.style.transform=`translate(${-PV.cropX}px,${-PV.cropY}px)`;
+  });
+}
+window.__vtcPreviewStart = (info)=>{
+  PV.sw=info.w||1920; PV.sh=info.h||1080;
+  PV.cropX=Math.max(0,(PV.sw-320)/2); PV.cropY=Math.max(0,(PV.sh-180)/2);   // center-ish
+  buildPreviewGrid(info.n||6);
+};
+window.__vtcPreviewPanel = (p)=>{
+  if(!PV.started) buildPreviewGrid(6);
+  const cell=$('#grid').querySelector(`.cell[data-i="${p.i}"]`); if(!cell) return;
+  const te=$('#grid').querySelector(`[data-t="${p.i}"]`); if(te) te.textContent=p.label||('#'+p.i);
+  const mb=$('#grid').querySelector(`[data-m="${p.i}"]`);
+  if(p.error){ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent='failed'; if(mb) mb.textContent='-'; return; }
+  if(mb) mb.textContent=human(p.bytes||0);
+  const v=cell.querySelector('video');
+  v.onloadedmetadata=()=>{
+    if(v.videoWidth){ PV.sw=v.videoWidth; PV.sh=v.videoHeight; }
+    if(v.duration && isFinite(v.duration)) PV.dur=v.duration;
+    pvApply(); pvSyncUI();
+  };
+  v.oncanplay=()=>{ cell.classList.add('ready'); PV.ready.add(p.i);
+    if(PV.ready.size>=1) setEncodingUI(false); pvApply(); };
+  v.onerror=()=>{ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent="can't play"; };
+  v.src=p.url; v.load();
+};
+window.__vtcPreviewDone = ()=>{ setEncodingUI(false);
+  $('#prev-note').textContent='Your footage at each tier — drag any panel to pan the crop, scrub to compare a moment, full screen for more pixels.'; };
+window.__vtcPreviewError = (msg)=> pvPlaceholder(msg ? ('Previews unavailable - '+msg) : null);
 
-// Encoding previews: each variant spins until it "finishes" — staggered by how
-// long that encoder really takes (hardware in a blink, software AV1 last) — then
-// its thumbnail is revealed. Real sample-encodes will replace these timers.
-const ENC_MS=[1300,1000,2700,4300,400];   // HW·265, HW·264, SW·265, SW·AV1, SOURCE
-let encoding=false;
+// ── transport: one clock for every panel ─────────────────────────────────────
 function setEncodingUI(on){
   ['#play','#prev','#next'].forEach(s=>{ const b=$(s); if(b) b.disabled=on; });
-  $('#transport').style.opacity=on?'.5':'';
-  $('#scrub').style.pointerEvents=on?'none':'';
+  const tp=$('#transport'); if(tp) tp.style.opacity=on?'.5':'';
+  const sc=$('#scrub'); if(sc) sc.style.pointerEvents=on?'none':'';
 }
-function startEncode(){
-  encoding=true; playing=false;
-  const cells=[...$('#grid').querySelectorAll('.cell')];
-  cells.forEach((c,i)=>{
-    c.classList.add('encoding');
-    const sp=c.querySelector('.spin span');
-    if(sp) sp.textContent = PANELS[i].note && PANELS[i].note!=='—' ? '~'+PANELS[i].note : 'encoding';
-  });
-  paintFrames();                    // paint underneath; hidden by .encoding until each reveals
-  setEncodingUI(true);
-  let left=cells.length;
-  cells.forEach((c,i)=>setTimeout(()=>{
-    c.classList.remove('encoding');
-    if(--left===0){ encoding=false; setEncodingUI(false); seek(0); }
-  }, ENC_MS[i]));
+function pvLeader(){ return pvVideos().find(v=>v.readyState>=2) || pvVideos()[0]; }
+function pvSyncUI(){
+  const L=pvLeader(); const dur=PV.dur||(L&&L.duration)||5;
+  const t=L?L.currentTime:0; const pct=dur?Math.min(100,t/dur*100):0;
+  const te=$('#t'); if(te) te.textContent=t.toFixed(2);
+  const de=$('#tdur'); if(de) de.textContent=dur.toFixed(2);
+  $('#head').style.left=pct+'%'; $('#scrubf').style.width=pct+'%';
+  $('#play').classList.toggle('on',PV.playing);
 }
-
-// deterministic per frame: stepping back and forth must show the SAME picture,
-// so the grain is seeded from the frame number rather than Math.random()
-function rng(seed){ let n=seed*16807%2147483647; return()=>((n=n*16807%2147483647)/2147483647); }
-
-function paintFrames(){
-  const T=frame/FPS;
-  $('#grid').querySelectorAll('canvas').forEach((cv,i)=>{
-    const p=PANELS[i], x=cv.getContext('2d'), W=200,H=125;
-    const g=x.createLinearGradient(0,0,W,H), d=Math.sin(T*1.1)*10;
-    g.addColorStop(0,`hsl(24 34% ${8+d*.3}%)`);
-    g.addColorStop(.55,`hsl(18 22% ${20+d*.5}%)`);
-    g.addColorStop(1,`hsl(210 16% ${5+d*.2}%)`);
-    x.fillStyle=g; x.fillRect(0,0,W,H);
-    const cx=W*.36+Math.sin(T*.9)*14, cy=H*.52+Math.cos(T*.7)*6;
-    const r=x.createRadialGradient(cx,cy,2,cx,cy,46);
-    r.addColorStop(0,'rgba(255,224,190,.85)'); r.addColorStop(1,'rgba(255,180,120,0)');
-    x.fillStyle=r; x.beginPath(); x.arc(cx,cy,46,0,7); x.fill();
-    const rnd=rng(frame*97+i*7+1);
-    for(let k=0;k<Math.round(1100*p.q);k++){
-      x.fillStyle=`rgba(255,255,255,${rnd()*.05*p.q})`;
-      x.fillRect(rnd()*W|0,rnd()*H|0,1,1);
-    }
-    if(p.block>2){
-      x.globalAlpha=(p.block-2)*.055;
-      for(let yy=0;yy<H;yy+=8) for(let xx=0;xx<W;xx+=8)
-        if(rnd()<.14){ x.fillStyle=rnd()<.5?'#000':'#8a7f6f'; x.fillRect(xx,yy,8,8); }
-      x.globalAlpha=1;
-    }
-  });
+function pvSeek(t){
+  const dur=PV.dur||5; t=Math.max(0,Math.min(dur-0.03,t));
+  pvVideos().forEach(v=>{ try{ v.currentTime=t; }catch(e){} });
+  pvSyncUI();
 }
-
-function syncUI(){
-  const T=frame/FPS, pct=(playing?clock:frame)/(FRAMES-1)*100;
-  $('#t').textContent=T.toFixed(2);
-  $('#head').style.left=pct+'%';
-  $('#scrubf').style.width=pct+'%';
-  $('#play').classList.toggle('on',playing);
-  // stepping is for when it is stopped: a frame at a time, by hand
-  $('#prev').disabled=playing||frame<=0;
-  $('#next').disabled=playing||frame>=FRAMES-1;
+function pvPlay(){
+  if(!PV.ready.size) return;
+  PV.playing=!PV.playing;
+  if(PV.playing){
+    const L=pvLeader(); if(L && L.currentTime>=(PV.dur||L.duration||5)-0.06) pvSeek(0);
+    pvVideos().forEach(v=>{ v.play().catch(()=>{}); });
+  } else {
+    const t=pvLeader()?pvLeader().currentTime:0;
+    pvVideos().forEach(v=>{ v.pause(); try{v.currentTime=t;}catch(e){} });   // re-sync on pause
+  }
+  pvSyncUI();
 }
-function seek(f){ frame=Math.max(0,Math.min(FRAMES-1,Math.round(f))); clock=frame; paintFrames(); syncUI(); }
-
-$('#play').onclick=()=>{
-  playing=!playing;
-  if(playing && frame>=FRAMES-1) seek(0);
-  lastT=null; syncUI();
-};
-$('#prev').onclick=()=>seek(frame-1);
-$('#next').onclick=()=>seek(frame+1);
-$('#rates').querySelectorAll('button').forEach(b=>{
-  b.onclick=()=>{
-    rate=+b.dataset.r;
-    $('#rates').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
-  };
-});
+$('#play').onclick=pvPlay;
+$('#prev').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)-1/(PV.fps||24)); };
+$('#next').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)+1/(PV.fps||24)); };
+$('#rates').querySelectorAll('button').forEach(b=>{ b.onclick=()=>{
+  const r=+b.dataset.r; pvVideos().forEach(v=>v.playbackRate=r);
+  $('#rates').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); }; });
 $('#scrub').onpointerdown=e=>{
-  const set=ev=>{
-    const r=$('#scrub').getBoundingClientRect();
-    seek(Math.round((ev.clientX-r.left)/r.width*(FRAMES-1)));
-  };
-  playing=false; syncUI(); set(e);
+  const set=ev=>{ const r=$('#scrub').getBoundingClientRect();
+    pvSeek((ev.clientX-r.left)/r.width*(PV.dur||5)); };
+  PV.playing=false; pvVideos().forEach(v=>v.pause()); set(e);
   const mv=ev=>set(ev), up=()=>{ removeEventListener('pointermove',mv); removeEventListener('pointerup',up); };
   addEventListener('pointermove',mv); addEventListener('pointerup',up);
 };
+// ── pan the crop: drag any panel; every panel moves together ──────────────────
+(function(){ const g=$('#grid'); if(!g) return;
+  g.addEventListener('pointerdown', e=>{
+    if(!PV.sw || !e.target.closest('.frame')) return;
+    g.classList.add('grabbing');
+    const sx=e.clientX, sy=e.clientY, ox=PV.cropX, oy=PV.cropY;
+    const mv=ev=>{ PV.cropX=ox-(ev.clientX-sx); PV.cropY=oy-(ev.clientY-sy); pvApply(); };
+    const up=()=>{ g.classList.remove('grabbing'); removeEventListener('pointermove',mv); removeEventListener('pointerup',up); };
+    addEventListener('pointermove',mv); addEventListener('pointerup',up);
+  });
+})();
 
-// Full screen MOVES the grid and the transport into the sheet rather than
-// cloning them. A clone would be a second player with a second clock, which is
-// exactly the thing this panel exists to avoid — there is one clock, so there is
-// one set of controls, and it goes where the panels go.
+// ── fullscreen: same panels + clock, more pixels (bigger 1:1 crop) ───────────
 function restorePreviews(){
   const pane=$('#p-prev');
   pane.insertBefore($('#grid'), $('#big-tp-home'));
   pane.insertBefore($('#transport'), $('#big-tp-home'));
   pane.insertBefore($('#ticks'), $('#big-tp-home'));
-  $('#big-sheet').classList.remove('on');
-  paintFrames();
+  $('#big-sheet').classList.remove('on'); requestAnimationFrame(pvApply);
 }
 const bigOn=()=>{
   $('#big-grid').appendChild($('#grid'));
   $('#big-tp').appendChild($('#transport'));
   $('#big-tp').appendChild($('#ticks'));
   $('#big-sheet').classList.add('on');
-  const el=$('#big-sheet');
-  if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});   // true fullscreen; the .on sheet is the fallback
-  paintFrames();
+  const el=$('#big-sheet'); if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  requestAnimationFrame(pvApply);
 };
 const bigOff=()=>{ if(document.fullscreenElement){ document.exitFullscreen(); } else { restorePreviews(); } };
 document.addEventListener('fullscreenchange', ()=>{
   if(!document.fullscreenElement && $('#big-sheet').classList.contains('on')) restorePreviews();
+  requestAnimationFrame(pvApply);
 });
 $('#big').onclick=bigOn;
 $('#big-close').onclick=bigOff;
@@ -2031,59 +2038,17 @@ $('#src').onclick=()=>{
   $('#gate').classList.add('picking');
   $('#unit').classList.remove('on');
 };
-$('#load').onclick=()=>$('#file').click();
-$('#file').onchange=e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const v=document.createElement('video');
-  v.preload='metadata'; v.muted=true;
-  v.onloadedmetadata=()=>{
-    URL.revokeObjectURL(v.src);
-    askStart(f.name, v.duration);
-  };
-  v.src=URL.createObjectURL(f);
-};
-function askStart(name, dur){
-  const mid=Math.max(0, Math.min(dur-DUR, dur*0.4));
-  const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
-  $('#c-n').textContent=name;
-  $('#recap').innerHTML=`<dt>File</dt><dd>${name}</dd>
-    <dt>Length</dt><dd>${fmt(dur)}</dd>
-    <dt>Cut</dt><dd id="cut-v">${fmt(mid)} → ${fmt(mid+DUR)}</dd>`;
-  $('#recap-extra')?.remove();
-  const box=document.createElement('div');
-  box.id='recap-extra'; box.style.marginTop='14px';
-  box.innerHTML=`<div class="ba-l" style="margin-bottom:6px">Start at</div>
-    <input type="range" id="cut" min="0" max="${Math.max(0,dur-DUR).toFixed(1)}" step="0.5" value="${mid.toFixed(1)}" style="width:100%">`;
-  $('#recap').after(box);
-  $('.recap-sum').style.display='none';
-  const rh=$('#recap-hint'); if(rh) rh.style.display='none';   // preview-trim, not the run config
-  $('#c-warn').textContent='The same five seconds will be encoded five ways. Nothing is written to your file — this only builds the previews.';
-  $('#c-go').textContent='Encode previews';
-  $('#c-go').onclick=()=>{
-    const s=+$('#cut').value;
-    PANELS.forEach(p=>p.src=name);
-    $('#prev-note').textContent=`${name} · five seconds from ${fmt(s)}, encoded five ways, off one clock.`;
-    shutSheet('#confirm-sheet');
-    $('.recap-sum').style.display=''; $('#recap-extra')?.remove();
-    $('#c-go').textContent='Yes, start'; $('#c-go').onclick=runNow;
-    startEncode();
-  };
-  $('#cut').oninput=e=>{ $('#cut-v').textContent=`${fmt(+e.target.value)} → ${fmt(+e.target.value+DUR)}`; };
-  openSheet('#confirm-sheet');
-}
-
-function loop(now){
-  if(playing){
-    if(lastT!==null){
-      clock += (now-lastT)/1000*FPS*rate;      // real elapsed time, so 1/2x and
-      if(clock>=FRAMES-1){ clock=FRAMES-1; playing=false; }  // 1/4x are honest
-      const f=Math.round(clock);
-      if(f!==frame){ frame=f; paintFrames(); }  // only repaint on a frame change
-      syncUI();
-    }
-    lastT=now;
+// "Refresh previews" re-runs the sample encodes from the current source (e.g.
+// after changing codec). The engine regenerates; standalone there is nothing to do.
+$('#load').textContent='Refresh previews';
+$('#load').onclick=()=>{ if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(); };
+function pvLoop(){
+  if(PV.playing){
+    const L=pvLeader();
+    if(L && L.currentTime>=(PV.dur||L.duration||5)-0.05){ PV.playing=false; pvVideos().forEach(v=>v.pause()); }
+    pvSyncUI();
   }
-  requestAnimationFrame(loop);
+  requestAnimationFrame(pvLoop);
 }
 
 // ═══ fit ═════════════════════════════════════════════════
@@ -2107,7 +2072,7 @@ function fit(){
 }
 fit();
 addEventListener('resize', ()=>{ fit(); if(SRC) paintCorpse(); });
-buildGrid(); render(); loop();
+pvPlaceholder(); render(); pvLoop();
 </script>
 </body>
 </html>
