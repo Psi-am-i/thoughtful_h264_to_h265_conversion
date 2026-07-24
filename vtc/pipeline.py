@@ -282,22 +282,23 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
     files = list(iter_video_files(config))
     results: list[FileResult] = []
 
-    def work(f: Path) -> FileResult:
+    # The stop check must live INSIDE the work, not just around submission: with
+    # jobs=1 every file is submitted to the pool up front (submitting is instant),
+    # so a guard around submit() has nothing left to stop. Checking STOP_FILE at
+    # the start of each unit means the in-flight file(s) finish and every remaining
+    # queued file returns None immediately -> a true "stop after current file".
+    def work(f: Path) -> FileResult | None:
+        if STOP_FILE.exists():
+            return None
         return process_file(config, ledger, hw_encoder, f, progress)
 
-    stopped = False
     with ThreadPoolExecutor(max_workers=max(1, config.jobs)) as pool:
-        futures = []
-        for f in files:
-            if STOP_FILE.exists():
-                stopped = True
-                break
-            futures.append(pool.submit(work, f))
+        futures = [pool.submit(work, f) for f in files]
         for fut in futures:
             r = fut.result()
+            if r is None:          # skipped because a stop was requested
+                continue
             results.append(r)
             if on_result:
                 on_result(r)
-    if stopped and on_result:
-        pass  # caller can note the stop; remaining files simply weren't submitted
     return results
