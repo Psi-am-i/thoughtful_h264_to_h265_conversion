@@ -292,13 +292,13 @@ _BRIDGE_JS = r"""
   const baseEstimate = window.drawEstimate;
   window.drawEstimate = ()=>{
     if(!SRC) return;
-    document.getElementById('now-v').innerHTML = `${SRC.tb.toFixed(2)}<span>TB</span>`;
+    document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
     document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`;
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
     api.estimate(answers).then(e=>{
       if(!e || e.error){ return baseEstimate(); }
-      document.getElementById('est').innerHTML = `${e.out_tb.toFixed(2)}<span>TB</span>`;
-      document.getElementById('est-d').textContent = `−${e.saved_pct}% · ${(SRC.tb-e.out_tb).toFixed(2)} TB back`;
+      document.getElementById('est').innerHTML = tbHTML(e.out_tb);
+      document.getElementById('est-d').textContent = `−${e.saved_pct}% · ${tbStr(SRC.tb-e.out_tb)} back`;
       document.getElementById('est-n').textContent =
         `${e.reencoded.toLocaleString()} re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. ${e.measured?'Measured.':'Modelled while probing…'}`;
       gateStart();

@@ -477,6 +477,7 @@ body{
 .pg-clock{font-size:64px;font-weight:600;letter-spacing:.01em;line-height:1;color:var(--ink);
   font-variant-numeric:tabular-nums}
 .pg-clock-l{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-3);margin-top:8px}
+#pg-recalc{opacity:0;transition:opacity .25s;color:var(--accent)}
 .pg-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
 .pg-count{font-size:15px;color:var(--ink)} .pg-count b{font-size:22px;font-weight:700}
 .pg-pct{font-size:15px;color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
@@ -488,11 +489,11 @@ body{
 .pg-cur-n{font-size:14px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-family:'IBM Plex Mono',monospace;min-width:0}
 .pg-stats{font-size:12.5px;color:var(--ink-3);white-space:nowrap;flex:0 0 auto;letter-spacing:.02em}
-.pg-recent{margin-top:18px;max-height:30vh;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:13px}
-.pg-r{display:grid;grid-template-columns:1fr auto;gap:12px;padding:5px 2px;
-  border-bottom:1px solid var(--rule);color:var(--ink-2)}
+.pg-recent{margin-top:14px;max-height:38vh;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:11px}
+.pg-r{display:grid;grid-template-columns:1fr auto;gap:10px;padding:2.5px 2px;
+  border-bottom:1px solid var(--rule);color:var(--ink-2);line-height:1.35}
 .pg-r span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pg-r .pg-r-t{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.pg-r .pg-r-t{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
 .pg-r .pg-r-t.fail{color:var(--accent)}
 
 /* ── flight ─────────────────────────────────────────────── */
@@ -948,13 +949,13 @@ body{
 <div class="sheet" id="progress-sheet">
   <div class="sheet-c">
     <div class="sheet-h">
-      <div class="sheet-e mono">Encoding · nothing else is touched</div>
+      <div class="sheet-e mono">Processing</div>
       <h2 class="sheet-t pg-working"><span class="pg-word">Working</span><span class="pg-dots"><i>.</i><i>.</i><i>.</i></span></h2>
     </div>
     <div class="sheet-b">
       <div class="pg-clock-wrap">
         <div class="pg-clock mono" id="pg-clock">--:--</div>
-        <div class="pg-clock-l mono">estimated time remaining</div>
+        <div class="pg-clock-l mono">estimated time remaining<span id="pg-recalc"> · recalculating…</span></div>
       </div>
       <div class="pg-top">
         <div class="pg-count mono"><b id="pg-done">0</b> / <span id="pg-total">0</span> files</div>
@@ -1638,7 +1639,7 @@ function drawEstimate(){
   if(!SRC) return;
   const TB=SRC.tb, N=SRC.files;
   // the scan's own numbers sit on the left of the arrow: what you have now
-  $('#now-v').innerHTML=`${TB.toFixed(2)}<span>TB</span>`;
+  $('#now-v').innerHTML=tbHTML(TB);
   $('#now-n').textContent=`${N.toLocaleString()} files`;
 
   if(answers.codec===undefined){
@@ -1666,8 +1667,8 @@ function drawEstimate(){
   const touched=(N-skipped)/N;
   const out=TB*(1-touched) + TB*touched*ratio;
   const saved=Math.round((1-out/TB)*100);
-  $('#est').innerHTML=`${out.toFixed(2)}<span>TB</span>`;
-  $('#est-d').textContent=`−${saved}% · ${(TB-out).toFixed(2)} TB back`;
+  $('#est').innerHTML=tbHTML(out);
+  $('#est-d').textContent=`−${saved}% · ${tbStr(TB-out)} back`;
   $('#est-n').textContent=`${(N-skipped).toLocaleString()} re-encoded · ${skipped.toLocaleString()} already at tier, left alone. Modelled, not measured.`;
   gateStart();
 }
@@ -1700,24 +1701,49 @@ const shutSheet=id=>{
 // ═══ live progress ═══════════════════════════════════════
 // Shared hooks: the pywebview bridge drives these from the real engine; the
 // standalone mock (below) simulates them so the screen can be seen without a run.
-let PG={total:0,done:0,t0:0,remaining:0,timer:null};
+let PG={total:0,done:0,t0:0,remaining:0,curFrac:0,timer:null};
 function fmtClock(s){
   s=Math.max(0,Math.round(s));
   const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
   const pad=n=>String(n).padStart(2,'0');
   return h>0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 }
-function pgTick(){                            // count the clock down 1s, for show
-  PG.remaining=Math.max(0, PG.remaining-1);
-  $('#pg-clock').textContent = PG.remaining>0 ? fmtClock(PG.remaining) : (PG.done>=PG.total ? 'done' : '~a moment');
+// Auto-unit a size given in TB, so a small library doesn't read "0.00 TB".
+function tbParts(tb){ const b=Math.max(0,tb)*1e12;
+  if(b>=1e12) return [(b/1e12).toFixed(2),'TB'];
+  if(b>=1e9)  return [(b/1e9).toFixed(b>=1e10?0:1),'GB'];
+  if(b>=1e6)  return [(b/1e6).toFixed(0),'MB'];
+  return [Math.max(0,Math.round(b/1e3)).toString(),'KB']; }
+function tbStr(tb){ const p=tbParts(tb); return p[0]+' '+p[1]; }
+function tbHTML(tb){ const p=tbParts(tb); return p[0]+'<span>'+p[1]+'</span>'; }
+function pgSetClock(){
+  if(PG.total && PG.done>=PG.total){ $('#pg-clock').textContent='finishing…'; return; }
+  $('#pg-clock').textContent = PG.remaining>0.5 ? fmtClock(PG.remaining)
+    : (PG.anchored ? 'almost there' : 'estimating…');
 }
+// ETA logic: overall progress = (files done + the current file's own %) / total files.
+// remaining = elapsed × (1−progress) / progress — i.e. "at the pace so far, how much
+// wall-clock is left". Re-anchored on every ffmpeg tick AND each file completion, so
+// it stays honest; between updates the clock just counts itself down 1s for feel.
+function pgRecalcETA(flash){
+  const el=(Date.now()-PG.t0)/1000;
+  const prog = PG.total ? (PG.done + Math.max(0,Math.min(1,PG.curFrac||0))) / PG.total : 0;
+  if(prog>0.002 && el>2){
+    PG.remaining = Math.max(0, el*(1-prog)/prog);
+    PG.anchored = true;
+    if(flash){ const e=$('#pg-recalc'); if(e){ e.style.opacity='1'; clearTimeout(PG._rt); PG._rt=setTimeout(()=>e.style.opacity='0',1000); } }
+  }
+  pgSetClock();
+}
+function pgTick(){ PG.remaining=Math.max(0, PG.remaining-1); pgSetClock(); }  // 1s of "feel" between recalcs
 function pgStart(total, est){
   if(PG.timer) clearInterval(PG.timer);
-  PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), timer:null};
+  PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), curFrac:0, anchored:false, timer:null, _rt:null};
   $('#pg-total').textContent=PG.total.toLocaleString(); $('#pg-done').textContent='0';
   $('#pg-pct').textContent='0%';
   $('#pg-overall').style.width='0'; $('#pg-cur-f').style.width='0';
   $('#pg-cur-n').textContent='Starting…'; $('#pg-stats').textContent=''; $('#pg-recent').innerHTML='';
+  $('#pg-recalc').style.opacity='0';
   $('#pg-clock').textContent = est ? fmtClock(est) : 'estimating…';
   $('#pg-stop').disabled=false; $('#pg-stop').textContent='Stop after current file';
   openSheet('#progress-sheet');
@@ -1726,8 +1752,10 @@ function pgStart(total, est){
 function pgFile(name, frac, stats){
   if(name) $('#pg-cur-n').textContent=name;
   const f=(frac==null?0:Math.max(0,Math.min(1,frac)));
+  PG.curFrac=f;
   $('#pg-cur-f').style.width=(f*100)+'%';
-  // sanitise ffmpeg's numbers: fps, bitrate (kbit/s -> Mbps), plus % of this file
+  // overall bar + % should include the current file's progress, not just whole files
+  if(PG.total){ const op=(PG.done+f)/PG.total; $('#pg-overall').style.width=(op*100)+'%'; $('#pg-pct').textContent=Math.round(op*100)+'%'; }
   let bits=[];
   if(frac!=null) bits.push(Math.round(f*100)+'%');
   if(stats){
@@ -1736,23 +1764,21 @@ function pgFile(name, frac, stats){
     if(stats.speed && parseFloat(stats.speed)>0) bits.push(parseFloat(stats.speed).toFixed(1)+'×');
   }
   $('#pg-stats').textContent=bits.join('  ·  ');
+  pgRecalcETA(false);          // keep the ETA live during a long file
 }
 function pgDone1(row){
-  PG.done++;
+  PG.done++; PG.curFrac=0;
   $('#pg-done').textContent=PG.done.toLocaleString();
   const frac=PG.total?PG.done/PG.total:0;
   $('#pg-overall').style.width=(frac*100)+'%';
   $('#pg-pct').textContent=Math.round(frac*100)+'%';
   $('#pg-cur-f').style.width='0'; $('#pg-stats').textContent='';
-  // refine the countdown from real throughput: measured seconds-per-file so far
-  const el=(Date.now()-PG.t0)/1000;
-  if(PG.done>0 && PG.total>PG.done){ PG.remaining=Math.round(el/PG.done*(PG.total-PG.done)); }
-  else if(PG.done>=PG.total){ PG.remaining=0; }
-  $('#pg-clock').textContent = PG.remaining>0 ? fmtClock(PG.remaining) : (PG.done>=PG.total?'done':'~a moment');
+  pgRecalcETA(true);           // recompute from real throughput, flash "recalculating"
   if(row){
     const tag=row.t==='ok'?'done':row.t==='skip'?'left alone':row.sev==='err'?'error':row.sev==='warn'?'warn':'note';
+    const detail=(row.t==='fail' && row.d) ? row.d : '';   // surface the failure reason on hover
     const d=document.createElement('div'); d.className='pg-r';
-    d.innerHTML=`<span title="${(row.f||'').replace(/"/g,'&quot;')}">${row.f||''}</span><span class="pg-r-t ${row.t==='fail'?'fail':''}">${tag}</span>`;
+    d.innerHTML=`<span title="${((row.f||'')+(detail?'  —  '+detail:'')).replace(/"/g,'&quot;')}">${row.f||''}</span><span class="pg-r-t ${row.t==='fail'?'fail':''}" title="${(detail||'').replace(/"/g,'&quot;')}">${tag}</span>`;
     $('#pg-recent').prepend(d);
   }
 }
@@ -1806,7 +1832,7 @@ function openConfirm(){
       step=s; armed=answers[M[s].id]??null; render();
     };
   });
-  $('#c-src').textContent=`${SRC.files.toLocaleString()} files · ${SRC.tb.toFixed(2)} TB`;
+  $('#c-src').textContent=`${SRC.files.toLocaleString()} files · ${tbStr(SRC.tb)}`;
   $('#c-proj').textContent=$('#est').textContent;
   const destK=M.find(q=>q.id==='dest').opts[answers.dest].k;
   $('#c-dest').textContent=destK;
@@ -1875,15 +1901,15 @@ function drawReport(){
   const hrs=Math.floor(R.mins/60), m=R.mins%60;
   $('#r-when').textContent=`Run complete · ${hrs}h ${String(m).padStart(2,'0')}m elapsed`;
   $('#r-title').textContent = R.fail
-    ? `${R.tb.toFixed(2)} TB recovered · ${R.fail.toLocaleString()} file${R.fail>1?'s need':' needs'} a look`
-    : `${R.tb.toFixed(2)} TB recovered`;
+    ? `${tbStr(R.tb)} recovered · ${R.fail.toLocaleString()} file${R.fail>1?'s need':' needs'} a look`
+    : `${tbStr(R.tb)} recovered`;
   // Each outcome tile is also a control: clicking it shows that outcome in the
   // list below (same as the tabs), so the headline numbers are navigable too.
   $('#r-stats').innerHTML=`
     <div class="r-s tab ${rTab==='ok'?'sel':''}" data-t="ok"><div class="r-s-l">Thoughtfully processed</div><div class="r-s-v">${R.done.toLocaleString()}</div></div>
     <div class="r-s tab ${rTab==='skip'?'sel':''}" data-t="skip"><div class="r-s-l">Left alone</div><div class="r-s-v">${R.skip.toLocaleString()}</div></div>
     <div class="r-s tab ${rTab==='fail'?'sel':''} ${R.fail?'warn':''}" data-t="fail"><div class="r-s-l">Needs a look</div><div class="r-s-v">${R.fail.toLocaleString()}</div></div>
-    <div class="r-s"><div class="r-s-l">Recovered</div><div class="r-s-v">${R.tb.toFixed(2)}<span style="font-size:10px"> TB</span></div></div>`;
+    <div class="r-s"><div class="r-s-l">Recovered</div><div class="r-s-v">${tbParts(R.tb)[0]}<span style="font-size:10px"> ${tbParts(R.tb)[1]}</span></div></div>`;
   $('#r-stats').querySelectorAll('.r-s.tab').forEach(s=>s.onclick=()=>{ rTab=s.dataset.t; drawReport(); });
   // The tabs count the FULL run, not the sample of rows shown beneath them.
   // Showing "Needs a look · 3" under a block reading 107 was just confusing.
@@ -1922,7 +1948,7 @@ $('#r-again').onclick=newFolderSameSettings;
 $('#r-log').onclick=()=>{
   const R=RUN, lines=[`Very Thoughtful Compression — run report`,`Source: ${SRC.k}`,
     `Settings: ${M.map(q=>q.short+'='+q.opts[answers[q.id]].k).join(', ')}`,
-    `Re-encoded ${R.done} · left alone ${R.skip} · failed ${R.fail} · recovered ${R.tb.toFixed(2)} TB`,'',
+    `Re-encoded ${R.done} · left alone ${R.skip} · failed ${R.fail} · recovered ${tbStr(R.tb)}`,'',
     ...R.rows.map(r=>{
       const tag = r.t==='ok' ? 'DONE' : r.t==='skip' ? 'SKIP'
                 : r.sev==='err' ? 'ERROR' : r.sev==='warn' ? 'WARN' : 'NOTE';
