@@ -29,7 +29,15 @@ APP_NAME="VeryThoughtfulCompression"
 APP_DIR="$DIST_DIR/Very Thoughtful Compression.app"
 
 echo "==> Cleaning previous build"
+# A previously-launched copy of the app holds its files open; if it is still
+# running, `rm -rf` below partially fails and the new build's outputs collide
+# into "VeryThoughtfulCompression 2" with a stale zip. Kill it first.
+pkill -f "MacOS/VeryThoughtfulCompression" 2>/dev/null || true
+sleep 0.5
 rm -rf "$BUILD_DIR" "$DIST_DIR"
+if [[ -e "$DIST_DIR" ]]; then
+    echo "ERROR: could not clean $DIST_DIR (is the app still running?)"; exit 1
+fi
 mkdir -p "$BUILD_DIR" "$DIST_DIR"
 
 fetch_tool() {  # fetch_tool <name> <override-var-value> <evermeet-url>
@@ -121,6 +129,11 @@ cp "$PKG_DIR/APP_README.txt" "$STAGE/README.txt"
 write_ffmpeg_licenses "$STAGE/licenses" "$FFVER"
 
 ( cd "$BUILD_DIR/stage" && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "$DIST_DIR/$APP_NAME.zip" )
+
+# PyInstaller also drops the raw onedir COLLECT ("$DIST_DIR/$APP_NAME") beside the
+# .app — an intermediate, not a deliverable. Remove it so dist-gui holds only the
+# .app and the zip (no confusing extra folders / name collisions).
+rm -rf "$DIST_DIR/$APP_NAME"
 
 deactivate || true
 echo ""
