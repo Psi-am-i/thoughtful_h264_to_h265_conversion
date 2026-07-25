@@ -652,11 +652,10 @@ body{
 .cmp-stage{position:relative;width:100%;height:100%;overflow:hidden;background:#000;cursor:grab}
 #big-compare.grabbing .cmp-stage{cursor:grabbing}
 .cmp-stage video{position:absolute;top:0;left:0;display:block;max-width:none;background:#000}
-.cmp-top{position:absolute;top:0;left:0;height:100%;width:50%;overflow:hidden;
-  border-right:1px solid rgba(255,255,255,.2)}
-.cmp-divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--accent);
-  transform:translateX(-1px);z-index:3;cursor:ew-resize}
-.cmp-handle{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;
+.cmp-top{position:absolute;top:0;left:0;height:100%;width:50%;overflow:hidden}
+.cmp-divider{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(200,200,200,.75);
+  transform:translateX(-.5px);z-index:3;cursor:ew-resize}
+.cmp-handle{position:absolute;top:33%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;
   border-radius:50%;background:var(--accent);box-shadow:0 2px 10px rgba(0,0,0,.6);cursor:ew-resize;
   display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700;letter-spacing:1px}
 .cmp-handle::before{content:"⟺"}
@@ -2101,9 +2100,28 @@ function pvClamp(){
   PV.cropY=Math.max(0, Math.min(Math.max(0,PV.sh-fh), PV.cropY));
 }
 function pvApply(){                 // place every video so the frame is a 1:1 crop
+  if(PV.compare){ pvApplyCompare(); return; }
   pvClamp();
   pvVideos().forEach(v=>{
     v.style.width=PV.sw+'px'; v.style.height=PV.sh+'px';        // natural size = 1:1
+    v.style.transform=`translate(${-PV.cropX}px,${-PV.cropY}px)`;
+  });
+}
+// side-by-side wipe: fill the whole stage with video (cover), both halves scaled
+// and offset identically so the divider wipes a pixel-aligned frame. Panning moves
+// within whatever the cover crops off the edges.
+function pvApplyCompare(){
+  const stage=$('#cmp-stage'); if(!stage) return;
+  const W=stage.clientWidth||1, H=stage.clientHeight||1;
+  const ar=(PV.sw>0&&PV.sh>0)?PV.sw/PV.sh:16/9;
+  let dw=W, dh=Math.round(W/ar);
+  if(dh<H){ dh=H; dw=Math.round(H*ar); }                        // cover: never smaller than the stage
+  const slackX=Math.max(0,dw-W), slackY=Math.max(0,dh-H);
+  if(PV.cmpFresh){ PV.cropX=slackX/2; PV.cropY=slackY/2; PV.cmpFresh=false; }  // start centred
+  PV.cropX=Math.max(0,Math.min(slackX,PV.cropX));
+  PV.cropY=Math.max(0,Math.min(slackY,PV.cropY));
+  [$('#cmp-a'),$('#cmp-b')].forEach(v=>{ if(!v) return;
+    v.style.width=dw+'px'; v.style.height=dh+'px';
     v.style.transform=`translate(${-PV.cropX}px,${-PV.cropY}px)`;
   });
 }
@@ -2230,6 +2248,7 @@ const bigOn=()=>{                                    // grid fullscreen (all tie
 const bigOff=()=>{ if(document.fullscreenElement){ document.exitFullscreen(); } else { restorePreviews(); } };
 document.addEventListener('fullscreenchange', ()=>{
   if(!document.fullscreenElement && $('#big-sheet').classList.contains('on')) restorePreviews();
+  if(document.fullscreenElement && PV.compare) PV.cmpFresh=true;   // re-centre cover at the real size
   requestAnimationFrame(pvApply);
 });
 $('#big').onclick=bigOn;
@@ -2256,7 +2275,7 @@ function cmpSetSplit(pct){
 function openCompare(ai, bi){
   const A=PV.meta[ai], B=PV.meta[bi];
   if(!A||!B||!A.url||!B.url) return;
-  PV.compare={a:ai,b:bi}; PV.playing=false;
+  PV.compare={a:ai,b:bi}; PV.playing=false; PV.cmpFresh=true;
   const va=$('#cmp-a'), vb=$('#cmp-b');
   $('#cmp-ta').textContent=(A.label||'A')+'  ·  '+(A.codec||'');
   $('#cmp-tb').textContent=(B.label||'B')+'  ·  '+(B.codec||'');
@@ -2348,7 +2367,7 @@ function fit(){
   document.documentElement.style.setProperty('--k', Math.max(0.4, k).toFixed(4));
 }
 fit();
-addEventListener('resize', ()=>{ fit(); if(SRC) paintCorpse(); });
+addEventListener('resize', ()=>{ fit(); if(SRC) paintCorpse(); if(PV.compare) requestAnimationFrame(pvApply); });
 pvPlaceholder(); render(); pvLoop();
 </script>
 </body>
