@@ -390,6 +390,47 @@ body{
 .sheet-w{font-size:14.5px;color:var(--ink-2);line-height:1.6;margin-top:12px;
   padding:10px 12px;background:var(--panel);border-left:3px solid var(--accent);
   border-radius:0 var(--r) var(--r) 0}
+/* ── Advanced Settings: the gear entry point + the modal's controls ─────────── */
+.gear{width:28px;height:28px;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;background:none;border:1px solid var(--rule);border-radius:var(--r);
+  color:var(--ink-2);cursor:pointer;padding:0}
+.gear:hover{background:var(--panel);color:var(--ink)}
+.gear svg{width:15px;height:15px;fill:currentColor}
+.adv-sec{margin:0 0 20px}
+.adv-sec > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--accent);margin:0 0 10px;padding-bottom:6px;
+  border-bottom:1px solid var(--rule)}
+.adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px}
+.adv-grid.one{grid-template-columns:1fr}
+.adv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:7px 0;border-bottom:1px solid rgba(182,179,168,.4)}
+.adv-lab{min-width:0}
+.adv-lab b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
+.adv-lab span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:1px;line-height:1.35}
+.adv-ctrl{flex:0 0 auto;display:flex;align-items:center;gap:6px}
+.adv-ctrl input[type=number],.adv-ctrl select{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  padding:5px 7px;border:1px solid var(--rule);border-radius:var(--r);background:var(--panel);
+  color:var(--ink);cursor:pointer}
+.adv-ctrl input[type=number]{width:76px;text-align:right;cursor:text}
+.adv-ctrl .adv-unit{font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace}
+/* segmented control (radio group) */
+.adv-seg{display:inline-flex;border:1px solid var(--rule);border-radius:var(--r);overflow:hidden}
+.adv-seg button{font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:5px 10px;border:0;
+  border-left:1px solid var(--rule);background:var(--panel);color:var(--ink-2);cursor:pointer}
+.adv-seg button:first-child{border-left:0}
+.adv-seg button.on{background:var(--accent);color:#fff}
+.adv-seg button:disabled{opacity:.5;cursor:default}
+/* toggle */
+.adv-tog{width:40px;height:22px;border-radius:11px;border:1px solid var(--rule);background:var(--panel);
+  position:relative;cursor:pointer;padding:0;flex:0 0 auto;transition:background .12s}
+.adv-tog::after{content:"";position:absolute;top:1px;left:1px;width:18px;height:18px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .12s}
+.adv-tog.on{background:var(--accent)} .adv-tog.on::after{left:19px}
+/* a section that's not wired yet: visible so the shape is real, but inert */
+.adv-soon{opacity:.6;pointer-events:none}
+.adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:var(--r);
+  padding:1px 6px;margin-left:8px;pointer-events:auto}
 /* when the finished config is brought to the centre, the working interface behind
    it goes inert and grey — a backdrop, not a competing surface. It reverts the
    instant the modal closes (Go back / Escape / click-away / failure). */
@@ -747,6 +788,9 @@ body{
         <div class="b" data-squeeze="Compression" data-head=".36" data-tail=".025"></div>
       </div>
       <div class="brow-right">
+        <button class="gear" id="gear" title="Advanced settings" aria-label="Advanced settings">
+          <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9.4 4a7.5 7.5 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-2-1.2l-.4-2.6H9.5l-.4 2.6a7.3 7.3 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.5 7.5 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 2 1.2l.4 2.6h4.9l.4-2.6a7.3 7.3 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg>
+        </button>
         <div class="readout" id="readout">
           <button class="src" id="src" title="Change source folder">
             <span class="src-l">SOURCE</span>
@@ -947,6 +991,136 @@ body{
     <div class="sheet-f">
       <button class="btn-ghost" id="c-back">Go back</button>
       <button class="btn-run" id="c-go" style="width:auto;margin:0;padding:11px 26px">Yes, start</button>
+    </div>
+  </div>
+</div>
+
+<!-- Advanced Settings: the tunables the guided flow deliberately hides, plus the
+     format & subtitle policy that later steps will make live. Opened by the gear. -->
+<div class="sheet" id="adv-sheet">
+  <div class="sheet-c wide">
+    <div class="sheet-h">
+      <div class="sheet-e mono">For when the defaults aren't enough</div>
+      <h2 class="sheet-t">Advanced settings</h2>
+    </div>
+    <div class="sheet-b">
+
+      <div class="adv-sec adv-soon">
+        <h3>Non-MP4 files<span class="adv-soon-tag">set in the flow for now</span></h3>
+        <div class="adv-grid one">
+          <div class="adv-row">
+            <div class="adv-lab"><b>What to do with files that aren't MP4</b>
+              <span>Convert everything to MP4, only losslessly rehome what already can be, or leave other containers alone.</span></div>
+            <div class="adv-seg" id="adv-format">
+              <button data-v="convert" disabled>Convert all</button>
+              <button data-v="remux" class="on" disabled>Only remux</button>
+              <button data-v="leave" disabled>Leave alone</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="adv-sec adv-soon">
+        <h3>Subtitles<span class="adv-soon-tag">coming with the engine work</span></h3>
+        <div class="adv-grid one">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Which subtitle tracks to keep</b>
+              <span>Text subs embed in MP4; image subs (PGS/DVD) need MKV or get dropped.</span></div>
+            <div class="adv-ctrl">
+              <select id="adv-subs" disabled>
+                <option value="all">Keep all</option>
+                <option value="lang">Keep languages…</option>
+                <option value="forced">Keep forced only</option>
+                <option value="hoh">Keep hard-of-hearing</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="adv-sec">
+        <h3>Video tuning</h3>
+        <div class="adv-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Bitrate floor</b><span>Never target below this — avoids garbage output.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-floor" min="200" max="20000" step="100"><span class="adv-unit">kbps</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Re-encode tolerance</b><span>Only re-encode a source more than this % over its target.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-tol" min="0" max="100" step="1"><span class="adv-unit">%</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>HEVC factor · HD</b><span>Target = H.264 target × this, at ≤1080p.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-hevc-hd" min="0.2" max="1" step="0.01"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>HEVC factor · 4K</b><span>Same, at ≤4K.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-hevc-4k" min="0.2" max="1" step="0.01"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>HEVC factor · 8K+</b><span>Same, above 4K.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-hevc-8k" min="0.2" max="1" step="0.01"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="adv-sec">
+        <h3>Audio &amp; container</h3>
+        <div class="adv-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Container</b><span>Auto picks MP4, falling back to MKV only when it must.</span></div>
+            <div class="adv-seg" id="adv-container">
+              <button data-v="auto">Auto</button><button data-v="mp4">MP4</button><button data-v="mkv">MKV</button>
+            </div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Audio</b><span>Passthrough copies tracks; FLAC forces MKV.</span></div>
+            <div class="adv-ctrl">
+              <select id="adv-audio">
+                <option value="passthrough">Passthrough</option>
+                <option value="aac">AAC</option>
+                <option value="ac3">AC-3</option>
+                <option value="flac">FLAC (lossless)</option>
+              </select>
+            </div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Audio bitrate · stereo</b><span>AAC/AC-3, ≤2 channels.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ab-stereo" min="64" max="640" step="16"><span class="adv-unit">kbps</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Audio bitrate · 5.1+</b><span>AAC/AC-3, &gt;2 channels.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ab-multi" min="128" max="1024" step="16"><span class="adv-unit">kbps</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Keep image subtitles</b><span>Prefer MKV over dropping PGS/DVD subtitle tracks.</span></div>
+            <button class="adv-tog" id="adv-image-subs" role="switch"></button>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Force MKV over N tracks</b><span>0 = off. Forces MKV when audio+sub tracks exceed this.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-mkv-tracks" min="0" max="64" step="1"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="adv-sec">
+        <h3>Execution</h3>
+        <div class="adv-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Parallel jobs</b><span>Files encoded at once. Hardware encoders rarely benefit past 1–2.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-jobs" min="1" max="16" step="1"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Resume ledger</b><span>Skip files already processed at these settings on a re-run.</span></div>
+            <button class="adv-tog" id="adv-ledger" role="switch"></button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="sheet-f">
+      <button class="btn-ghost" id="adv-reset" style="margin-right:auto">Reset to defaults</button>
+      <button class="btn-ghost" id="adv-done">Done</button>
     </div>
   </div>
 </div>
@@ -1734,6 +1908,56 @@ const shutSheet=id=>{
   if(id==='#confirm-sheet') $('#unit').classList.remove('dimmed');
 };
 
+// ═══ Advanced settings ═══════════════════════════════════
+// The tunables the guided flow hides. Held in one object, sent alongside the
+// flow answers when a run starts (the bridge reads window.ADV). Defaults mirror
+// the engine (vtc/model.py, vtc/config.py); Reset restores exactly these.
+const ADV_DEFAULTS = { floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
+  container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
+  imageSubs:true, mkvTracks:0, jobs:1, ledger:true };
+const ADV = Object.assign({}, ADV_DEFAULTS);
+window.ADV = ADV;
+function advToForm(){                                  // ADV -> controls
+  [['#adv-floor','floor'],['#adv-tol','tol'],['#adv-hevc-hd','hevcHd'],
+   ['#adv-hevc-4k','hevc4k'],['#adv-hevc-8k','hevc8k'],['#adv-ab-stereo','abStereo'],
+   ['#adv-ab-multi','abMulti'],['#adv-mkv-tracks','mkvTracks'],['#adv-jobs','jobs']
+  ].forEach(([id,key])=>{ const el=$(id); if(el) el.value=ADV[key]; });
+  $('#adv-audio').value = ADV.audio;
+  $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
+  $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
+  $('#adv-ledger').classList.toggle('on', !!ADV.ledger);
+}
+function advBind(){                                    // controls -> ADV
+  const num=(id,key,{min,max,float}={})=>{ const el=$(id); if(!el) return;
+    el.oninput=()=>{ let v = float?parseFloat(el.value):parseInt(el.value,10);
+      if(!isFinite(v)) return;                          // let them keep typing
+      if(min!=null) v=Math.max(min,v); if(max!=null) v=Math.min(max,v);
+      ADV[key]=v; };
+    el.onblur=()=>{ if(!isFinite(float?parseFloat(el.value):parseInt(el.value,10))) el.value=ADV[key]; };
+  };
+  num('#adv-floor','floor',{min:200,max:20000});
+  num('#adv-tol','tol',{min:0,max:100});
+  num('#adv-hevc-hd','hevcHd',{min:0.2,max:1,float:true});
+  num('#adv-hevc-4k','hevc4k',{min:0.2,max:1,float:true});
+  num('#adv-hevc-8k','hevc8k',{min:0.2,max:1,float:true});
+  num('#adv-ab-stereo','abStereo',{min:64,max:640});
+  num('#adv-ab-multi','abMulti',{min:128,max:1024});
+  num('#adv-mkv-tracks','mkvTracks',{min:0,max:64});
+  num('#adv-jobs','jobs',{min:1,max:16});
+  $('#adv-audio').onchange=e=>{ ADV.audio=e.target.value; };
+  $('#adv-container').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    ADV.container=b.dataset.v;
+    $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
+  $('#adv-image-subs').onclick=()=>{ ADV.imageSubs=!ADV.imageSubs; $('#adv-image-subs').classList.toggle('on',ADV.imageSubs); };
+  $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); };
+}
+advBind();
+function openAdv(){ advToForm(); openSheet('#adv-sheet'); }
+$('#gear').onclick=openAdv;
+$('#adv-done').onclick=()=>shutSheet('#adv-sheet');
+$('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) shutSheet('#adv-sheet'); };
+$('#adv-reset').onclick=()=>{ Object.assign(ADV, ADV_DEFAULTS); advToForm(); };
+
 // ═══ live progress ═══════════════════════════════════════
 // Shared hooks: the pywebview bridge drives these from the real engine; the
 // standalone mock (below) simulates them so the screen can be seen without a run.
@@ -2012,7 +2236,7 @@ $('#r-log').onclick=()=>{
 };
 addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
-  shutSheet('#confirm-sheet'); shutSheet('#report-sheet'); shutSheet('#big-sheet');
+  shutSheet('#confirm-sheet'); shutSheet('#report-sheet'); shutSheet('#big-sheet'); shutSheet('#adv-sheet');
 });
 
 // ═══ gate ════════════════════════════════════════════════

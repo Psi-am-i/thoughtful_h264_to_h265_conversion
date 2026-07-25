@@ -30,7 +30,7 @@ import sys
 import tempfile
 
 from . import encode, pipeline
-from .config import Encoder, OutputMode, RunConfig, SourceAction
+from .config import AudioPolicy, Container, Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
 from .model import OutCodec, Tier, target_kbps
 from .result import Mode, Outcome
@@ -267,7 +267,7 @@ def build_config(src: Path, a: dict) -> RunConfig:
     else:
         output_mode, output_dir = OutputMode.INPLACE, None
         source_action = SourceAction.ARCHIVE if dest == 0 else SourceAction.DELETE
-    return RunConfig(
+    cfg = RunConfig(
         src=src, out_codec=codec, tier=_TIERS[a["quality"]],
         min_saving_ratio=1.0 - _SAVING[a["saving"]],
         remux_to_mp4=remux, compat_transcode=transcode,
@@ -275,6 +275,57 @@ def build_config(src: Path, a: dict) -> RunConfig:
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
+    _apply_advanced(cfg, a.get("adv") or {})
+    return cfg
+
+
+_AUDIO_POLICY = {"passthrough": AudioPolicy.PASSTHROUGH, "aac": AudioPolicy.AAC,
+                 "ac3": AudioPolicy.AC3, "flac": AudioPolicy.FLAC}
+_CONTAINER = {"auto": Container.AUTO, "mp4": Container.MP4, "mkv": Container.MKV}
+
+
+def _apply_advanced(cfg: RunConfig, adv: dict) -> None:
+    """Overlay the Advanced Settings modal's tunables onto a base RunConfig.
+
+    Each value is optional and clamped to a sane range — a malformed or missing
+    key leaves the engine default untouched. `tol` is entered as a percent over
+    target (10 -> 1.10 ratio); everything else maps one-to-one.
+    """
+    def _num(key, cast, lo, hi):
+        v = adv.get(key)
+        if v is None or v == "":
+            return None
+        try:
+            return max(lo, min(hi, cast(v)))
+        except (TypeError, ValueError):
+            return None
+
+    if (v := _num("floor", int, 200, 20000)) is not None:
+        cfg.bitrate_floor_kbps = v
+    if (v := _num("tol", float, 0.0, 100.0)) is not None:
+        cfg.tier_over_tolerance = 1.0 + v / 100.0
+    if (v := _num("hevcHd", float, 0.2, 1.0)) is not None:
+        cfg.hevc_factor_hd = v
+    if (v := _num("hevc4k", float, 0.2, 1.0)) is not None:
+        cfg.hevc_factor_4k = v
+    if (v := _num("hevc8k", float, 0.2, 1.0)) is not None:
+        cfg.hevc_factor_8k = v
+    if (v := _num("abStereo", int, 64, 640)) is not None:
+        cfg.audio_bitrate_stereo = v
+    if (v := _num("abMulti", int, 128, 1024)) is not None:
+        cfg.audio_bitrate_multichannel = v
+    if (v := _num("mkvTracks", int, 0, 64)) is not None:
+        cfg.mkv_if_tracks_over = v
+    if (v := _num("jobs", int, 1, 16)) is not None:
+        cfg.jobs = v
+    if isinstance(adv.get("audio"), str):
+        cfg.audio_policy = _AUDIO_POLICY.get(adv["audio"], cfg.audio_policy)
+    if isinstance(adv.get("container"), str):
+        cfg.container = _CONTAINER.get(adv["container"], cfg.container)
+    if "imageSubs" in adv:
+        cfg.keep_image_subs = bool(adv["imageSubs"])
+    if "ledger" in adv:
+        cfg.ledger_enabled = bool(adv["ledger"])
 
 
 # ── the JS bridge, injected after the page loads (only takes effect in-shell) ──
@@ -333,7 +384,7 @@ _BRIDGE_JS = r"""
     document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
     document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`;
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
-    api.estimate(answers).then(e=>{
+    api.estimate(Object.assign({adv: window.ADV||{}}, answers)).then(e=>{
       if(!e || e.error){ return baseEstimate(); }
       document.getElementById('est').innerHTML = tbHTML(e.out_tb);
       document.getElementById('est-d').textContent = `−${e.saved_pct}% · ${tbStr(SRC.tb-e.out_tb)} back`;
@@ -372,7 +423,7 @@ _BRIDGE_JS = r"""
     acc.length = 0;
     pgStart(0, 0);               // show the working screen IMMEDIATELY — scanning a big
                                  // library can take a moment, and a blank pause looks broken
-    api.run(answers);            // __vtcRunStart refreshes it with the real total once scanned
+    api.run(Object.assign({adv: window.ADV||{}}, answers));   // __vtcRunStart refreshes with the real total once scanned
   };
 })();
 """
