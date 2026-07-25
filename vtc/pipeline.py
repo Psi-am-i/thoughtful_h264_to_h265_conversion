@@ -22,7 +22,7 @@ from .ffprobe import MediaInfo, probe
 from .ledger import Ledger
 from .model import OutCodec, classify_codec, over_target, target_kbps
 from .model import CodecCategory
-from .result import EncodeResult, FileResult, Mode, Note, Outcome, ProgressCB
+from .result import EncodeResult, FileDetail, FileResult, Mode, Note, Outcome, ProgressCB
 
 TMPROOT = Path("/tmp/vtcwork")
 STOP_FILE = Path("/tmp/hevc_stop")
@@ -267,10 +267,57 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
     notes = _place(config, src_file, out, tmp, res)
     outcome = {Mode.SHRINK: Outcome.SHRINK, Mode.TRANSCODE: Outcome.TRANSCODE,
                Mode.REMUX: Outcome.REMUX}[mode]
-    r = FileResult(src_file, outcome, src_bytes=src_bytes, out_bytes=res.out_bytes, notes=notes)
+    detail = _build_detail(config, info, mode, target, container, ext, src_file, res)
+    r = FileResult(src_file, outcome, src_bytes=src_bytes, out_bytes=res.out_bytes,
+                   notes=notes, detail=detail)
     if ledger.enabled:
         ledger.add(lkey)
     return r
+
+
+# ffprobe codec name for the chosen output codec, so the record reads codec→codec.
+_OUT_VCODEC = {OutCodec.H264: "h264", OutCodec.H265: "hevc"}
+
+
+def _build_detail(config: RunConfig, info: MediaInfo, mode: Mode, target: int,
+                  container: Container, ext: str, src_file: Path,
+                  res: EncodeResult) -> FileDetail:
+    """Assemble the one structured 'what happened' record from everything the
+    per-file path already knows. This is the single place capture happens."""
+    dur = info.duration or 0.0
+    out_kbps = (res.out_bytes * 8 / 1000.0 / dur) if dur > 0 and res.out_bytes else 0.0
+    # bpp from the VIDEO bitrate we aimed for (target for a re-encode, source for a
+    # lossless remux), not the size-derived total (which includes audio/subs).
+    vid_kbps = float(target) if mode in (Mode.SHRINK, Mode.TRANSCODE) else info.effective_bps / 1000.0
+    bpp = (vid_kbps * 1000.0) / (info.pixels * info.fps) if info.pixels and info.fps else 0.0
+
+    nsub = len(info.subtitles)
+    if nsub == 0:
+        subs_summary = ""
+    elif container == Container.MKV:
+        subs_summary = f"kept all {nsub} subtitle track(s)"
+    else:
+        parts: list[str] = []
+        if res.subs_embedded and info.text_subs:
+            parts.append(f"{len(info.text_subs)} text sub(s) embedded")
+        if res.sidecars_made:
+            parts.append(f"{res.sidecars_made} sidecar .srt")
+        if info.image_subs:
+            parts.append(f"dropped {len(info.image_subs)} image sub(s)")
+        subs_summary = "; ".join(parts)
+
+    return FileDetail(
+        mode=mode.value,
+        src_vcodec=info.vcodec or "",
+        out_vcodec="" if mode is Mode.REMUX else _OUT_VCODEC.get(config.out_codec, ""),
+        src_ext=src_file.suffix.lower(),
+        out_ext=ext,
+        container_reason=encode.container_reason(config, info),
+        width=info.width, height=info.height, fps=info.fps,
+        src_kbps=info.effective_bps / 1000.0, vid_kbps=vid_kbps, out_kbps=out_kbps, bpp=bpp,
+        audio_action=res.audio_action,
+        subs_summary=subs_summary,
+    )
 
 
 # ── Run ───────────────────────────────────────────────────────────────────────

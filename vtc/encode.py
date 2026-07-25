@@ -220,22 +220,37 @@ def build_video_args(
 
 # ── container + audio policy ──────────────────────────────────────────────────
 
-def resolve_container(config: RunConfig, info: MediaInfo) -> Container:
-    """Decide the output container for this file.
+def _container_decision(config: RunConfig, info: MediaInfo) -> tuple[Container, str]:
+    """The output container AND the human reason for it (reason set only for MKV).
 
     Forced MP4/MKV is honoured. AUTO is MP4 unless something can only ride in
     Matroska: lossless (FLAC) audio, image-based subtitles you asked to keep
     (PGS/DVD — MP4 cannot hold them), or more tracks than the MKV threshold.
     """
-    if config.container in (Container.MP4, Container.MKV):
-        return config.container
+    if config.container == Container.MP4:
+        return Container.MP4, ""
+    if config.container == Container.MKV:
+        return Container.MKV, "you set the container to MKV"
     if config.audio_policy == AudioPolicy.FLAC:
-        return Container.MKV
+        return Container.MKV, "FLAC (lossless) audio needs Matroska"
     if config.keep_image_subs and info.image_subs:
-        return Container.MKV
+        codecs = ", ".join(sorted({s.codec or "unknown" for s in info.image_subs}))
+        return Container.MKV, f"image subtitles ({codecs}) MP4 can't hold"
     if config.mkv_if_tracks_over and (len(info.audio) + len(info.subtitles)) > config.mkv_if_tracks_over:
-        return Container.MKV
-    return Container.MP4
+        return Container.MKV, f"more than {config.mkv_if_tracks_over} tracks"
+    return Container.MP4, ""
+
+
+def resolve_container(config: RunConfig, info: MediaInfo) -> Container:
+    """Decide the output container for this file (see `_container_decision`)."""
+    return _container_decision(config, info)[0]
+
+
+def container_reason(config: RunConfig, info: MediaInfo) -> str:
+    """Why the output container is what it is — non-empty only when it is NOT MP4,
+    so the report can explain why a file stayed MKV instead of looking like a bug."""
+    container, why = _container_decision(config, info)
+    return why if container == Container.MKV else ""
 
 
 def _audio_bitrate(config: RunConfig, info: MediaInfo) -> int:
@@ -265,6 +280,18 @@ def _audio_attempts(config: RunConfig, info: MediaInfo, container: Container) ->
     if info.audio and all(a.codec in MP4_AUDIO_CODECS for a in info.audio):
         return [["-c:a", "copy"]]
     return [["-c:a", "copy"], aac]
+
+
+def _describe_audio(aargs: list[str], has_audio: bool) -> str:
+    """Human summary of the `-c:a …` that actually succeeded, for the file record."""
+    if not has_audio:
+        return "no audio"
+    codec = aargs[1] if len(aargs) > 1 else ""
+    if codec == "copy":
+        return "copied"
+    br = aargs[3] if len(aargs) > 3 else ""
+    name = {"aac": "AAC", "ac3": "AC-3", "flac": "FLAC"}.get(codec, codec.upper())
+    return f"{name} {br}" if br else name
 
 
 # ── ffmpeg execution ──────────────────────────────────────────────────────────
@@ -434,6 +461,7 @@ def run_encode(
     subs_embedded = False
     sidecars_made = 0
     sidecar_fail = 0
+    used_aargs: list[str] = []          # the audio attempt that actually worked
     reasons: list[str] = []
     errs: list[str] = []                # ffmpeg stderr tails from failed attempts
 
@@ -450,6 +478,7 @@ def run_encode(
                            progress=progress, errsink=errs):
                 encode_ok = True
                 subs_embedded = bool(text_subs or image_subs)
+                used_aargs = aargs
                 break
             _unlink(out)
     else:  # MP4 — embed text subs / audio matrix / sidecar / drop image subs
@@ -473,6 +502,7 @@ def run_encode(
                                progress=progress, errsink=errs):
                     encode_ok = True
                     subs_embedded = (sub_mode == "embed")
+                    used_aargs = aargs
                     break
                 _unlink(out)
             if encode_ok:
@@ -502,4 +532,5 @@ def run_encode(
         ok=True, out_path=out, out_bytes=out_bytes,
         subs_embedded=subs_embedded, sidecars_made=sidecars_made,
         dropped_subs_reason="; ".join(reasons),
+        audio_action=_describe_audio(used_aargs, bool(info.audio)),
     )
