@@ -34,6 +34,12 @@ from .result import EncodeResult, FileDetail, FileResult, Mode, Note, Outcome, P
 TMPROOT = Path(tempfile.gettempdir()) / "vtcwork"
 STOP_FILE = Path(tempfile.gettempdir()) / f"vtc_stop.{os.getpid()}"
 
+# A transcode may end up a whisker larger than the source at a matched bitrate
+# (container/codec overhead); allow up to this much before treating it as inflation
+# and keeping the original. 0.5% is negligible — the gate exists to stop the ~30%
+# floor-inflation blow-ups, not to nitpick a rounding-error of overhead.
+_TRANSCODE_GROW_TOLERANCE = 1.005
+
 # Directories never descended into during a scan.
 _PRUNE_DIRS = {
     ".Trashes", ".Spotlight-V100", ".fseventsd", ".TemporaryItems",
@@ -274,10 +280,12 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
 
     # Size-safety gate. A shrink must clear the savings bar. A transcode (legacy
     # rescue) must at least not INFLATE — we never replace an original with a bigger
-    # file, even for compatibility, so a library can't silently grow. Both keep the
+    # file, even for compatibility, so a library can't silently grow. A 0.5% buffer
+    # allows for the small container/codec overhead a modern encoder adds at a
+    # matched bitrate, so a genuine same-size rescue isn't rejected. Both keep the
     # original untouched and drop the temp.
     too_big = (mode is Mode.SHRINK and res.out_bytes >= src_bytes * config.min_saving_ratio) \
-        or (mode is Mode.TRANSCODE and res.out_bytes > src_bytes)
+        or (mode is Mode.TRANSCODE and res.out_bytes > src_bytes * _TRANSCODE_GROW_TOLERANCE)
     if too_big:
         tmp.unlink(missing_ok=True)
         r = FileResult(src_file, Outcome.SKIP_MIN_SAVING)
