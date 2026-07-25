@@ -477,7 +477,13 @@ body{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* the report */
-.r-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.r-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.r-recovered{font-size:13px;color:var(--ink-2);letter-spacing:.02em;margin:0 0 14px;padding:8px 12px;
+  background:var(--panel);border-radius:var(--r);text-align:center}
+.r-recovered:empty{display:none}
+.r-recovered b{color:var(--ink);font-weight:600}
+.r-recovered b.rec{color:var(--accent)}
+.r-recovered .a,.r-recovered .sep{color:var(--ink-3);margin:0 5px}
 .r-s{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);padding:10px;
   text-align:left;transition:background .15s,border-color .15s}
 /* the three outcome tiles switch the list below to that outcome, like the tabs */
@@ -1249,6 +1255,7 @@ body{
     </div>
     <div class="sheet-b">
       <div class="r-stats" id="r-stats"></div>
+      <div class="r-recovered mono" id="r-recovered"></div>
       <div class="r-tabs" id="r-tabs"></div>
       <div class="r-list" id="r-list"></div>
     </div>
@@ -2294,9 +2301,16 @@ function drawReport(){
   const R=RUN;
   const hrs=Math.floor(R.mins/60), m=R.mins%60;
   $('#r-when').textContent=`Run complete · ${hrs}h ${String(m).padStart(2,'0')}m elapsed`;
-  $('#r-title').textContent = R.fail
-    ? `${tbStr(R.tb)} recovered · ${R.fail.toLocaleString()} file${R.fail>1?'s need':' needs'} a look`
-    : `${tbStr(R.tb)} recovered`;
+  // Title: how much space came back, and how many files were processed.
+  $('#r-title').textContent = `${tbStr(R.tb)} recovered · ${R.done.toLocaleString()} processed`
+    + (R.fail ? ` · ${R.fail.toLocaleString()} need${R.fail>1?'':'s'} a look` : '');
+  // Recovered block: original → final → recovered, summed from the processed rows.
+  const okRows=R.rows.filter(r=>r.t==='ok');
+  const orig=okRows.reduce((s,r)=>s+(r.sbytes||0),0), fin=okRows.reduce((s,r)=>s+(r.obytes||0),0);
+  const rec=$('#r-recovered');
+  if(rec){ rec.innerHTML = orig>0
+      ? `Original <b>${human(orig)}</b> <span class="a">→</span> Final <b>${human(fin)}</b> <span class="sep">·</span> Recovered <b class="rec">${human(Math.max(0,orig-fin))}</b>`
+      : ''; }
   // Each outcome tile is also a control: clicking it shows that outcome in the
   // list below (same as the tabs), so the headline numbers are navigable too.
   $('#r-stats').innerHTML=`
