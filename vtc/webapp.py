@@ -416,7 +416,8 @@ _BRIDGE_JS = r"""
   window.__vtcOnDone = (summary)=>{
     pgFinish();
     RUN = {
-      rows: acc.map(r=>({ f:r.name, t:r.t, d:r.d, sev:r.sev })),
+      rows: acc.map(r=>({ f:r.name, t:r.t, d:r.d, sev:r.sev,
+                          detail:r.detail||'', star:!!r.star, sbytes:r.sbytes||0, obytes:r.obytes||0 })),
       done: summary.done, skip: summary.skip, fail: summary.fail,
       failedRetryable: summary.failed_retryable||0,
       tb: summary.tb, mins: summary.mins,
@@ -787,7 +788,13 @@ def _row(r) -> dict:
     if r.notes and t != "fail":
         sev = "warn" if any(n.level == "WARN" for n in r.notes) else "note"
         t = "fail" if sev == "warn" else t   # WARN surfaces under "needs a look"
-    return {"name": r.path.name, "t": t, "d": d, "sev": sev}
+    # the structured "what happened" record — caption drives the log/detail, star
+    # marks a row worth reading (kept a non-MP4 container, subtitle caveat, …)
+    detail = r.detail.caption() if r.detail else ""
+    star = bool(r.detail and r.detail.has_note)
+    return {"name": r.path.name, "t": t, "d": d, "sev": sev,
+            "detail": detail, "star": star,
+            "sbytes": r.src_bytes, "obytes": r.out_bytes}
 
 
 def _summary(results: list) -> dict:

@@ -502,6 +502,7 @@ body{
 .r-d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:500}
 .r-t{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:2px}
+.r-star{color:var(--accent);font-weight:700;margin-left:1px;cursor:help}
 .r-t.ok{background:rgba(38,36,31,.08);color:var(--ink-2)}
 .r-t.skip{background:rgba(38,36,31,.05);color:var(--ink-3)}
 .r-t.fail{background:rgba(232,84,31,.14);color:var(--accent)}
@@ -2247,10 +2248,16 @@ function drawReport(){
   $('#r-tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{ rTab=b.dataset.t; drawReport(); });
   const rows=R.rows.filter(r=>r.t===rTab);
   $('#r-list').innerHTML = rows.length
-    ? rows.map(r=>`<div class="r-row"><span class="r-f" title="${(r.f||'').replace(/"/g,'&quot;')}">${r.f}</span>
-        <span class="r-d" title="${(r.d||'').replace(/"/g,'&quot;')}">${r.d}</span><span class="r-t ${r.t} ${r.sev||''}">${
-          r.t==='ok'?'done':r.t==='skip'?'left alone':r.sev==='err'?'error':r.sev==='warn'?'warn':'note'
-        }</span></div>`).join('')
+    ? rows.map(r=>{
+        const esc=s=>(s||'').replace(/"/g,'&quot;');
+        // the "*" marks a row with a note worth reading; the full caption is the
+        // row's hover title and every caption is written into the saved log.
+        const star = r.star ? '<span class="r-star" title="'+esc(r.detail)+'">*</span>' : '';
+        const label = r.t==='ok'?'done':r.t==='skip'?'left alone':r.sev==='err'?'error':r.sev==='warn'?'warn':'note';
+        const rowTitle = r.detail ? esc(r.f+' — '+r.detail) : esc(r.f);
+        return `<div class="r-row" title="${rowTitle}"><span class="r-f">${r.f}</span>
+        <span class="r-d" title="${esc(r.d)}">${r.d}</span><span class="r-t ${r.t} ${r.sev||''}">${label}${star}</span></div>`;
+      }).join('')
       + (counts[rTab]>rows.length
           ? `<div class="r-empty">Showing ${rows.length} of ${counts[rTab].toLocaleString()} — save the log for the rest.</div>` : '')
     : `<div class="r-empty">Nothing here${rTab==='fail'?' — which is the good outcome':''}.</div>`;
@@ -2288,7 +2295,10 @@ $('#r-log').onclick=()=>{
     ...R.rows.map(r=>{
       const tag = r.t==='ok' ? 'DONE' : r.t==='skip' ? 'SKIP'
                 : r.sev==='err' ? 'ERROR' : r.sev==='warn' ? 'WARN' : 'NOTE';
-      return `${tag.padEnd(5)} ${r.f} — ${r.d}`;
+      // every file's structured "what happened" caption goes in the log, so nothing
+      // has to be dug for — the report row's "*" just points here.
+      const line = `${tag.padEnd(5)} ${r.f} — ${r.d}`;
+      return r.detail ? `${line}\n        ${r.detail}` : line;
     })].join('\n');
   // Real app: a native Save dialog writes the file (UTF-8). The old blob+download
   // route made WKWebView NAVIGATE the whole window to the text — mojibake, no way
