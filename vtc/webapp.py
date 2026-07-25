@@ -421,7 +421,7 @@ _BRIDGE_JS = r"""
                           detail:r.detail||'', star:!!r.star, sbytes:r.sbytes||0, obytes:r.obytes||0 })),
       done: summary.done, skip: summary.skip, fail: summary.fail,
       failedRetryable: summary.failed_retryable||0,
-      tb: summary.tb, mins: summary.mins,
+      tb: summary.tb, mins: summary.mins, stopped: !!summary.stopped,
     };
     drawReport(); openSheet('#report-sheet');
   };
@@ -797,6 +797,8 @@ class Api:
 
         results = pipeline.run(config, progress=prog, on_result=emit, files=files)
         summary = _summary(results)
+        summary["mins"] = int((_time.monotonic() - run_t0) / 60)   # real elapsed (was hardcoded 0)
+        summary["stopped"] = pipeline.STOP_FILE.exists()            # user hit Stop mid-run
         # remember which files errored so the report can offer a software retry
         self._last_failed = [r.path for r in results if r.outcome is Outcome.ERROR]
         summary["failed_retryable"] = len(self._last_failed)
@@ -827,10 +829,23 @@ def _human_gb(n: int) -> float:
     return n / 1e9
 
 
+def _human2(n: int) -> str:
+    """Size with two decimals and an auto unit — '1.90 GB', '463.74 MB' — instead of
+    the old one-decimal GB that flattened every SD file to a useless '0.4 GB'."""
+    n = max(0, int(n))
+    if n >= 1_000_000_000:
+        return f"{n / 1e9:.2f} GB"
+    if n >= 1_000_000:
+        return f"{n / 1e6:.2f} MB"
+    if n >= 1_000:
+        return f"{n / 1e3:.2f} KB"
+    return f"{n} B"
+
+
 def _row(r) -> dict:
     if r.outcome in _OK:
         t, sev = "ok", ""
-        d = (f"{_human_gb(r.src_bytes):.1f} → {_human_gb(r.out_bytes):.1f} GB"
+        d = (f"{_human2(r.src_bytes)} → {_human2(r.out_bytes)}"
              if r.src_bytes else r.outcome.value)
     elif r.outcome is Outcome.ERROR:
         t, sev, d = "fail", "err", (r.notes[0].message if r.notes else "encode failed")

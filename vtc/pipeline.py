@@ -105,8 +105,12 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
 
     if category is CodecCategory.LEGACY:
         if config.compat_transcode:
-            # Max-fidelity: target the source's own bitrate (never inflate).
-            return (Mode.TRANSCODE, None, max(config.bitrate_floor_kbps, int(src_kbps)))
+            # Max-fidelity rescue: target the source's OWN bitrate — never inflate.
+            # The bitrate FLOOR must not push a low-bitrate SD source UP to it (that
+            # grew XviD SD files by ~30%). Use the floor only as a fallback when the
+            # source bitrate is unknown, and never above the source.
+            tgt = int(src_kbps) if src_kbps > 0 else config.bitrate_floor_kbps
+            return (Mode.TRANSCODE, None, tgt)
         return (None, Outcome.SKIP_INCOMPATIBLE, 0)
 
     return (None, Outcome.SKIP_CODEC, 0)
@@ -268,8 +272,13 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
         return FileResult(src_file, Outcome.ERROR,
                           notes=[Note("ERROR", f"encode failed: {res.error}")])
 
-    # Minimum-saving gate applies only to a shrink.
-    if mode is Mode.SHRINK and res.out_bytes >= src_bytes * config.min_saving_ratio:
+    # Size-safety gate. A shrink must clear the savings bar. A transcode (legacy
+    # rescue) must at least not INFLATE — we never replace an original with a bigger
+    # file, even for compatibility, so a library can't silently grow. Both keep the
+    # original untouched and drop the temp.
+    too_big = (mode is Mode.SHRINK and res.out_bytes >= src_bytes * config.min_saving_ratio) \
+        or (mode is Mode.TRANSCODE and res.out_bytes > src_bytes)
+    if too_big:
         tmp.unlink(missing_ok=True)
         r = FileResult(src_file, Outcome.SKIP_MIN_SAVING)
         if ledger.enabled:
