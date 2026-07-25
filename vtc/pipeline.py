@@ -275,11 +275,13 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 def run(config: RunConfig, progress: ProgressCB | None = None,
-        on_result: ResultCB | None = None) -> list[FileResult]:
-    """Process the whole scan tree. Returns one FileResult per file processed."""
+        on_result: ResultCB | None = None,
+        files: list[Path] | None = None) -> list[FileResult]:
+    """Process the scan tree (or an explicit `files` list — used to retry just the
+    files that failed). Returns one FileResult per file processed."""
     ledger = Ledger(config)
     hw_encoder = encode.select_hw_encoder(config)
-    files = list(iter_video_files(config))
+    files = list(iter_video_files(config)) if files is None else list(files)
     results: list[FileResult] = []
 
     # The stop check must live INSIDE the work, not just around submission: with

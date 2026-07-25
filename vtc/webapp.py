@@ -314,6 +314,7 @@ _BRIDGE_JS = r"""
   window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
+  window.__vtcRetryFailed = ()=> { try { api.retry_failed_software(); } catch(e){} };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
     acc.push(r);
     pgDone1({ f:r.name, t:r.t, sev:r.sev });
@@ -323,6 +324,7 @@ _BRIDGE_JS = r"""
     RUN = {
       rows: acc.map(r=>({ f:r.name, t:r.t, d:r.d, sev:r.sev })),
       done: summary.done, skip: summary.skip, fail: summary.fail,
+      failedRetryable: summary.failed_retryable||0,
       tb: summary.tb, mins: summary.mins,
     };
     drawReport(); openSheet('#report-sheet');
@@ -349,6 +351,8 @@ class Api:
         self._preview_gen = 0              # bumped whenever previews are (re)requested;
         self._preview_start = 0.0         # a running worker aborts if its gen is stale
         self._preview_seg = 5.0           # sample length (seconds)
+        self._last_config: RunConfig | None = None   # last run's config (for retry)
+        self._last_failed: list[Path] = []           # files that ERRORed last run
 
     # -- folder pick + fast scan -------------------------------------------------
     def pick_folder(self):
@@ -561,17 +565,34 @@ class Api:
             log.error("run: bad config: %s", e)
             return {"error": str(e)}
         pipeline.STOP_FILE.unlink(missing_ok=True)   # clear any prior stop flag
+        self._last_config = config
         threading.Thread(target=self._run_worker, args=(config,), daemon=True).start()
         return {"started": True}
 
-    def _run_worker(self, config: RunConfig):
+    def retry_failed_software(self):
+        """Re-run just the files that ERRORed in the last run, in software — a quirky
+        hardware encoder (e.g. h264_videotoolbox choking on a file) should not slow
+        the whole run, so we offer software only for the failures, at the end."""
+        cfg = getattr(self, "_last_config", None)
+        failed = list(getattr(self, "_last_failed", []) or [])
+        if cfg is None or not failed:
+            return {"error": "nothing to retry"}
+        import dataclasses
+        soft = dataclasses.replace(cfg, encoder=Encoder.SOFTWARE)
+        pipeline.STOP_FILE.unlink(missing_ok=True)
+        log.info("retry_failed_software: %d file(s)", len(failed))
+        threading.Thread(target=self._run_worker, args=(soft,), kwargs={"files": failed},
+                         daemon=True).start()
+        return {"started": True, "count": len(failed)}
+
+    def _run_worker(self, config: RunConfig, files=None):
         hw = encode.select_hw_encoder(config)
-        log.info("run start: src=%s codec=%s tier=%s encoder=%s -> hw=%s remux=%s xcode=%s dest=%s",
+        log.info("run start: src=%s codec=%s tier=%s encoder=%s -> hw=%s remux=%s xcode=%s dest=%s%s",
                  config.src, config.out_codec.value, config.tier.name, config.encoder.value,
                  hw or "software", config.remux_to_mp4, config.compat_transcode,
-                 config.source_action.value)
+                 config.source_action.value, f" (retry {len(files)} files)" if files else "")
 
-        files = list(pipeline.iter_video_files(config))
+        files = list(files) if files is not None else list(pipeline.iter_video_files(config))
         total = len(files)
         # A rough total-time estimate so the UI can show a countdown immediately
         # (refined per file in JS). Sum probed source durations, extrapolate to all
@@ -614,8 +635,11 @@ class Api:
                 self.window.evaluate_js(
                     f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(_row(r))})")
 
-        results = pipeline.run(config, progress=prog, on_result=emit)
+        results = pipeline.run(config, progress=prog, on_result=emit, files=files)
         summary = _summary(results)
+        # remember which files errored so the report can offer a software retry
+        self._last_failed = [r.path for r in results if r.outcome is Outcome.ERROR]
+        summary["failed_retryable"] = len(self._last_failed)
         log.info("run done: %s", summary)
         if self.window:
             self.window.evaluate_js(

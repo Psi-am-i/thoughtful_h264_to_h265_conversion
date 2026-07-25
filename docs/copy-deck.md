@@ -20,24 +20,24 @@
 
 ### 3.1 CODEC  `q:codec`
 - **Title:** What video codec should I use?
-- **Subtitle:** The only choice that meaningfully changes file size. Every codec trades off size, quality and speed — older ones are worse at all three. For a given quality the codec doesn't change how it looks, only how big the file is and how long it takes to make.
+- **Subtitle:** The only choice that meaningfully changes file size. Every codec trades off size, quality and speed — older ones are worse at all three. For a given quality the codec doesn't change how it looks, only how big the file is and how long it takes to make. If your machine has a hardware encoder for a codec, it will be considerably faster than choosing a codec without hardware encoding. 
 - **Options:**
   - `codec.0` **H.264 / AVC**
     - Tag: Compatibility
     - Description: The universal baseline — direct-plays on virtually anything since 2003 — but about twice the size for the same quality as H.265/AV1, and increasingly wasteful above 1080p. Choose it for maximum compatibility, or for great performance on old devices.
   - `codec.1` **H.265 / HEVC**
     - Tag: Efficiency · suggested
-    - Description: A truly modern codec with wide — not universal — support. Same quality as H.264 in roughly 40–55% less space, and the advantage grows with resolution: up to ~60% smaller at 4K and above. Plays on almost any device since 2015 — Apple, recent TVs, Plex, VLC, Infuse. Pick this unless you have a specific reason not to. Your machine has a hardware encoder for it, so it will be considerably faster than any codec without one.
-  - `codec.2` **AV1** _(disabled / coming later)_
+    - Description: A truly modern codec with wide — not universal — support. Same quality as H.264 in roughly 40–55% less space, and the advantage grows with resolution: up to ~60% smaller at 4K and above. Plays on most devices since 2015 — Apple, recent TVs, Plex, VLC, Infuse. The big exceptions are some SmartTV's and Firefox Browser. For most this is a good middle ground - unless you have a specific reason not to, like running a media server and you want video as widely as possible. 
+  - `codec.2` **AV1** _(coming soon)_
     - Tag: Next-gen · coming later
-    - Description: Likely the future — files 30–50% smaller than H.265 at equal quality, royalty-free and backed by the Alliance for Open Media (Apple, Google, Microsoft, Netflix). But software encoding is glacial, hardware decode is only starting to roll out (Apple plays it from the M3 on), and a five-year-old TV probably won't play it at all. Genuinely good; genuinely early.
-  - `codec.3` **H.266 / VVC** _(disabled / coming later)_
+    - Description: Likely the future — files 30–50% smaller than H.265 at equal quality, royalty-free and backed by the Alliance for Open Media (Apple, Google, Microsoft, Netflix). BUT software encoding is glacial and hardware decoders are only starting to roll out (Apple plays it from the M3 on), and a five-year-old TV probably won't play it at all. Genuinely good; genuinely early.
+  - `codec.3` **H.266 / VVC** _(coming soon)_
     - Tag: Bleeding-edge · coming later
     - Description: In objective tests VVC is slightly more efficient than AV1 at high resolutions (4K/UHD), but AV1 has a big head start on support and tooling — and almost no consumer devices decode VVC yet.
 
 ### 3.2 QUALITY  `q:quality`
 - **Title:** What quality are you looking for?
-- **Subtitle:** Quality is part objective — how much information is in each frame (bits per pixel per frame) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show, so if you pick Excellent, that is what you get (given a source that good or better). Resolution doesn't matter: we set the right bits per pixel per frame, which decides the bitrate for that quality automatically.
+- **Subtitle:** Quality is part objective — how much information is in each frame (bits per pixel per frame) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show. We call that quality Excellent and that is what you will get (assuming your source is that good or better). Resolution doesn't matter: we set the right bits per pixel per frame, which decides the bitrate for any resolution + quality automatically.
 - **Options:**
   - `quality.0` **OK**
     - Tag: 0.064 bpp · 4.0 Mbps at 1080p30
@@ -46,11 +46,11 @@
   - `quality.1` **GOOD**
     - Tag: 0.080 bpp · 5.0 Mbps at 1080p30
     - Recap label (Start modal): Good · 0.080 bpp
-    - Description: Solid streaming quality — what most sites deliver, and a little under Netflix and Amazon. On a laptop or smaller TV it is usually more than enough.
+    - Description: Solid streaming quality — what most websites deliver, and a little under Netflix and Amazon. On a laptop or smaller TV it is usually more than enough.
   - `quality.2` **EXCELLENT**
     - Tag: 0.109 bpp · 6.8 Mbps at 1080p30 · default
     - Recap label (Start modal): Excellent · 0.109 bpp
-    - Description: Matches Netflix's top streaming quality. They manage 5.8 Mbps with per-shot encoding you do not have, so we bump our number deliberately above theirs. For almost every library, this is the answer. For excellent sources — or if you use a projector — consider Stellar.
+    - Description: Matches Netflix's top streaming quality. They manage 5.8 Mbps with per-shot encoding you do not have, so we bump our number deliberately above theirs. For almost every library, this is the answer. For excellent sources you want to maintain — or if you use a projector — consider Stellar.
   - `quality.3` **STELLAR**
     - Tag: 0.129 bpp · 8.0 Mbps at 1080p30
     - Recap label (Start modal): Stellar · 0.129 bpp
@@ -62,19 +62,19 @@
 
 ### 3.3 SAVING  `q:saving`
 - **Title:** How much smaller must a file get to be worth it?
-- **Subtitle:** Your call — the tool has no view on it. Predicted before encoding starts, so a file that won't clear your bar is skipped rather than discovered an hour later, and checked again after: if the finished encode misses it, the original stays. Shrinks only — a lossless remux and a legacy transcode are kept whatever their size.
+- **Subtitle:** Your call — the tool has no view on it. We predict the file size of each file according to your quality and codec choice BEFORE encoding starts. A file that won't clear your savings expectation is skipped rather than discovered an hour later. We also check the final file to ensure original files are only replaced if it's worth it. If we are just doing a lossless conversion, those files will always be the same size. 
 - **Options:**
   - `saving.0` **15%**
     - Tag: Trim the obvious fat
-    - Recap label (Start modal): 15% minimum — else keep the original
+    - Recap label (Start modal): Must be 15% smaller — or else keep the original
     - Description: The sensible pick if you chose H.264, where a re-encode only shaves headroom off a file rather than changing how it compresses — 15% is a real win there. Expect a lot of files to qualify.
   - `saving.1` **25%**
     - Tag: The healthy-encode bar
-    - Recap label (Start modal): 25% minimum — else keep the original
-    - Description: The sensible pick if you chose H.265 or AV1: a healthy re-encode there saves 30–45%, so anything predicting under 25% was already efficient — and re-encoding it spends a generation of quality for almost nothing.
+    - Recap label (Start modal): Must be 25% smaller — or else keep the original
+    - Description: The sensible pick if you chose H.265 or AV1: a healthy re-encode there saves 35–50%, so anything predicting under 25% was already pretty efficient — and re-encoding it spends a generation of quality for almost nothing.
   - `saving.2` **40%**
     - Tag: Only the truly bloated
-    - Recap label (Start modal): 40% minimum — else keep the original
+    - Recap label (Start modal): Must be 40% smaller — or else keep the original
     - Description: Strict. Touches only the worst offenders — the 20 GB rips with generous headroom. Most of the library goes untouched, which may be exactly what you want.
 
 ### 3.4 COMPATIBILITY  `q:compat`
@@ -84,7 +84,7 @@
   - `compat.0` **Remux + transcode**
     - Tag: Both · default
     - Recap label (Start modal): Remux to MP4, and transcode legacy codecs
-    - Description: MP4-friendly codecs sitting in other containers get losslessly rehomed into MP4 — a stream copy, no re-encode, seconds not hours, and it fixes faststart on the way through. Legacy codecs MP4 cannot hold (MPEG-2, VC-1, Xvid, WMV) get re-encoded at maximum fidelity, capped at the source's own bitrate rather than at your tier target — fidelity first, because the point is to rescue the file, not to shrink it.
+    - Description: MP4-friendly codecs sitting in other containers get losslessly rehomed into MP4 — a stream copy, no re-encode, seconds not hours, and it fixes faststart on the way through. Legacy codecs from old files that MP4 cannot hold (MPEG-2, VC-1, Xvid, WMV) get re-encoded at maximum fidelity, capped at the source's own bitrate rather than at your tier target — fidelity first, because the point is to rescue the file, not to shrink it.
   - `compat.1` **Remux only**
     - Tag: No re-encoding
     - Recap label (Start modal): Remux to MP4 · leave legacy codecs alone
@@ -92,17 +92,17 @@
   - `compat.2` **Neither**
     - Tag: Leave containers alone
     - Recap label (Start modal): Leave every container as it is
-    - Description: MKV stays MKV. Nothing gets rewrapped. Only the shrink logic runs.
+    - Description: Non-MP4 files stay as they are. Nothing gets rewrapped. Only the shrink logic runs on MP4 files.
 
 ### 3.5 ENCODER  `q:encoder`
 - **Title:** Hardware or software encoder?
-- **Subtitle:** A working VideoToolbox encoder was detected on this machine, so you get the choice. Without one, this question doesn't appear.
+- **Subtitle:** A working {something-encoder} encoder was detected on this machine, so you get the choice. Without one, this question doesn't appear.
 - **Options:**
   - `encoder.0` **Hardware**
-    - Tag: VideoToolbox · default
+    - Tag: {hardware-encoder} · default
     - Description: Many times faster, using a fixed-function block on the chip. It targets an average bitrate rather than a quality level, so here the tier target IS the quality knob — which is exactly why the bpp calibration matters most on this path. Slightly blunter than software at the same target; the difference is small and the time saved is not.
   - `encoder.1` **Software**
-    - Tag: libx265 / libx264
+    - Tag: {something-encoder} / {something-encoder}
     - Description: Capped CRF: crf=21 for H.265, crf=20 for H.264, preset medium. CRF is a constant-quality target and the tier bitrate becomes a ceiling on peaks via maxrate and bufsize — quality first, with the target as a limit rather than a goal. Better per bit. Considerably slower. Correct if time is genuinely no object.
 
 ### 3.6 DESTINATION  `q:dest`
@@ -112,11 +112,11 @@
   - `dest.0` **Replace · archive**
     - Tag: Keeps libraries tidy · default
     - Recap label (Start modal): Replace in place · originals archived
-    - Description: The new file takes the original's exact name and location, so Plex and Jellyfin libraries don't notice a thing. Each original is moved to an archive folder (at the source root by default, or one you choose) — it costs disk until you clear it, which is the point: change your mind after watching one.
+    - Description: The new file takes the original's exact name and location, so Plex and Jellyfin libraries don't notice a thing. Each original is moved to an archive folder (at the source root by default, or one you choose) — you decide if and when to trash originals.
   - `dest.1` **Replace · delete**
     - Tag: Most space, no undo
     - Recap label (Start modal): Replace in place · originals deleted
-    - Description: The new file takes the original's name and location; the original is deleted once verification passes. Maximum space saved, no undo. The run report still tells you exactly what happened to every file.
+    - Description: The new file takes the original's name and location; the original is deleted once verification passes. Maximum space saved immediately, no undo. The run report still tells you exactly what happened to every file.
   - `dest.2` **New folder**
     - Tag: Non-destructive
     - Recap label (Start modal): New files to a folder · originals untouched
@@ -142,7 +142,7 @@
 - Buttons: **Go back** · **Yes, start**
 
 ## 6 · Progress screen (during a run)
-- Eyebrow: **Encoding · nothing else is touched**
+- Eyebrow: **Processing**
 - Title: **Working…** _(animated)_
 - Clock label: **estimated time remaining**
 - Counts: `N / M files` · `X%`

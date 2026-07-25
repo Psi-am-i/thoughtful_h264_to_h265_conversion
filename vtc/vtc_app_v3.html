@@ -991,6 +991,7 @@ body{
     </div>
     <div class="sheet-f">
       <button class="btn-ghost" id="r-log">Save log…</button>
+      <button class="btn-ghost" id="r-retry" hidden>Retry in software</button>
       <button class="btn-ghost" id="r-reset">Start over</button>
       <button class="btn-run" id="r-again" style="width:auto;margin:0;padding:11px 22px">New folder · same settings</button>
     </div>
@@ -1198,16 +1199,16 @@ let SRC = null;
 const M = [
   { id:'codec', short:'CODEC',
     title:'What video codec should I use?',
-    sub:'The only choice that meaningfully changes file size. Every codec trades off size, quality and speed — older ones are worse at all three. For a given quality the codec doesn\'t change how it looks, only how big the file is and how long it takes to make.',
+    sub:'The only choice that meaningfully changes file size. Every codec trades off size, quality and speed — older ones are worse at all three. For a given quality the codec doesn\'t change how it looks, only how big the file is and how long it takes to make. If your machine has a hardware encoder for a codec, it will be considerably faster than choosing a codec without hardware encoding.',
     opts:[
       {k:'H.264 / AVC', recap:'H.264 / AVC', tag:'Compatibility', name:'H.264 / AVC',
        t:'The universal baseline — direct-plays on virtually anything since 2003 — but about twice the size for the same quality as H.265/AV1, and increasingly wasteful above 1080p. Choose it for maximum compatibility, or for great performance on old devices.',
        m:[5.5,10,9.5,8], hot:1},
       {k:'H.265 / HEVC', recap:'H.265 / HEVC', tag:'Efficiency · suggested', name:'H.265 / HEVC',
-       t:'A truly modern codec with wide — not universal — support. Same quality as H.264 in roughly 40–55% less space, and the advantage grows with resolution: up to ~60% smaller at 4K and above. Plays on almost any device since 2015 — Apple, recent TVs, Plex, VLC, Infuse. Pick this unless you have a specific reason not to. Your machine has a hardware encoder for it, so it will be considerably faster than any codec without one.',
+       t:'A truly modern codec with wide — not universal — support. Same quality as H.264 in roughly 40–55% less space, and the advantage grows with resolution: up to ~60% smaller at 4K and above. Plays on most devices since 2015 — Apple, recent TVs, Plex, VLC, Infuse. The big exceptions are some SmartTV\'s and Firefox Browser. For most this is a good middle ground - unless you have a specific reason not to, like running a media server and you want video as widely as possible.',
        m:[7.5,8,8,5], hot:0},
       {k:'AV1', recap:'AV1', tag:'Next-gen · coming later', name:'AV1', disabled:true,
-       t:'Likely the future — files 30–50% smaller than H.265 at equal quality, royalty-free and backed by the Alliance for Open Media (Apple, Google, Microsoft, Netflix). But software encoding is glacial, hardware decode is only starting to roll out (Apple plays it from the M3 on), and a five-year-old TV probably won\'t play it at all. Genuinely good; genuinely early.',
+       t:'Likely the future — files 30–50% smaller than H.265 at equal quality, royalty-free and backed by the Alliance for Open Media (Apple, Google, Microsoft, Netflix). BUT software encoding is glacial and hardware decoders are only starting to roll out (Apple plays it from the M3 on), and a five-year-old TV probably won\'t play it at all. Genuinely good; genuinely early.',
        m:[9,5.5,7,2], hot:0},
       {k:'H.266 / VVC', recap:'H.266 / VVC', tag:'Bleeding-edge · coming later', name:'H.266 / VVC', disabled:true,
        t:'In objective tests VVC is slightly more efficient than AV1 at high resolutions (4K/UHD), but AV1 has a big head start on support and tooling — and almost no consumer devices decode VVC yet.',
@@ -1215,14 +1216,14 @@ const M = [
     ]},
   { id:'quality', short:'QUALITY',
     title:'What quality are you looking for?',
-    sub:'Quality is part objective — how much information is in each frame (bits per pixel per frame) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show, so if you pick Excellent, that is what you get (given a source that good or better). Resolution doesn\'t matter: we set the right bits per pixel per frame, which decides the bitrate for that quality automatically.',
+    sub:'Quality is part objective — how much information is in each frame (bits per pixel per frame) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show. We call that quality Excellent and that is what you will get (assuming your source is that good or better). Resolution doesn\'t matter: we set the right bits per pixel per frame, which decides the bitrate for any resolution + quality automatically.',
     opts:[
       {k:'OK', recap:'OK · 0.064 bpp', tag:'0.064 bpp · 4.0 Mbps at 1080p30', name:'OK',
        t:'Uses little space. Fine for phones, tablets and older or low-quality material. On a big 1080p TV you will see it soften.', m:[2,10,10,9], hot:0},
       {k:'GOOD', recap:'Good · 0.080 bpp', tag:'0.080 bpp · 5.0 Mbps at 1080p30', name:'Good',
-       t:'Solid streaming quality — what most sites deliver, and a little under Netflix and Amazon. On a laptop or smaller TV it is usually more than enough.', m:[4,10,9,8], hot:0},
+       t:'Solid streaming quality — what most websites deliver, and a little under Netflix and Amazon. On a laptop or smaller TV it is usually more than enough.', m:[4,10,9,8], hot:0},
       {k:'EXCELLENT', recap:'Excellent · 0.109 bpp', tag:'0.109 bpp · 6.8 Mbps at 1080p30 · default', name:'Excellent',
-       t:'Matches Netflix\'s top streaming quality. They manage 5.8 Mbps with per-shot encoding you do not have, so we bump our number deliberately above theirs. For almost every library, this is the answer. For excellent sources — or if you use a projector — consider Stellar.', m:[6,9,9,7], hot:0},
+       t:'Matches Netflix\'s top streaming quality. They manage 5.8 Mbps with per-shot encoding you do not have, so we bump our number deliberately above theirs. For almost every library, this is the answer. For excellent sources you want to maintain — or if you use a projector — consider Stellar.', m:[6,9,9,7], hot:0},
       {k:'STELLAR', recap:'Stellar · 0.129 bpp', tag:'0.129 bpp · 8.0 Mbps at 1080p30', name:'Stellar',
        t:'If your source is great, this beats streaming from the big players — heading into Blu-ray territory. For high-quality films, grainy or high-motion footage, or a projector, choose this.', m:[8,7,6,4], hot:0},
       {k:'INSANE', recap:'Insane · 0.145 bpp', tag:'0.145 bpp · 9.0 Mbps at 1080p30', name:'Insane',
@@ -1230,13 +1231,13 @@ const M = [
     ]},
   { id:'saving', short:'SAVING',
     title:'How much smaller must a file get to be worth it?',
-    sub:'Your call — the tool has no view on it. Predicted before encoding starts, so a file that won\'t clear your bar is skipped rather than discovered an hour later, and checked again after: if the finished encode misses it, the original stays. Shrinks only — a lossless remux and a legacy transcode are kept whatever their size.',
+    sub:'Your call — the tool has no view on it. We predict the file size of each file according to your quality and codec choice BEFORE encoding starts. A file that won\'t clear your savings expectation is skipped rather than discovered an hour later. We also check the final file to ensure original files are only replaced if it\'s worth it. If we are just doing a lossless conversion, those files will always be the same size.',
     opts:[
-      {k:'15%', recap:'15% minimum — else keep the original', tag:'Trim the obvious fat', fits:1, name:'15% minimum',
+      {k:'15%', recap:'Must be 15% smaller — or else keep the original', tag:'Trim the obvious fat', fits:1, name:'15% minimum',
        t:'The sensible pick if you chose H.264, where a re-encode only shaves headroom off a file rather than changing how it compresses — 15% is a real win there. Expect a lot of files to qualify.', m:[4,10,9,9], hot:0},
-      {k:'25%', recap:'25% minimum — else keep the original', tag:'The healthy-encode bar', fits:0, name:'25% minimum',
-       t:'The sensible pick if you chose H.265 or AV1: a healthy re-encode there saves 30–45%, so anything predicting under 25% was already efficient — and re-encoding it spends a generation of quality for almost nothing.', m:[7,9,9,6], hot:0},
-      {k:'40%', recap:'40% minimum — else keep the original', tag:'Only the truly bloated', name:'40% minimum',
+      {k:'25%', recap:'Must be 25% smaller — or else keep the original', tag:'The healthy-encode bar', fits:0, name:'25% minimum',
+       t:'The sensible pick if you chose H.265 or AV1: a healthy re-encode there saves 35–50%, so anything predicting under 25% was already pretty efficient — and re-encoding it spends a generation of quality for almost nothing.', m:[7,9,9,6], hot:0},
+      {k:'40%', recap:'Must be 40% smaller — or else keep the original', tag:'Only the truly bloated', name:'40% minimum',
        t:'Strict. Touches only the worst offenders — the 20 GB rips with generous headroom. Most of the library goes untouched, which may be exactly what you want.', m:[9,9,9,8], hot:0},
     ]},
   { id:'compat', short:'COMPATIBILITY',
@@ -1244,11 +1245,11 @@ const M = [
     sub:'Two separate behaviours, both opt-in. Neither is a quality decision — they are about whether the file plays.',
     opts:[
       {k:'Remux + transcode', recap:'Remux to MP4, and transcode legacy codecs', tag:'Both · default', name:'Remux and transcode',
-       t:'MP4-friendly codecs sitting in other containers get losslessly rehomed into MP4 — a stream copy, no re-encode, seconds not hours, and it fixes faststart on the way through. Legacy codecs MP4 cannot hold (MPEG-2, VC-1, Xvid, WMV) get re-encoded at maximum fidelity, capped at the source\'s own bitrate rather than at your tier target — fidelity first, because the point is to rescue the file, not to shrink it.', m:[5,10,9,7], hot:0},
+       t:'MP4-friendly codecs sitting in other containers get losslessly rehomed into MP4 — a stream copy, no re-encode, seconds not hours, and it fixes faststart on the way through. Legacy codecs from old files that MP4 cannot hold (MPEG-2, VC-1, Xvid, WMV) get re-encoded at maximum fidelity, capped at the source\'s own bitrate rather than at your tier target — fidelity first, because the point is to rescue the file, not to shrink it.', m:[5,10,9,7], hot:0},
       {k:'Remux only', recap:'Remux to MP4 · leave legacy codecs alone', tag:'No re-encoding', name:'Remux only',
        t:'Rehome what can be rehomed for free. Leave legacy codecs exactly where they are — bigger and older, but untouched.', m:[5,8,8,10], hot:0},
       {k:'Neither', recap:'Leave every container as it is', tag:'Leave containers alone', name:'Leave containers alone',
-       t:'MKV stays MKV. Nothing gets rewrapped. Only the shrink logic runs.', m:[5,6,5,10], hot:0},
+       t:'Non-MP4 files stay as they are. Nothing gets rewrapped. Only the shrink logic runs on MP4 files.', m:[5,6,5,10], hot:0},
     ]},
   { id:'encoder', short:'ENCODER',
     title:'Hardware or software encoder?',
@@ -1264,9 +1265,9 @@ const M = [
     sub:'The last decision, and the only irreversible one. Verification runs first regardless — a source is never replaced unless the new file exists, is non-empty, and is meaningfully smaller.',
     opts:[
       {k:'Replace · archive', recap:'Replace in place · originals archived', tag:'Keeps libraries tidy · default', name:'Replace in place, archive originals',
-       t:'The new file takes the original\'s exact name and location, so Plex and Jellyfin libraries don\'t notice a thing. Each original is moved to an archive folder (at the source root by default, or one you choose) — it costs disk until you clear it, which is the point: change your mind after watching one.', m:[6,10,10,9], hot:0},
+       t:'The new file takes the original\'s exact name and location, so Plex and Jellyfin libraries don\'t notice a thing. Each original is moved to an archive folder (at the source root by default, or one you choose) — you decide if and when to trash originals.', m:[6,10,10,9], hot:0},
       {k:'Replace · delete', recap:'Replace in place · originals deleted', tag:'Most space, no undo', name:'Replace in place, delete originals',
-       t:'The new file takes the original\'s name and location; the original is deleted once verification passes. Maximum space saved, no undo. The run report still tells you exactly what happened to every file.', m:[10,10,10,9], hot:1},
+       t:'The new file takes the original\'s name and location; the original is deleted once verification passes. Maximum space saved immediately, no undo. The run report still tells you exactly what happened to every file.', m:[10,10,10,9], hot:1},
       {k:'New folder', recap:'New files to a folder · originals untouched', tag:'Non-destructive', name:'Save to a new folder',
        t:'New files are written to a folder you choose — flat, or mirroring the source tree. Nothing is removed or moved: your originals stay exactly where they are. Uses the most disk during the run, and lets you A/B at leisure.', m:[2,10,10,9], hot:0},
     ]},
@@ -1580,7 +1581,10 @@ function render(){
      <div class="track"><div class="fill" data-f="${m}"></div></div></div>`).join('');
   $('#keys').querySelectorAll('.key').forEach(k=>{
     const i=+k.dataset.i;
-    k.onmouseenter=()=>show(i); k.onfocus=()=>show(i);      // still explain it
+    // Hover previews the description ONLY until a choice is made on this question.
+    // Once something is armed, the well stays on the choice — only a click changes it.
+    k.onmouseenter=()=>{ if(armed===null) show(i); };
+    k.onfocus=()=>{ if(armed===null) show(i); };
     if(M[step].opts[i].disabled) return;                    // greyed — not selectable yet
     k.onclick=()=>{ armed=i; render(); show(i); };
   });
@@ -1891,6 +1895,7 @@ function modelRun(){
     done:Math.round(rows.filter(r=>r.t==='ok').length*scale),
     skip:Math.round(rows.filter(r=>r.t==='skip').length*scale),
     fail:Math.round(rows.filter(r=>r.t==='fail').length*scale),
+    failedRetryable:Math.round(rows.filter(r=>r.t==='fail'&&r.sev==='err').length*scale),
     tb:(saved*scale/1000),
     mins:Math.round(rows.filter(r=>r.t==='ok').length*scale*1.4),
   };
@@ -1926,6 +1931,10 @@ function drawReport(){
       + (counts[rTab]>rows.length
           ? `<div class="r-empty">Showing ${rows.length} of ${counts[rTab].toLocaleString()} — save the log for the rest.</div>` : '')
     : `<div class="r-empty">Nothing here${rTab==='fail'?' — which is the good outcome':''}.</div>`;
+  // Offer to retry files that errored (e.g. a quirky hardware encode) in software.
+  const nRetry = R.failedRetryable||0;
+  const rb=$('#r-retry');
+  if(rb){ rb.hidden = !nRetry; rb.textContent = nRetry ? `Retry ${nRetry} in software` : 'Retry in software'; }
 }
 // Leaving the report is a choice, not just a close: run the same settings on a
 // new folder, or wipe every choice and start from the top.
@@ -1945,6 +1954,10 @@ function newFolderSameSettings(){
 }
 $('#r-reset').onclick=resetAll;
 $('#r-again').onclick=newFolderSameSettings;
+// retry the files that errored, in software (a new run over just those files)
+$('#r-retry').onclick=()=>{
+  if(window.__vtcRetryFailed){ shutSheet('#report-sheet'); window.__vtcRetryFailed(); }
+};
 $('#r-log').onclick=()=>{
   const R=RUN, lines=[`Very Thoughtful Compression — run report`,`Source: ${SRC.k}`,
     `Settings: ${M.map(q=>q.short+'='+q.opts[answers[q.id]].k).join(', ')}`,
