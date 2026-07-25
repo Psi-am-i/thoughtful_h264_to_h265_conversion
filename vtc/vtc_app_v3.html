@@ -431,6 +431,15 @@ body{
 .adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:var(--r);
   padding:1px 6px;margin-left:8px;pointer-events:auto}
+/* up-front non-MP4 policy sheet: selectable option cards over ADV.format */
+.compat-lead{font-size:15px;color:var(--ink);font-weight:600;margin:0}
+.compat-opts{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.compat-opt{text-align:left;padding:13px 15px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel);cursor:pointer;transition:border-color .12s,background .12s}
+.compat-opt:hover{border-color:var(--ink-3)}
+.compat-opt.on{border-color:var(--accent);background:#fff;box-shadow:inset 3px 0 0 var(--accent)}
+.compat-opt b{display:block;font-size:14.5px;color:var(--ink);margin-bottom:2px}
+.compat-opt span{display:block;font-size:12.5px;color:var(--ink-2);line-height:1.45}
 /* when the finished config is brought to the centre, the working interface behind
    it goes inert and grey — a backdrop, not a competing surface. It reverts the
    instant the modal closes (Go back / Escape / click-away / failure). */
@@ -995,6 +1004,35 @@ body{
   </div>
 </div>
 
+<!-- Asked up front after a scan, only when the library holds non-MP4 files: the
+     one decision that used to hang mid-flow. Writes ADV.format (also in Advanced). -->
+<div class="sheet" id="compat-sheet">
+  <div class="sheet-c">
+    <div class="sheet-h">
+      <div class="sheet-e mono">Before we start</div>
+      <h2 class="sheet-t">Your library has files that aren't MP4</h2>
+    </div>
+    <div class="sheet-b">
+      <p class="compat-lead mono" id="compat-n">Some files in this library aren't MP4.</p>
+      <p class="sheet-w" style="border-left-color:var(--rule)">These aren't quality decisions — they're about whether the file plays. You can change this any time in Advanced settings.</p>
+      <div class="compat-opts" id="compat-opts">
+        <button class="compat-opt" data-v="convert">
+          <b>Convert all to MP4</b>
+          <span>Losslessly rehome MP4-friendly codecs, and re-encode legacy ones (MPEG-2, VC-1, WMV) at full fidelity so everything plays.</span></button>
+        <button class="compat-opt" data-v="remux">
+          <b>Only remux to MP4</b>
+          <span>Rehome what can be rehomed for free — a stream copy, seconds not hours. Leave legacy codecs exactly where they are.</span></button>
+        <button class="compat-opt" data-v="leave">
+          <b>Leave them all alone</b>
+          <span>Non-MP4 files stay as they are. Only the shrink logic runs, and only on MP4 files.</span></button>
+      </div>
+    </div>
+    <div class="sheet-f">
+      <button class="btn-run" id="compat-go" style="width:auto;margin:0;padding:11px 26px">Continue</button>
+    </div>
+  </div>
+</div>
+
 <!-- Advanced Settings: the tunables the guided flow deliberately hides, plus the
      format & subtitle policy that later steps will make live. Opened by the gear. -->
 <div class="sheet" id="adv-sheet">
@@ -1005,16 +1043,16 @@ body{
     </div>
     <div class="sheet-b">
 
-      <div class="adv-sec adv-soon">
-        <h3>Non-MP4 files<span class="adv-soon-tag">set in the flow for now</span></h3>
+      <div class="adv-sec">
+        <h3>Non-MP4 files</h3>
         <div class="adv-grid one">
           <div class="adv-row">
             <div class="adv-lab"><b>What to do with files that aren't MP4</b>
-              <span>Convert everything to MP4, only losslessly rehome what already can be, or leave other containers alone.</span></div>
+              <span>Convert everything to MP4, only losslessly rehome what already can be, or leave other containers alone. Asked up front too when a scan finds non-MP4 files.</span></div>
             <div class="adv-seg" id="adv-format">
-              <button data-v="convert" disabled>Convert all</button>
-              <button data-v="remux" class="on" disabled>Only remux</button>
-              <button data-v="leave" disabled>Leave alone</button>
+              <button data-v="convert">Convert all</button>
+              <button data-v="remux">Only remux</button>
+              <button data-v="leave">Leave alone</button>
             </div>
           </div>
         </div>
@@ -1446,17 +1484,9 @@ const M = [
       {k:'40%', recap:'Must be 40% smaller — or else keep the original', tag:'Only the truly bloated', name:'40% minimum',
        t:'Strict. Touches only the worst offenders — the 20 GB rips with generous headroom. Most of the library goes untouched, which may be exactly what you want.', m:[9,9,9,8], hot:0},
     ]},
-  { id:'compat', short:'COMPATIBILITY',
-    title:'What about files that aren\'t MP4?',
-    sub:'Two separate behaviours, both opt-in. Neither is a quality decision — they are about whether the file plays.',
-    opts:[
-      {k:'Remux + transcode', recap:'Remux to MP4, and transcode legacy codecs', tag:'Both · default', name:'Remux and transcode',
-       t:'MP4-friendly codecs sitting in other containers get losslessly rehomed into MP4 — a stream copy, no re-encode, seconds not hours, and it fixes faststart on the way through. Legacy codecs from old files that MP4 cannot hold (MPEG-2, VC-1, Xvid, WMV) get re-encoded at maximum fidelity, capped at the source\'s own bitrate rather than at your tier target — fidelity first, because the point is to rescue the file, not to shrink it.', m:[5,10,9,7], hot:0},
-      {k:'Remux only', recap:'Remux to MP4 · leave legacy codecs alone', tag:'No re-encoding', name:'Remux only',
-       t:'Rehome what can be rehomed for free. Leave legacy codecs exactly where they are — bigger and older, but untouched.', m:[5,8,8,10], hot:0},
-      {k:'Neither', recap:'Leave every container as it is', tag:'Leave containers alone', name:'Leave containers alone',
-       t:'Non-MP4 files stay as they are. Nothing gets rewrapped. Only the shrink logic runs on MP4 files.', m:[5,6,5,10], hot:0},
-    ]},
+  // NB: the non-MP4 / "compatibility" decision used to live here mid-flow. It now
+  // lives in Advanced settings (ADV.format) and is asked up front after a scan only
+  // when the library actually contains non-MP4 files (see #compat-sheet).
   { id:'encoder', short:'ENCODER',
     title:'Hardware or software encoder?',
     sub:'A working VideoToolbox encoder was detected on this machine, so you get the choice. Without one, this question doesn\'t appear.',
@@ -1912,7 +1942,7 @@ const shutSheet=id=>{
 // The tunables the guided flow hides. Held in one object, sent alongside the
 // flow answers when a run starts (the bridge reads window.ADV). Defaults mirror
 // the engine (vtc/model.py, vtc/config.py); Reset restores exactly these.
-const ADV_DEFAULTS = { floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
+const ADV_DEFAULTS = { format:'convert', floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
   imageSubs:true, mkvTracks:0, jobs:1, ledger:true };
 const ADV = Object.assign({}, ADV_DEFAULTS);
@@ -1923,6 +1953,7 @@ function advToForm(){                                  // ADV -> controls
    ['#adv-ab-multi','abMulti'],['#adv-mkv-tracks','mkvTracks'],['#adv-jobs','jobs']
   ].forEach(([id,key])=>{ const el=$(id); if(el) el.value=ADV[key]; });
   $('#adv-audio').value = ADV.audio;
+  $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
   $('#adv-ledger').classList.toggle('on', !!ADV.ledger);
@@ -1945,6 +1976,7 @@ function advBind(){                                    // controls -> ADV
   num('#adv-mkv-tracks','mkvTracks',{min:0,max:64});
   num('#adv-jobs','jobs',{min:1,max:16});
   $('#adv-audio').onchange=e=>{ ADV.audio=e.target.value; };
+  $('#adv-format').querySelectorAll('button').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     ADV.container=b.dataset.v;
     $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
@@ -1957,6 +1989,30 @@ $('#gear').onclick=openAdv;
 $('#adv-done').onclick=()=>shutSheet('#adv-sheet');
 $('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) shutSheet('#adv-sheet'); };
 $('#adv-reset').onclick=()=>{ Object.assign(ADV, ADV_DEFAULTS); advToForm(); };
+
+// The non-MP4 policy has two surfaces — the Advanced modal and the up-front sheet
+// below — over one value (ADV.format). setFormat keeps both in step.
+function setFormat(v){
+  ADV.format=v;
+  $('#adv-format')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  $('#compat-opts')?.querySelectorAll('.compat-opt').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+}
+// After a scan, if the library holds files that aren't MP4, ask the one question
+// that used to hang confusingly in the middle of the flow — but only when it
+// actually applies. Asked once per folder; the choice persists in Advanced settings.
+let _compatAskedFor=null;
+function maybeAskCompat(){
+  if(!SRC || !(SRC.nonmp4>0)) return;
+  if(_compatAskedFor===SRC.k) return;            // already asked for this folder
+  _compatAskedFor=SRC.k;
+  const n=SRC.nonmp4;
+  $('#compat-n').textContent = n.toLocaleString()+' file'+(n===1?'':'s')+" in this library "+(n===1?"isn't":"aren't")+' MP4.';
+  setFormat(ADV.format);                          // reflect current choice
+  openSheet('#compat-sheet');
+}
+$('#compat-opts').querySelectorAll('.compat-opt').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
+$('#compat-go').onclick=()=>shutSheet('#compat-sheet');
+$('#compat-sheet').onclick=e=>{ if(e.target===$('#compat-sheet')) shutSheet('#compat-sheet'); };
 
 // ═══ live progress ═══════════════════════════════════════
 // Shared hooks: the pywebview bridge drives these from the real engine; the
@@ -2236,7 +2292,7 @@ $('#r-log').onclick=()=>{
 };
 addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
-  shutSheet('#confirm-sheet'); shutSheet('#report-sheet'); shutSheet('#big-sheet'); shutSheet('#adv-sheet');
+  shutSheet('#confirm-sheet'); shutSheet('#report-sheet'); shutSheet('#big-sheet'); shutSheet('#adv-sheet'); shutSheet('#compat-sheet');
 });
 
 // ═══ gate ════════════════════════════════════════════════

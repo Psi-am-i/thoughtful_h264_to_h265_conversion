@@ -251,8 +251,10 @@ _PREVIEW_PANELS = [
 _CODECS = [OutCodec.H264, OutCodec.H265, None, None]    # 0=H264, 1=H265, 2=AV1, 3=VVC (2/3 unsupported)
 _TIERS = [Tier.OK, Tier.GOOD, Tier.EXCELLENT, Tier.STELLAR, Tier.INSANE]
 _SAVING = [0.15, 0.25, 0.40]
-_COMPAT = [(True, True), (True, False), (False, False)]  # (remux, transcode)
 _ENCODER = [Encoder.HARDWARE, Encoder.SOFTWARE]
+# non-MP4 policy: ADV.format -> (remux_to_mp4, compat_transcode). Was the mid-flow
+# "compat" question; now lives in Advanced settings + the up-front #compat-sheet.
+_FORMAT = {"convert": (True, True), "remux": (True, False), "leave": (False, False)}
 
 
 def build_config(src: Path, a: dict) -> RunConfig:
@@ -260,7 +262,8 @@ def build_config(src: Path, a: dict) -> RunConfig:
     codec = _CODECS[a["codec"]]
     if codec is None:
         raise ValueError("AV1 output is not supported by the engine yet")
-    remux, transcode = _COMPAT[a["compat"]]
+    adv = a.get("adv") or {}
+    remux, transcode = _FORMAT.get(adv.get("format"), (True, True))
     dest = a["dest"]  # 0 archive, 1 delete, 2 keep both
     if dest == 2:
         output_mode, source_action, output_dir = OutputMode.SEPARATE, SourceAction.KEEP, src / "converted"
@@ -275,7 +278,7 @@ def build_config(src: Path, a: dict) -> RunConfig:
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
-    _apply_advanced(cfg, a.get("adv") or {})
+    _apply_advanced(cfg, adv)
     return cfg
 
 
@@ -363,12 +366,13 @@ _BRIDGE_JS = r"""
   window.pickFolder = async ()=>{
     const s = await api.pick_folder();
     if(!s) return;                                  // cancelled
-    SRC = s;                                         // {k, files, tb}
+    SRC = s;                                         // {k, files, tb, nonmp4}
     document.getElementById('src-v').textContent = SRC.k;
     document.getElementById('readout').classList.add('slid');
     document.getElementById('unit').classList.remove('off');
     document.getElementById('unit').classList.add('on');
     render(); setTimeout(paintCorpse, 80);
+    if(window.maybeAskCompat) maybeAskCompat();      // ask the non-MP4 policy up front, if it applies
   };
   document.querySelectorAll('#picks .pick').forEach(b=> b.onclick = ()=> pickFolder(+b.dataset.f));
 
@@ -454,9 +458,11 @@ class Api:
             return None
         src = Path(picked[0])
         self._src = src
-        files = total = 0
+        files = total = nonmp4 = 0
         for f in pipeline.iter_video_files(RunConfig(src=src)):
             files += 1
+            if f.suffix.lower() != ".mp4":
+                nonmp4 += 1
             try:
                 total += f.stat().st_size
             except OSError:
@@ -469,7 +475,7 @@ class Api:
         self._preview_gen += 1
         threading.Thread(target=self._preview_worker,
                          args=(src, OutCodec.H265, self._preview_gen), daemon=True).start()
-        return {"k": str(src), "files": files, "tb": total / 1e12}
+        return {"k": str(src), "files": files, "tb": total / 1e12, "nonmp4": nonmp4}
 
     # -- previews: extract a 5s sample, encode it at each tier, stream URLs --------
     def _emit(self, fn: str, payload) -> None:
