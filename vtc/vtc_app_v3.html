@@ -2088,14 +2088,26 @@ const ANCHOR_EVERY = 15;
 function pgTick(){
   PG.remaining = Math.max(0, PG.remaining - 1);
   PG.sinceAnchor = (PG.sinceAnchor||0) + 1;
-  if(PG.sinceAnchor >= ANCHOR_EVERY){ PG.sinceAnchor = 0; pgRecalcETA(true); }
+  // The real app drives the ETA from the engine (work-based, self-correcting) via
+  // pgSetETA; the frontend only counts down between updates. The spf-based recalc
+  // is the standalone MOCK's fallback when no engine ETA arrives.
+  if(!PG.etaFromEngine && PG.sinceAnchor >= ANCHOR_EVERY){ PG.sinceAnchor = 0; pgRecalcETA(true); }
   else pgSetClock();
+}
+// Engine-supplied ETA (seconds): the authoritative value. Anchor to it and let
+// pgTick glide down until the next update; flash the "re-estimating…" note.
+function pgSetETA(sec){
+  PG.etaFromEngine = true;
+  PG.remaining = Math.max(0, +sec||0);
+  PG.anchored = true; PG.sinceAnchor = 0;
+  const e=$('#pg-recalc'); if(e){ e.style.opacity='1'; clearTimeout(PG._rt); PG._rt=setTimeout(()=>e.style.opacity='0',1200); }
+  pgSetClock();
 }
 function pgStart(total, est, queue){
   if(PG.timer) clearInterval(PG.timer);
   const preparing = !total;                    // total unknown yet -> still scanning
   PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), curFrac:0, anchored:false, timer:null, _rt:null,
-      spf:0, spf0:(est&&total)?est/total:0, lastDone:Date.now(), sinceAnchor:0,
+      spf:0, spf0:(est&&total)?est/total:0, lastDone:Date.now(), sinceAnchor:0, etaFromEngine:false,
       queue:queue||[], tags:{}, curName:'', userScroll:false, _scrollT:null};
   $('#pg-total').textContent = preparing ? '…' : PG.total.toLocaleString();
   $('#pg-done').textContent='0'; $('#pg-pct').textContent = preparing ? '' : '0%';
@@ -2135,7 +2147,7 @@ function pgDone1(row){
   $('#pg-overall').style.width=(frac*100)+'%';
   $('#pg-pct').textContent=Math.round(frac*100)+'%';
   $('#pg-cur-f').style.width='0'; $('#pg-stats').textContent='';
-  PG.sinceAnchor=0; pgRecalcETA(true);   // re-anchor to spf × files-left, flash "re-estimating"
+  PG.sinceAnchor=0; if(!PG.etaFromEngine) pgRecalcETA(true);   // mock fallback; real app uses engine ETA
   if(row) PG.tags[row.f]={t:row.t, sev:row.sev, star:!!row.star, detail:row.detail||row.d||''};
   pgRenderList();
 }

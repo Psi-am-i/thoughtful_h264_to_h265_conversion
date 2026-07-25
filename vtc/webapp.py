@@ -404,6 +404,7 @@ _BRIDGE_JS = r"""
   // Run -> real pipeline.run streamed back per file, with LIVE progress, then the report.
   const acc = [];
   window.__vtcRunStart = (total, est, files)=> pgStart(total, est, files);   // engine: run begins
+  window.__vtcETA = (sec)=> pgSetETA(sec);                                    // engine: work-based ETA
   window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
@@ -712,16 +713,35 @@ class Api:
                  hw or "software", config.remux_to_mp4, config.compat_transcode,
                  config.source_action.value, f" (retry {len(files)} files)" if files else "")
 
+        import time as _time
         files = list(files) if files is not None else list(pipeline.iter_video_files(config))
         total = len(files)
-        # A rough total-time estimate so the UI can show a countdown immediately
-        # (refined per file in JS). Sum probed source durations, extrapolate to all
-        # files, divide by an encoder speed factor (hardware ~ many x realtime,
-        # software well under). Deliberately approximate — it's a "for show" clock.
-        durs = [info.duration for info, _ in self._probes if info.duration]
-        avg_dur = (sum(durs) / len(durs)) if durs else 45 * 60
-        speed = 8.0 if hw else 0.18
-        est_seconds = int(max(1, total) * avg_dur / speed)
+
+        # ETA by WORK, not by file count. A run is mostly instant skips plus a few
+        # slow encodes, so seconds-per-file is meaningless early (two skips → a
+        # fantasy 14-min estimate for 1,882 files). Instead predict each file's wall
+        # cost: an encode ≈ its video duration ÷ encoder speed; a remux is a quick
+        # stream copy; a skip is ~free. The live ETA below then SELF-CORRECTS this
+        # by how our prediction has tracked the real clock so far.
+        enc_speed = 8.0 if hw else 0.18            # encode ×realtime (hardware vs software)
+        REMUX_S, SKIP_S = 4.0, 0.05
+        probe_by_path = {info.path: info for info, _ in self._probes}
+        _enc_durs = [info.duration for info, _ in self._probes
+                     if info.duration and pipeline.decide(config, info)[0] in (Mode.SHRINK, Mode.TRANSCODE)]
+        avg_enc_work = (sum(_enc_durs) / len(_enc_durs) / enc_speed) if _enc_durs else (30 * 60 / enc_speed)
+
+        def _work(f):
+            info = probe_by_path.get(f)
+            if info is None or not info.ok:
+                return avg_enc_work                # not probed yet → assume an average encode
+            mode = pipeline.decide(config, info)[0]
+            if mode in (Mode.SHRINK, Mode.TRANSCODE):
+                return (info.duration / enc_speed) if info.duration else avg_enc_work
+            return REMUX_S if mode is Mode.REMUX else SKIP_S
+
+        work_by_path = {f: _work(f) for f in files}
+        total_work = sum(work_by_path.values())
+        est_seconds = int(max(1, total_work))
         if self.window:
             # the ordered file names let the progress list show what's coming next;
             # cap what we ship so a huge library doesn't bloat the JS call (the UI
@@ -731,14 +751,27 @@ class Api:
                 f"window.__vtcRunStart && window.__vtcRunStart({total}, {est_seconds}, "
                 f"{json.dumps(names)})")
 
-        import time as _time
-        last = {"frac": -1.0, "t": 0.0}             # throttle progress chatter
+        run_t0 = _time.monotonic()
+        eta_state = {"done_work": 0.0}
+        last = {"frac": -1.0, "t": 0.0, "eta": 0.0}   # throttle progress + ETA chatter
+
+        def _emit_eta():
+            if not self.window:
+                return
+            elapsed = _time.monotonic() - run_t0
+            done = eta_state["done_work"]
+            remaining = max(0.0, total_work - done)
+            corr = (elapsed / done) if done > 30 else 1.0   # learn the real speed once past the noise
+            self.window.evaluate_js(f"window.__vtcETA && window.__vtcETA({remaining * corr:.0f})")
 
         def prog(label, frac, stats=None):
             if not self.window:
                 return
             f = -1.0 if frac is None else float(frac)
             now = _time.monotonic()
+            if now - last["eta"] >= 3.0:            # refresh the work-based ETA every ~3s
+                last["eta"] = now
+                _emit_eta()
             # emit on a ~1% move OR at least every ~1.5s (so stats keep ticking)
             if frac is not None and abs(f - last["frac"]) < 0.01 and (now - last["t"]) < 1.5:
                 return
@@ -751,6 +784,7 @@ class Api:
 
         def emit(r):
             last["frac"] = -1.0                     # next file starts fresh
+            eta_state["done_work"] += work_by_path.get(r.path, avg_enc_work)
             if r.outcome is Outcome.ERROR:
                 log.error("  FAIL %s: %s", r.path.name,
                           r.notes[0].message if r.notes else "encode failed")
@@ -759,6 +793,7 @@ class Api:
             if self.window:
                 self.window.evaluate_js(
                     f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(_row(r))})")
+            _emit_eta()
 
         results = pipeline.run(config, progress=prog, on_result=emit, files=files)
         summary = _summary(results)
