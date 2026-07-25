@@ -25,12 +25,13 @@ from .model import OutCodec, classify_codec, over_target, target_kbps
 from .model import CodecCategory
 from .result import EncodeResult, FileDetail, FileResult, Mode, Note, Outcome, ProgressCB
 
-# The encode temp is written NEXT TO each output (see process_file), not here, so
-# the tmp->out move and sidecar relocation are same-filesystem renames (atomic and
-# instant) instead of slow cross-device copies — and they don't depend on a POSIX
-# "/tmp" that doesn't exist on Windows. The stop-flag lives in the OS temp dir
-# (always present) and is per-process so two app instances can't stop each other.
-_TMP_PREFIX = ".vtc-tmp"
+# The encode temp is LOCAL scratch, deliberately NOT on the (possibly network)
+# output volume: ffmpeg writes the output incrementally, and streaming those many
+# small writes over a network share is punishing — so we encode to a local disk and
+# move the finished file to the destination once, in one pass. Using the OS temp dir
+# (not a hardcoded "/tmp") makes that work on Windows too. The stop-flag lives there
+# as well and is per-process, so two app instances can't stop each other.
+TMPROOT = Path(tempfile.gettempdir()) / "vtcwork"
 STOP_FILE = Path(tempfile.gettempdir()) / f"vtc_stop.{os.getpid()}"
 
 # Directories never descended into during a scan.
@@ -50,8 +51,8 @@ def iter_video_files(config: RunConfig):
     for root, dirs, files in os.walk(config.src):
         dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS]
         for name in files:
-            if name.startswith("._") or name.startswith(_TMP_PREFIX):
-                continue                       # AppleDouble sidecars and our own encode temps
+            if name.startswith("._"):
+                continue
             if Path(name).suffix.lower() in exts:
                 yield Path(root) / name
 
@@ -151,9 +152,11 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
 
     out.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(tmp), str(out))
-    # Relocate any sidecar .srt files the encoder wrote next to the temp.
+    # Relocate any sidecar .srt files the encoder wrote next to the (local) temp.
+    # shutil.move, not Path.rename: the destination is often a different volume than
+    # the local scratch, and os.rename across filesystems throws EXDEV and hangs the run.
     for sc in tmp.parent.glob(tmp.stem + "*.srt"):
-        sc.rename(out.with_name(out.stem + sc.name[len(tmp.stem):]))
+        shutil.move(str(sc), str(out.with_name(out.stem + sc.name[len(tmp.stem):])))
     if res.sidecars_made:
         notes.append(Note("NOTE", f"{res.sidecars_made} subtitle track(s) written as sidecar .srt "
                                   f"(could not be embedded in the MP4)"))
@@ -253,11 +256,11 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
         return r
 
     src_bytes = src_file.stat().st_size
-    # Write the temp NEXT TO the output so tmp->out (and sidecars) are same-filesystem
-    # renames, not cross-device copies — critical when the library is on an external
-    # volume. The name is skipped by the scanner (see iter_video_files).
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.parent / f"{_TMP_PREFIX}.{os.getpid()}.{id(src_file) & 0xffff}{ext}"
+    # Encode to LOCAL scratch, never onto the (possibly network) output volume —
+    # ffmpeg writes the output incrementally and streaming those writes over a share
+    # is punishing. The finished file is moved to the destination once, below.
+    TMPROOT.mkdir(parents=True, exist_ok=True)
+    tmp = TMPROOT / f".{out.stem}.{os.getpid()}.{id(src_file) & 0xffff}{ext}"
 
     res = encode.run_encode(config, info, mode, src_file, tmp, target, hw_encoder, container, progress)
     if not res.ok:

@@ -808,6 +808,17 @@ class Api:
 
 # ── FileResult -> the mockup's report row / summary shapes ────────────────────
 _OK = {Outcome.SHRINK, Outcome.TRANSCODE, Outcome.REMUX}
+# Plain-English "left alone" labels — the raw outcome names ("existing", "modern",
+# "at tier") were cryptic in the report.
+_SKIP_LABEL = {
+    Outcome.SKIP_AT_TIER: "already efficient",
+    Outcome.SKIP_MODERN: "already modern",
+    Outcome.SKIP_EXISTING: "already converted",
+    Outcome.SKIP_MIN_SAVING: "saving too small",
+    Outcome.SKIP_INCOMPATIBLE: "codec kept",
+    Outcome.SKIP_CODEC: "unsupported codec",
+    Outcome.RESUME: "already done",
+}
 _SKIP = {Outcome.SKIP_AT_TIER, Outcome.SKIP_MODERN, Outcome.SKIP_EXISTING,
          Outcome.SKIP_MIN_SAVING, Outcome.SKIP_INCOMPATIBLE, Outcome.SKIP_CODEC, Outcome.RESUME}
 
@@ -824,7 +835,8 @@ def _row(r) -> dict:
     elif r.outcome is Outcome.ERROR:
         t, sev, d = "fail", "err", (r.notes[0].message if r.notes else "encode failed")
     else:
-        t, sev, d = "skip", "", r.outcome.value.replace("skip-", "").replace("-", " ")
+        t, sev = "skip", ""
+        d = _SKIP_LABEL.get(r.outcome, r.outcome.value.replace("skip-", "").replace("-", " "))
     if r.notes and t != "fail":
         sev = "warn" if any(n.level == "WARN" for n in r.notes) else "note"
         t = "fail" if sev == "warn" else t   # WARN surfaces under "needs a look"

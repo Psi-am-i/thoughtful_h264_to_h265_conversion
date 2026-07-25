@@ -62,7 +62,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='Very Thoughtful Compression.app',
-    icon=None,
+    icon=os.path.join(repo_root, 'packaging', 'app_icon.icns'),
     bundle_identifier='com.picniclabs.verythoughtfulcompression',
     info_plist={
         'CFBundleName': 'Very Thoughtful Compression',

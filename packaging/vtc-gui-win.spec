@@ -54,6 +54,7 @@ exe = EXE(
     debug=False, strip=False, upx=False,
     console=False,                             # windowed GUI, no console window
     argv_emulation=False,
+    icon=os.path.join(repo_root, 'packaging', 'app_icon.ico'),
 )
 
 coll = COLLECT(
