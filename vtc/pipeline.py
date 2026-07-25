@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
@@ -24,8 +25,13 @@ from .model import OutCodec, classify_codec, over_target, target_kbps
 from .model import CodecCategory
 from .result import EncodeResult, FileDetail, FileResult, Mode, Note, Outcome, ProgressCB
 
-TMPROOT = Path("/tmp/vtcwork")
-STOP_FILE = Path("/tmp/hevc_stop")
+# The encode temp is written NEXT TO each output (see process_file), not here, so
+# the tmp->out move and sidecar relocation are same-filesystem renames (atomic and
+# instant) instead of slow cross-device copies — and they don't depend on a POSIX
+# "/tmp" that doesn't exist on Windows. The stop-flag lives in the OS temp dir
+# (always present) and is per-process so two app instances can't stop each other.
+_TMP_PREFIX = ".vtc-tmp"
+STOP_FILE = Path(tempfile.gettempdir()) / f"vtc_stop.{os.getpid()}"
 
 # Directories never descended into during a scan.
 _PRUNE_DIRS = {
@@ -44,8 +50,8 @@ def iter_video_files(config: RunConfig):
     for root, dirs, files in os.walk(config.src):
         dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS]
         for name in files:
-            if name.startswith("._"):
-                continue
+            if name.startswith("._") or name.startswith(_TMP_PREFIX):
+                continue                       # AppleDouble sidecars and our own encode temps
             if Path(name).suffix.lower() in exts:
                 yield Path(root) / name
 
@@ -247,8 +253,11 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
         return r
 
     src_bytes = src_file.stat().st_size
-    TMPROOT.mkdir(parents=True, exist_ok=True)
-    tmp = TMPROOT / f".{out.stem}.{os.getpid()}.{id(src_file) & 0xffff}{ext}"
+    # Write the temp NEXT TO the output so tmp->out (and sidecars) are same-filesystem
+    # renames, not cross-device copies — critical when the library is on an external
+    # volume. The name is skipped by the scanner (see iter_video_files).
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.parent / f"{_TMP_PREFIX}.{os.getpid()}.{id(src_file) & 0xffff}{ext}"
 
     res = encode.run_encode(config, info, mode, src_file, tmp, target, hw_encoder, container, progress)
     if not res.ok:
