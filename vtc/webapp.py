@@ -332,7 +332,9 @@ _BRIDGE_JS = r"""
   window.runNow = ()=>{
     shutSheet('#confirm-sheet');
     acc.length = 0;
-    api.run(answers);            // fire-and-forget; progress + results stream back via hooks
+    pgStart(0, 0);               // show the working screen IMMEDIATELY — scanning a big
+                                 // library can take a moment, and a blank pause looks broken
+    api.run(answers);            // __vtcRunStart refreshes it with the real total once scanned
   };
 })();
 """
