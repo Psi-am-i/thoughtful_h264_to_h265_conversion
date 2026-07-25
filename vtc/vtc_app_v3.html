@@ -699,14 +699,19 @@ body{
 #big-sheet .scrub{background:#3a352d} #big-sheet .scrub-f{background:#5a5347}
 /* split/wipe compare: two encodes stacked; a draggable divider reveals each side */
 #big-compare{flex:1;min-height:0;display:flex}
+/* CRITICAL: #big-grid/#big-compare set an explicit display, which defeats the
+   [hidden] attribute the JS toggles — so both used to stay visible and split the
+   flex height 50/50 (grid filled only the top, the empty compare stage sat in the
+   black bottom half). This makes hidden actually hide, so the shown one fills. */
+#big-grid[hidden],#big-compare[hidden]{display:none}
 .cmp-stage{position:relative;width:100%;height:100%;overflow:hidden;background:#000;cursor:grab}
 #big-compare.grabbing .cmp-stage{cursor:grabbing}
 .cmp-stage video{position:absolute;top:0;left:0;display:block;max-width:none;background:#000}
 .cmp-top{position:absolute;top:0;left:0;height:100%;width:50%;overflow:hidden}
 .cmp-divider{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(200,200,200,.75);
   transform:translateX(-.5px);z-index:3;cursor:ew-resize}
-.cmp-handle{position:absolute;top:33%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;
-  border-radius:50%;background:var(--accent);box-shadow:0 2px 10px rgba(0,0,0,.6);cursor:ew-resize;
+.cmp-handle{position:absolute;top:33%;left:50%;transform:translate(-50%,-50%);width:34px;height:34px;
+  border-radius:50%;background:rgba(120,120,120,.92);box-shadow:0 2px 10px rgba(0,0,0,.6);cursor:ew-resize;
   display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700;letter-spacing:1px}
 .cmp-handle::before{content:"⟺"}
 .cmp-tag{position:absolute;bottom:12px;z-index:2;font-family:'IBM Plex Mono',monospace;font-size:14px;
@@ -1168,7 +1173,6 @@ body{
   <div class="sheet-c">
     <div class="sheet-h">
       <div class="sheet-e mono" id="big-e">Drag a panel to pan · scrub to compare a moment · every panel is the same 1:1 crop</div>
-      <h2 class="sheet-t" id="big-t">Your footage at each tier</h2>
     </div>
     <div class="sheet-b">
       <div id="big-grid"></div>
@@ -2286,8 +2290,12 @@ $('#r-log').onclick=()=>{
                 : r.sev==='err' ? 'ERROR' : r.sev==='warn' ? 'WARN' : 'NOTE';
       return `${tag.padEnd(5)} ${r.f} — ${r.d}`;
     })].join('\n');
+  // Real app: a native Save dialog writes the file (UTF-8). The old blob+download
+  // route made WKWebView NAVIGATE the whole window to the text — mojibake, no way
+  // back. Only the standalone mock (no bridge) falls back to the blob download.
+  if(window.__vtcSaveLog){ window.__vtcSaveLog(lines); return; }
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));
+  a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain;charset=utf-8'}));
   a.download='vtc-run-report.txt'; a.click(); URL.revokeObjectURL(a.href);
 };
 addEventListener('keydown',e=>{
@@ -2405,19 +2413,25 @@ function pvApplyCompare(){
     v.style.transform=`translate(${-PV.cropX}px,${-PV.cropY}px)`;
   });
 }
-// each panel shows: quality (label) · codec · size · how much bigger than the smallest
+// each panel shows: quality (label) · codec · size · how it compares to the SOURCE.
+// Sizes are two-decimal MB (samples are tiny — "2 MB, 2 MB, 2 MB" hid the real
+// difference). Percentages are relative to the source (index 0), which reads 0%;
+// tiers are smaller so they read negative. Bigger-than-source (rare) is flagged.
+const humanMB = b => b>=1e6 ? (b/1e6).toFixed(2)+' MB' : Math.max(1,(b/1e3)|0)+' KB';
 function pvRenderMeta(){
-  const vals=Object.values(PV.meta).map(m=>m.bytes).filter(b=>b>0);
-  const min=vals.length?Math.min(...vals):0;
+  const srcB = (PV.meta['0'] && PV.meta['0'].bytes) || 0;   // panel 0 is always Source
   Object.entries(PV.meta).forEach(([i,m])=>{
     const el=$('#grid').querySelector(`.cell-m[data-mrow="${i}"]`); if(!el) return;
     if(m.error){ el.innerHTML='<span class="cd">failed</span>'; return; }
     const parts=[];
     if(m.codec) parts.push(`<span class="cd">${m.codec}</span>`);
-    if(m.bytes) parts.push(`<b>${human(m.bytes)}</b>`);
-    if(m.bytes && min) parts.push(m.bytes<=min
-        ? `<span class="df sm">smallest</span>`
-        : `<span class="df">+${Math.round((m.bytes/min-1)*100)}%</span>`);
+    if(m.bytes) parts.push(`<b>${humanMB(m.bytes)}</b>`);
+    if(m.bytes && srcB){
+      if(i==='0'){ parts.push(`<span class="df sm">source</span>`); }
+      else { const d=Math.round((m.bytes/srcB-1)*100);
+        const sign = d>0?'+':d<0?'−':'';
+        parts.push(`<span class="df${d>0?'':' sm'}">${sign}${Math.abs(d)}%</span>`); }
+    }
     el.innerHTML=parts.join('<i class="sep">·</i>');
   });
 }
@@ -2520,7 +2534,7 @@ function restorePreviews(){
 const bigOn=()=>{                                    // grid fullscreen (all tiers)
   PV.compare=null; $('#big-compare').hidden=true; $('#big-grid').hidden=false;
   $('#big-grid').appendChild($('#grid')); bigMoveTransport();
-  $('#big-t').textContent='Your footage at each tier'; $('#big-e').textContent='Drag a panel to pan · scrub to compare a moment · every panel is the same 1:1 crop';
+  $('#big-e').textContent='Drag a panel to pan · scrub to compare a moment · every panel is the same 1:1 crop';
   $('#big-sheet').classList.add('on');
   const el=$('#big-sheet'); if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
   requestAnimationFrame(pvApply);
@@ -2561,7 +2575,7 @@ function openCompare(ai, bi){
   $('#cmp-tb').textContent=(B.label||'B')+'  ·  '+(B.codec||'');
   bigMoveTransport();
   $('#big-grid').hidden=true; $('#big-compare').hidden=false;
-  $('#big-t').textContent='Compare'; $('#big-e').textContent='Drag the handle to wipe between the two · drag elsewhere to pan · scrub to move both together';
+  $('#big-e').textContent='Drag the handle to wipe between the two · drag elsewhere to pan · scrub to move both together';
   cmpSetSplit(50);
   const ready=()=>{ if(va.videoWidth){ PV.sw=va.videoWidth; PV.sh=va.videoHeight; }
     if(va.duration&&isFinite(va.duration)) PV.dur=va.duration; requestAnimationFrame(pvApply); pvSyncUI(); };

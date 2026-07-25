@@ -408,6 +408,7 @@ _BRIDGE_JS = r"""
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
   window.__vtcRetryFailed = ()=> { try { api.retry_failed_software(); } catch(e){} };
+  window.__vtcSaveLog = (text)=> { try { api.save_text_file('vtc-run-report.txt', text); } catch(e){} };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
     acc.push(r);
     pgDone1({ f:r.name, t:r.t, sev:r.sev });
@@ -653,6 +654,26 @@ class Api:
         except OSError as e:
             log.error("stop_run: %s", e)
         return {"stopping": True}
+
+    def save_text_file(self, name: str, content: str):
+        """Write `content` to a path the user picks in a native Save dialog, UTF-8.
+        Replaces the old blob+download, which made WKWebView navigate the whole app
+        window to the text (mojibake, no way back)."""
+        import webview
+        try:
+            picked = self.window.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename=name or "report.txt")
+        except Exception as e:  # noqa: BLE001
+            log.error("save dialog failed: %s", e); return {"error": str(e)}
+        if not picked:
+            return {"cancelled": True}
+        path = picked[0] if isinstance(picked, (list, tuple)) else picked
+        try:
+            Path(path).write_text(content, encoding="utf-8")
+            log.info("saved report -> %s", path)
+        except OSError as e:
+            log.error("could not write %s: %s", path, e); return {"error": str(e)}
+        return {"saved": str(path)}
 
     def run(self, answers: dict):
         if self._src is None:
