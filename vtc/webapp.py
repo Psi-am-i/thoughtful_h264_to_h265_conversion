@@ -69,6 +69,44 @@ def _setup_logging() -> Path:
     return path
 
 
+def _install_crash_handlers(log_path: Path) -> None:
+    """Capture the ways the app can die that the normal logger misses: uncaught
+    exceptions on the main thread and on worker threads, and native faults
+    (segfaults / fatal signals) via faulthandler. Without these, a crash just ends
+    the log with no reason — which is exactly what we saw."""
+    def _main_hook(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb); return
+        log.critical("UNCAUGHT (main thread)", exc_info=(exc_type, exc, tb))
+    sys.excepthook = _main_hook
+
+    def _thread_hook(args):
+        if issubclass(args.exc_type, SystemExit):
+            return
+        log.critical("UNCAUGHT (thread %s)", getattr(args.thread, "name", "?"),
+                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+    try:
+        threading.excepthook = _thread_hook
+    except Exception:  # noqa: BLE001
+        pass
+
+    # native faults -> a Python traceback dumped to a sidecar file (kept open)
+    try:
+        import faulthandler
+        fault_path = log_path.with_name("VeryThoughtfulCompression-crash.log")
+        global _FAULT_FILE
+        _FAULT_FILE = open(fault_path, "a", encoding="utf-8")   # noqa: SIM115 — must stay open
+        _FAULT_FILE.write(f"\n=== faulthandler armed ===\n")
+        _FAULT_FILE.flush()
+        faulthandler.enable(file=_FAULT_FILE, all_threads=True)
+        log.info("crash handlers installed (faults -> %s)", fault_path)
+    except Exception as e:  # noqa: BLE001
+        log.warning("faulthandler unavailable: %s", e)
+
+
+_FAULT_FILE = None
+
+
 def _log_environment() -> None:
     """Record what the app resolved to and whether hardware encoding is real."""
     log.info("=== Very Thoughtful Compression starting ===")
@@ -462,6 +500,7 @@ class Api:
                            {"i": idx, "key": key, "label": label, "codec": panel_codec, "bytes": size,
                             "url": f"http://127.0.0.1:{port}/{out.name}?v={size}"})
             self._emit("__vtcPreviewDone", "")
+            log.info("previews: done (codec=%s)", codec.value)
         except Exception as e:  # noqa: BLE001 — previews must never crash the app
             log.exception("preview worker failed")
             self._emit("__vtcPreviewError", str(e))
@@ -683,6 +722,7 @@ def _summary(results: list) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     log_path = _setup_logging()
+    _install_crash_handlers(log_path)
     try:
         import webview
     except ModuleNotFoundError:
@@ -713,8 +753,19 @@ def main(argv: list[str] | None = None) -> int:
     window = webview.create_window("Very Thoughtful Compression", target, js_api=api,
                                    width=1360, height=1020, min_size=(940, 720))
     api.window = window
-    window.events.loaded += lambda: window.evaluate_js(_BRIDGE_JS)
-    webview.start()
+    window.events.loaded += lambda: (log.info("window loaded"), window.evaluate_js(_BRIDGE_JS))
+    try:
+        window.events.closing += lambda: log.info("window closing (user)")
+        window.events.closed += lambda: log.info("window closed")
+    except Exception:  # noqa: BLE001 — event names vary across pywebview versions
+        pass
+    log.info("webview.start()")
+    try:
+        webview.start()
+    except Exception:
+        log.critical("webview.start() crashed", exc_info=True)
+        raise
+    log.info("=== app exited normally ===")
     return 0
 
 
