@@ -22,6 +22,9 @@ class SubtitleTrack:
     codec: str
     is_text: bool
     language: str = "und"
+    forced: bool = False            # disposition.forced — subs for foreign-language lines only
+    hearing_impaired: bool = False  # disposition.hearing_impaired — SDH / HoH captions
+    default: bool = False           # disposition.default — the track players auto-select
 
 
 @dataclass
@@ -124,11 +127,15 @@ def probe(path: Path, ffprobe: str = "ffprobe") -> MediaInfo:
         elif kind == "subtitle":
             codec = (s.get("codec_name") or "").lower()
             lang = (s.get("tags", {}) or {}).get("language", "und")
+            disp = s.get("disposition", {}) or {}
             info.subtitles.append(SubtitleTrack(
                 index=_to_int(s.get("index")),
                 codec=codec,
                 is_text=codec in _TEXT_SUB_CODECS,
                 language=lang,
+                forced=bool(disp.get("forced")),
+                hearing_impaired=bool(disp.get("hearing_impaired")),
+                default=bool(disp.get("default")),
             ))
         elif kind == "audio":
             lang = (s.get("tags", {}) or {}).get("language", "und")
