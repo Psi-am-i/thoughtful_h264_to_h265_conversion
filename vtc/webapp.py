@@ -403,7 +403,7 @@ _BRIDGE_JS = r"""
 
   // Run -> real pipeline.run streamed back per file, with LIVE progress, then the report.
   const acc = [];
-  window.__vtcRunStart = (total, est)=> pgStart(total, est);             // engine: run begins
+  window.__vtcRunStart = (total, est, files)=> pgStart(total, est, files);   // engine: run begins
   window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
@@ -723,8 +723,13 @@ class Api:
         speed = 8.0 if hw else 0.18
         est_seconds = int(max(1, total) * avg_dur / speed)
         if self.window:
+            # the ordered file names let the progress list show what's coming next;
+            # cap what we ship so a huge library doesn't bloat the JS call (the UI
+            # windows the list anyway and shows "+N more" beyond the cap).
+            names = [f.name for f in files[:2000]]
             self.window.evaluate_js(
-                f"window.__vtcRunStart && window.__vtcRunStart({total}, {est_seconds})")
+                f"window.__vtcRunStart && window.__vtcRunStart({total}, {est_seconds}, "
+                f"{json.dumps(names)})")
 
         import time as _time
         last = {"frac": -1.0, "t": 0.0}             # throttle progress chatter
