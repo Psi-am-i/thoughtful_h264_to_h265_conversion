@@ -362,17 +362,24 @@ _BRIDGE_JS = r"""
     '<button class="pick" data-f="-1"><b>Browse…</b><span>choose a media folder</span></button>';
   document.getElementById('start').onclick = ()=> pickFolder(-1);
 
-  // Folder pick -> native dialog + real scan, then the mockup's own transition.
+  // Folder pick -> native dialog returns the PATH instantly; the count runs in the
+  // background so the deck flips to a "Scanning…" state right away instead of the
+  // gate button sitting frozen. __vtcScanDone fills in the real totals.
   window.pickFolder = async ()=>{
     const s = await api.pick_folder();
     if(!s) return;                                  // cancelled
-    SRC = s;                                         // {k, files, tb, nonmp4}
+    SRC = { k:s.k, files:0, tb:0, nonmp4:0, scanning:true };
     document.getElementById('src-v').textContent = SRC.k;
     document.getElementById('readout').classList.add('slid');
     document.getElementById('unit').classList.remove('off');
     document.getElementById('unit').classList.add('on');
     render(); setTimeout(paintCorpse, 80);
-    if(window.maybeAskCompat) maybeAskCompat();      // ask the non-MP4 policy up front, if it applies
+  };
+  window.__vtcScanDone = (info)=>{                   // library counted
+    if(!SRC || SRC.k !== info.k) return;             // a newer pick superseded it
+    SRC.files = info.files; SRC.tb = info.tb; SRC.nonmp4 = info.nonmp4; SRC.scanning = false;
+    drawEstimate();
+    if(window.maybeAskCompat) maybeAskCompat();       // ask the non-MP4 policy, now that we know
   };
   document.querySelectorAll('#picks .pick').forEach(b=> b.onclick = ()=> pickFolder(+b.dataset.f));
 
@@ -385,6 +392,11 @@ _BRIDGE_JS = r"""
   const baseEstimate = window.drawEstimate;
   window.drawEstimate = ()=>{
     if(!SRC) return;
+    if(SRC.scanning){                                // count not in yet
+      document.getElementById('now-v').innerHTML = '<span style="font-size:.5em;letter-spacing:.1em">SCANNING…</span>';
+      document.getElementById('now-n').textContent = 'counting your library…';
+      return;
+    }
     document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
     document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`;
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
@@ -461,6 +473,25 @@ class Api:
             return None
         src = Path(picked[0])
         self._src = src
+        self._probes, self._probed_for = [], None
+        self._total_files, self._total_tb = 0, 0.0
+        self._preview_start = 0.0         # new folder -> sample from the middle again
+        # Count files in the BACKGROUND. On a large library the walk takes seconds;
+        # doing it inline froze the "Choose media folder" button with no feedback, so
+        # people clicked again and reopened the dialog. Return the path immediately so
+        # the UI flips to a "Scanning…" state; __vtcScanDone fills in the counts.
+        self._scan_gen = getattr(self, "_scan_gen", 0) + 1
+        threading.Thread(target=self._scan_folder, args=(src, self._scan_gen), daemon=True).start()
+        threading.Thread(target=self._warm_probes, args=(src,), daemon=True).start()
+        # Build the real preview encodes in the background while they configure.
+        self._preview_gen += 1
+        threading.Thread(target=self._preview_worker,
+                         args=(src, OutCodec.H265, self._preview_gen), daemon=True).start()
+        return {"k": str(src), "scanning": True}
+
+    def _scan_folder(self, src: Path, gen: int) -> None:
+        """Walk the library counting files/size/non-MP4, then hand the totals to the
+        UI. Runs off the pick_folder call so the interface never freezes on a scan."""
         files = total = nonmp4 = 0
         for f in pipeline.iter_video_files(RunConfig(src=src)):
             files += 1
@@ -470,15 +501,11 @@ class Api:
                 total += f.stat().st_size
             except OSError:
                 pass
-        self._probes, self._probed_for = [], None
+        if self._src != src or gen != self._scan_gen:
+            return                        # a newer folder pick superseded this scan
         self._total_files, self._total_tb = files, total / 1e12
-        self._preview_start = 0.0         # new folder -> sample from the middle again
-        threading.Thread(target=self._warm_probes, args=(src,), daemon=True).start()
-        # Build the real preview encodes in the background while they configure (#3).
-        self._preview_gen += 1
-        threading.Thread(target=self._preview_worker,
-                         args=(src, OutCodec.H265, self._preview_gen), daemon=True).start()
-        return {"k": str(src), "files": files, "tb": total / 1e12, "nonmp4": nonmp4}
+        self._emit("__vtcScanDone",
+                   {"k": str(src), "files": files, "tb": total / 1e12, "nonmp4": nonmp4})
 
     # -- previews: extract a 5s sample, encode it at each tier, stream URLs --------
     def _emit(self, fn: str, payload) -> None:
@@ -515,13 +542,23 @@ class Api:
             log.info("previews: %s (%dx%d, %.1fs) sample @ %.1fs codec=%s",
                      first.name, info.width, info.height, dur, start, codec.value)
 
-            # SOURCE panel = the actual source frames, losslessly cut and made playable.
+            # SOURCE panel = the source frames, cut and made PLAYABLE. If the source
+            # codec is one the webview can show, copy it losslessly; otherwise (MPEG-4/
+            # XviD/VP9/AV1 on mac, or anything but H.264 on Windows) the panel would be
+            # a black "CAN'T PLAY" tile, so transcode the sample to H.264 for viewing.
+            # The panel label still names the real source codec.
             sample = pdir / "source.mp4"
-            vtag = ["-tag:v", "hvc1"] if is_hevc else []
+            playable = (info.vcodec or "").lower() in (
+                ("h264", "hevc") if sys.platform == "darwin" else ("h264",))
+            if playable:
+                svargs = ["-c:v", "copy", *(["-tag:v", "hvc1"] if is_hevc else [])]
+            else:
+                svargs = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                          "-pix_fmt", "yuv420p"]
             r = subprocess.run(
                 [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
-                 "-t", f"{seglen:.3f}", "-map", "0:v:0", "-c:v", "copy", "-an",
-                 *vtag, "-movflags", "+faststart", str(sample)],
+                 "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
+                 "-movflags", "+faststart", str(sample)],
                 stdin=subprocess.DEVNULL, capture_output=True, text=True)
             if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
                 self._emit("__vtcPreviewError", "could not extract a sample clip"); return

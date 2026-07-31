@@ -203,7 +203,7 @@ body{
   transition:transform .1s,box-shadow .15s,background .2s,opacity .1s;
 }
 .key:hover{background:linear-gradient(180deg,#fff,#eae7de);transform:translateY(-1px)}
-.key.disabled{opacity:.4;cursor:not-allowed}
+.key.disabled{opacity:.4;cursor:help}   /* clickable to read the blurb, just not selectable */
 .key.disabled:hover{transform:none;background:linear-gradient(180deg,#efece3,#e4e1d7)}
 .key.armed{background:linear-gradient(180deg,#2e2c26,#1e1c17);color:#f2efe6;border-color:#1a1813;
   box-shadow:0 0 0 2px rgba(232,84,31,.5),0 2px 5px rgba(0,0,0,.28)}
@@ -1847,7 +1847,12 @@ function render(){
     // Once something is armed, the well stays on the choice — only a click changes it.
     k.onmouseenter=()=>{ if(armed===null) show(i); };
     k.onfocus=()=>{ if(armed===null) show(i); };
-    if(M[step].opts[i].disabled) return;                    // greyed — not selectable yet
+    if(M[step].opts[i].disabled){
+      // An unavailable codec (AV1/VVC) can still be CLICKED to read its blurb —
+      // show() locks it in the well — but it never arms, so Confirm stays disabled.
+      k.onclick=()=>show(i);
+      return;
+    }
     k.onclick=()=>{ armed=i; render(); show(i); };
   });
   $('#commit').disabled=armed===null;
