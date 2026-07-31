@@ -165,9 +165,11 @@ body{
 .readout b{color:var(--ink);font-weight:600}
 .readout.slid{animation:slideIn .6s cubic-bezier(.2,.8,.3,1) both}
 @keyframes slideIn{from{opacity:0;transform:translateX(24px)}}
-.lamp{width:9px;height:9px;border-radius:50%;background:var(--accent);
+/* status light: dim/grey when idle, orange + pulsing while a run is processing */
+.lamp{width:9px;height:9px;border-radius:50%;background:var(--rule);transition:background .25s}
+.lamp.busy{background:var(--accent);
   box-shadow:0 0 0 3px rgba(232,84,31,.16),0 0 9px rgba(232,84,31,.7);
-  animation:breathe 3.4s ease-in-out infinite}
+  animation:breathe 1.4s ease-in-out infinite}
 @keyframes breathe{50%{opacity:.42}}
 
 /* ── comb ───────────────────────────────────────────────── */
@@ -391,11 +393,11 @@ body{
   padding:10px 12px;background:var(--panel);border-left:3px solid var(--accent);
   border-radius:0 var(--r) var(--r) 0}
 /* ── Advanced Settings: the gear entry point + the modal's controls ─────────── */
-.gear{width:28px;height:28px;flex:0 0 auto;display:flex;align-items:center;
-  justify-content:center;background:none;border:1px solid var(--rule);border-radius:var(--r);
-  color:var(--ink-2);cursor:pointer;padding:0}
-.gear:hover{background:var(--panel);color:var(--ink)}
-.gear svg{width:15px;height:15px;fill:currentColor}
+.gear{width:26px;height:26px;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;background:none;border:0;border-radius:var(--r);
+  color:var(--ink-3);cursor:pointer;padding:0;transition:color .15s,transform .15s}
+.gear:hover{color:var(--accent);transform:rotate(30deg)}
+.gear svg{width:18px;height:18px;fill:currentColor}
 .adv-sec{margin:0 0 20px}
 .adv-sec > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--accent);margin:0 0 10px;padding-bottom:6px;
@@ -814,8 +816,8 @@ body{
       <!-- what the machine can do, on the left; what it is pointed at, on the
            right; the logo centred between them -->
       <div class="brow-left">
-        <div class="rig-l">Encoder</div>
-        <div class="rig-v">ffmpeg 7.1 · VideoToolbox <b>ready</b></div>
+        <div class="rig-l">Encoders</div>
+        <div class="rig-v" id="rig-v">Soft <b>ffmpeg</b> · Hard <b>detecting…</b></div>
       </div>
       <div class="wordmark">
         <div class="a">Very Thoughtful</div>
@@ -832,7 +834,7 @@ body{
             <svg viewBox="0 0 10 6" class="src-c"><path d="M1 1 L5 5 L9 1"/></svg>
           </button>
         </div>
-        <div class="lamp"></div>
+        <div class="lamp" id="lamp" title="Idle"></div>
       </div>
     </div>
 
@@ -1039,17 +1041,20 @@ body{
     </div>
     <div class="sheet-b">
       <p class="compat-lead mono" id="compat-n">Some files in this library aren't MP4.</p>
-      <p class="sheet-w" style="border-left-color:var(--rule)">These aren't quality decisions — they're about whether the file plays. You can change this any time in Advanced settings.</p>
+      <p class="sheet-w" style="border-left-color:var(--rule)">We recommend the MP4 container — it's compatible with almost any device. Containers like MKV can hold more audio and subtitle tracks than MP4, but most people don't need that and they're not as widely compatible. You can change this any time in Advanced settings.</p>
       <div class="compat-opts" id="compat-opts">
         <button class="compat-opt" data-v="convert">
-          <b>Convert all to MP4</b>
-          <span>Losslessly rehome MP4-friendly codecs, and re-encode legacy ones (MPEG-2, VC-1, WMV) at full fidelity so everything plays.</span></button>
+          <b>Convert all to MP4 <span style="color:var(--ink-3);font-weight:400">· remux + convert legacy</span></b>
+          <span>Usually lossless and quick — seconds, not hours. Old legacy codecs (MPEG-2, VC-1, WMV) are re-encoded at close to their original bitrate, so any quality change is almost imperceptible.</span></button>
         <button class="compat-opt" data-v="remux">
-          <b>Only remux to MP4</b>
-          <span>Rehome what can be rehomed for free — a stream copy, seconds not hours. Leave legacy codecs exactly where they are.</span></button>
+          <b>Only lossless conversion to MP4 <span style="color:var(--ink-3);font-weight:400">· remux only</span></b>
+          <span>Move files to MP4 only when there's zero quality loss (a stream copy). Files with legacy codecs are left exactly as they are.</span></button>
+        <button class="compat-opt" data-v="shrink_keep">
+          <b>Shrink, but keep the original format</b>
+          <span>Apply the normal quality shrink to non-MP4 files but keep their container (an over-large MKV stays an MKV). Nothing is converted to MP4.</span></button>
         <button class="compat-opt" data-v="leave">
           <b>Leave them all alone</b>
-          <span>Non-MP4 files stay as they are. Only the shrink logic runs, and only on MP4 files.</span></button>
+          <span>Non-MP4 files are untouched. We only look at your MP4 files.</span></button>
       </div>
     </div>
     <div class="sheet-f">
@@ -1076,27 +1081,33 @@ body{
               <span>Convert everything to MP4, only losslessly rehome what already can be, or leave other containers alone. Asked up front too when a scan finds non-MP4 files.</span></div>
             <div class="adv-seg" id="adv-format">
               <button data-v="convert">Convert all</button>
-              <button data-v="remux">Only remux</button>
+              <button data-v="remux">Remux only</button>
+              <button data-v="shrink_keep">Shrink, keep format</button>
               <button data-v="leave">Leave alone</button>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="adv-sec adv-soon">
-        <h3>Subtitles<span class="adv-soon-tag">coming with the engine work</span></h3>
+      <div class="adv-sec">
+        <h3>Subtitles</h3>
         <div class="adv-grid one">
           <div class="adv-row">
             <div class="adv-lab"><b>Which subtitle tracks to keep</b>
               <span>Text subs embed in MP4; image subs (PGS/DVD) need MKV or get dropped.</span></div>
             <div class="adv-ctrl">
-              <select id="adv-subs" disabled>
+              <select id="adv-subs">
                 <option value="all">Keep all</option>
-                <option value="lang">Keep languages…</option>
                 <option value="forced">Keep forced only</option>
                 <option value="hoh">Keep hard-of-hearing</option>
+                <option value="lang">Keep languages…</option>
               </select>
             </div>
+          </div>
+          <div class="adv-row" id="adv-subs-lang-row" hidden>
+            <div class="adv-lab"><b>Languages to keep</b>
+              <span>Comma-separated ISO codes, e.g. eng, fre, spa.</span></div>
+            <div class="adv-ctrl"><input type="text" id="adv-subs-langs" placeholder="eng, fre" style="width:130px;text-align:left"></div>
           </div>
         </div>
       </div>
@@ -1893,6 +1904,8 @@ $('#commit').onclick=()=>{
   const keyEl=$('#keys').querySelector(`.key[data-i="${oi}"]`);
   fly(keyEl,q.id,oi,()=>{
     answers[q.id]=oi;
+    // "New folder" destination → let them pick where the output goes (real app only).
+    if(q.id==='dest' && oi===2 && window.__pickOutputDir){ window.__pickOutputDir(); }
     const nowComplete = SRC && M.every(x=>answers[x.id]!==undefined);
     const next=M.findIndex(x=>answers[x.id]===undefined);
     step=next===-1?step:next;
@@ -1973,7 +1986,7 @@ const shutSheet=id=>{
 // The tunables the guided flow hides. Held in one object, sent alongside the
 // flow answers when a run starts (the bridge reads window.ADV). Defaults mirror
 // the engine (vtc/model.py, vtc/config.py); Reset restores exactly these.
-const ADV_DEFAULTS = { format:'convert', floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
+const ADV_DEFAULTS = { format:'convert', subs:'all', subLangs:[], floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
   imageSubs:true, mkvTracks:0, jobs:1, ledger:true };
 const ADV = Object.assign({}, ADV_DEFAULTS);
@@ -1984,6 +1997,9 @@ function advToForm(){                                  // ADV -> controls
    ['#adv-ab-multi','abMulti'],['#adv-mkv-tracks','mkvTracks'],['#adv-jobs','jobs']
   ].forEach(([id,key])=>{ const el=$(id); if(el) el.value=ADV[key]; });
   $('#adv-audio').value = ADV.audio;
+  $('#adv-subs').value = ADV.subs;
+  $('#adv-subs-langs').value = (ADV.subLangs||[]).join(', ');
+  $('#adv-subs-lang-row').hidden = ADV.subs!=='lang';
   $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
@@ -2007,6 +2023,8 @@ function advBind(){                                    // controls -> ADV
   num('#adv-mkv-tracks','mkvTracks',{min:0,max:64});
   num('#adv-jobs','jobs',{min:1,max:16});
   $('#adv-audio').onchange=e=>{ ADV.audio=e.target.value; };
+  $('#adv-subs').onchange=e=>{ ADV.subs=e.target.value; $('#adv-subs-lang-row').hidden = ADV.subs!=='lang'; };
+  $('#adv-subs-langs').oninput=e=>{ ADV.subLangs = e.target.value.split(',').map(s=>s.trim()).filter(Boolean); };
   $('#adv-format').querySelectorAll('button').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     ADV.container=b.dataset.v;
@@ -2122,6 +2140,7 @@ function pgStart(total, est, queue){
   $('#pg-clock').textContent = est ? fmtClock(est) : (preparing ? 'scanning…' : 'estimating…');
   $('#pg-stop').disabled=false; $('#pg-stop').textContent='Stop after current file';
   openSheet('#progress-sheet');
+  { const L=document.getElementById('lamp'); if(L){ L.classList.add('busy'); L.title='Processing…'; } }
   if(!preparing) PG.timer=setInterval(pgTick, 1000);   // no countdown until we know the total
 }
 function pgFile(name, frac, stats){
@@ -2199,7 +2218,8 @@ $('#pg-recent').addEventListener('scroll',()=>{
   PG.userScroll=true; clearTimeout(PG._scrollT);
   PG._scrollT=setTimeout(()=>{ PG.userScroll=false; pgCenterCurrent(); }, 10000);
 });
-function pgFinish(){ if(PG.timer){ clearInterval(PG.timer); PG.timer=null; } shutSheet('#progress-sheet'); }
+function pgFinish(){ if(PG.timer){ clearInterval(PG.timer); PG.timer=null; } shutSheet('#progress-sheet');
+  { const L=document.getElementById('lamp'); if(L){ L.classList.remove('busy'); L.title='Idle'; } } }
 $('#pg-stop').onclick=()=>{ if(window.__vtcStop) window.__vtcStop();
   $('#pg-stop').textContent='Stopping after current…'; $('#pg-stop').disabled=true; };
 
