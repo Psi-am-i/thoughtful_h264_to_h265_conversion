@@ -55,6 +55,7 @@ exe = EXE(
     console=False,                             # windowed GUI, no console window
     argv_emulation=False,
     icon=os.path.join(repo_root, 'packaging', 'app_icon.ico'),
+    version=os.path.join(repo_root, 'packaging', 'version_win.txt'),
 )
 
 coll = COLLECT(

@@ -747,6 +747,10 @@ body{
 .cmp-tag{position:absolute;bottom:12px;z-index:2;font-family:'IBM Plex Mono',monospace;font-size:14px;
   font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);padding:3px 9px;background:rgba(0,0,0,.45);border-radius:3px}
 .cmp-tag-a{left:12px} .cmp-tag-b{right:12px}
+/* in-view A/B pickers: change what's compared without leaving fullscreen */
+.cmp-tagsel{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#fff;
+  background:transparent;border:0;cursor:pointer;padding:0;-webkit-appearance:none;appearance:none}
+.cmp-tagsel option{color:#111;font-weight:600}
 /* the compare picker in the previews toolbar */
 .pv-cmp{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3);letter-spacing:.05em}
 .pv-cmp select{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 4px;border:1px solid var(--rule);
@@ -1219,8 +1223,8 @@ body{
         <div class="cmp-stage" id="cmp-stage">
           <video id="cmp-b" muted playsinline preload="auto"></video>
           <div class="cmp-top" id="cmp-top"><video id="cmp-a" muted playsinline preload="auto"></video></div>
-          <div class="cmp-tag cmp-tag-a" id="cmp-ta">A</div>
-          <div class="cmp-tag cmp-tag-b" id="cmp-tb">B</div>
+          <div class="cmp-tag cmp-tag-a"><select id="cmp-ta-sel" class="cmp-tagsel" title="Left side"></select></div>
+          <div class="cmp-tag cmp-tag-b"><select id="cmp-tb-sel" class="cmp-tagsel" title="Right side"></select></div>
           <div class="cmp-divider" id="cmp-divider"><span class="cmp-handle"></span></div>
         </div>
       </div>
@@ -2707,13 +2711,28 @@ function cmpSetSplit(pct){
   $('#cmp-top').style.width=pct+'%';
   $('#cmp-divider').style.left=pct+'%';
 }
+// Populate the in-view A/B pickers from the ready previews and select ai/bi.
+function cmpFillTagSels(ai, bi){
+  const opts=Object.entries(PV.meta).filter(([i,m])=>m.url && !m.error)
+    .map(([i,m])=>`<option value="${i}">${(m.label||('#'+i))}${m.codec?' · '+m.codec:''}</option>`).join('');
+  const a=$('#cmp-ta-sel'), b=$('#cmp-tb-sel'); if(!a||!b) return;
+  a.innerHTML=opts; b.innerHTML=opts; a.value=String(ai); b.value=String(bi);
+}
+// Swap one side without re-entering fullscreen — keep the other video's position.
+function cmpSwap(which, idx){
+  const m=PV.meta[idx]; if(!m||!m.url||!PV.compare) return;
+  const v = which==='a' ? $('#cmp-a') : $('#cmp-b');
+  const cur = v.currentTime||0;
+  if(which==='a') PV.compare.a=idx; else PV.compare.b=idx;
+  v.onloadedmetadata=()=>{ try{ v.currentTime=cur; }catch(e){} requestAnimationFrame(pvApply); pvSyncUI(); };
+  v.src=m.url; v.load();
+}
 function openCompare(ai, bi){
   const A=PV.meta[ai], B=PV.meta[bi];
   if(!A||!B||!A.url||!B.url) return;
   PV.compare={a:ai,b:bi}; PV.playing=false; PV.cmpFresh=true;
   const va=$('#cmp-a'), vb=$('#cmp-b');
-  $('#cmp-ta').textContent=(A.label||'A')+'  ·  '+(A.codec||'');
-  $('#cmp-tb').textContent=(B.label||'B')+'  ·  '+(B.codec||'');
+  cmpFillTagSels(ai, bi);
   bigMoveTransport();
   $('#big-grid').hidden=true; $('#big-compare').hidden=false;
   $('#big-e').textContent='Drag the handle to wipe between the two · drag elsewhere to pan · scrub to move both together';
@@ -2727,6 +2746,8 @@ function openCompare(ai, bi){
   requestAnimationFrame(pvApply);
 }
 $('#cmp-go').onclick=()=>{ if(Object.keys(PV.meta).length) openCompare($('#cmp-a-sel').value, $('#cmp-b-sel').value); };
+$('#cmp-ta-sel').onchange=e=>cmpSwap('a', e.target.value);   // in-view A/B change
+$('#cmp-tb-sel').onchange=e=>cmpSwap('b', e.target.value);
 // drag the divider (reveal each side); drag elsewhere on the stage pans the crop
 $('#cmp-divider').addEventListener('pointerdown', e=>{
   e.stopPropagation();
