@@ -67,9 +67,15 @@ class RunConfig:
     tier: Tier = Tier.EXCELLENT
     min_saving_ratio: float = 0.75          # keep a shrink only if output <= this * source
 
-    # Compatibility
+    # Compatibility / non-MP4 policy
     remux_to_mp4: bool = True               # rehome MP4-friendly codecs into MP4 losslessly
     compat_transcode: bool = True           # transcode MP4-incompatible legacy codecs
+    keep_source_container: bool = False     # shrink non-MP4 files but KEEP their container
+    leave_non_mp4: bool = False             # don't touch non-MP4 containers at all
+
+    # Subtitles: which tracks survive. mode = all|forced|hoh|lang; langs used for "lang".
+    sub_mode: str = "all"
+    sub_langs: tuple[str, ...] = ()
 
     # Audio & container
     audio_policy: AudioPolicy = AudioPolicy.PASSTHROUGH

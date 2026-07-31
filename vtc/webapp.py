@@ -18,6 +18,7 @@ The engine (pipeline/model/config) is untouched and UI-agnostic.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from pathlib import Path
 
@@ -153,6 +154,19 @@ FFMPEG = _resolve_tool("ffmpeg", "FFMPEG_BINARY")
 FFPROBE = _resolve_tool("ffprobe", "FFPROBE_BINARY")
 
 
+def _ffmpeg_version() -> str:
+    """Short ffmpeg version for the toolbar readout, e.g. '8.1.2'. Best-effort."""
+    try:
+        out = subprocess.run([FFMPEG, "-version"], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, timeout=5).stdout
+        m = re.search(r"ffmpeg version (\S+)", out)
+        if m:
+            return m.group(1).split("-")[0]
+    except Exception:  # noqa: BLE001
+        pass
+    return "?"
+
+
 # ── preview server: serve generated sample encodes to the webview <video>s ────
 # A tiny loopback HTTP server with Range (206) support — WKWebView will not play
 # a <video> without it. Rooted at a temp dir the previews are written into.
@@ -249,12 +263,23 @@ _PREVIEW_PANELS = [
 
 # ── mockup answer-index -> engine value (mirrors the M model in the HTML) ─────
 _CODECS = [OutCodec.H264, OutCodec.H265, None, None]    # 0=H264, 1=H265, 2=AV1, 3=VVC (2/3 unsupported)
+# Default codec for the PREVIEW samples (independent of the chosen OUTPUT codec):
+# the mac webview plays H.265, but Windows WebView2 has no HEVC decoder, so preview
+# in H.264 there or the tier panels are black. The output codec is unaffected.
+_PREVIEW_CODEC = OutCodec.H265 if sys.platform == "darwin" else OutCodec.H264
 _TIERS = [Tier.OK, Tier.GOOD, Tier.EXCELLENT, Tier.STELLAR, Tier.INSANE]
 _SAVING = [0.15, 0.25, 0.40]
 _ENCODER = [Encoder.HARDWARE, Encoder.SOFTWARE]
-# non-MP4 policy: ADV.format -> (remux_to_mp4, compat_transcode). Was the mid-flow
-# "compat" question; now lives in Advanced settings + the up-front #compat-sheet.
-_FORMAT = {"convert": (True, True), "remux": (True, False), "leave": (False, False)}
+# non-MP4 policy: ADV.format -> the four container flags. Convert = to MP4 (remux +
+# transcode legacy); Remux = lossless to MP4 only; Shrink-keep = apply the quality
+# shrink but keep the source container; Leave = don't touch non-MP4 containers.
+#             format          remux, transcode, keep_container, leave_non_mp4
+_FORMAT = {
+    "convert":     (True,  True,  False, False),
+    "remux":       (True,  False, False, False),
+    "shrink_keep": (False, False, True,  False),
+    "leave":       (False, False, False, True),
+}
 
 
 def build_config(src: Path, a: dict) -> RunConfig:
@@ -263,10 +288,13 @@ def build_config(src: Path, a: dict) -> RunConfig:
     if codec is None:
         raise ValueError("AV1 output is not supported by the engine yet")
     adv = a.get("adv") or {}
-    remux, transcode = _FORMAT.get(adv.get("format"), (True, True))
-    dest = a["dest"]  # 0 archive, 1 delete, 2 keep both
+    remux, transcode, keep_container, leave = _FORMAT.get(adv.get("format"), _FORMAT["convert"])
+    dest = a["dest"]  # 0 archive, 1 delete, 2 new folder
     if dest == 2:
-        output_mode, source_action, output_dir = OutputMode.SEPARATE, SourceAction.KEEP, src / "converted"
+        # New folder: use the folder the user picked, else <src>/converted.
+        chosen = a.get("outputDir")
+        out_dir = Path(chosen) if chosen else src / "converted"
+        output_mode, source_action, output_dir = OutputMode.SEPARATE, SourceAction.KEEP, out_dir
     else:
         output_mode, output_dir = OutputMode.INPLACE, None
         source_action = SourceAction.ARCHIVE if dest == 0 else SourceAction.DELETE
@@ -274,10 +302,18 @@ def build_config(src: Path, a: dict) -> RunConfig:
         src=src, out_codec=codec, tier=_TIERS[a["quality"]],
         min_saving_ratio=1.0 - _SAVING[a["saving"]],
         remux_to_mp4=remux, compat_transcode=transcode,
+        keep_source_container=keep_container, leave_non_mp4=leave,
         encoder=_ENCODER[a["encoder"]],
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
+    # Subtitle policy from Advanced settings.
+    sub = adv.get("subs")
+    if isinstance(sub, str) and sub in ("all", "forced", "hoh", "lang"):
+        cfg.sub_mode = sub
+    langs = adv.get("subLangs")
+    if isinstance(langs, list):
+        cfg.sub_langs = tuple(str(x) for x in langs)
     _apply_advanced(cfg, adv)
     return cfg
 
@@ -342,6 +378,19 @@ _BRIDGE_JS = r"""
   // the actual encoder (videotoolbox / nvenc / qsv / amf).
   api.hw_capabilities().then(cap=>{
     window.__vtcHW = cap;
+    // Toolbar readout: real ffmpeg version + real hardware encoder for this machine.
+    const enc = cap && (cap.h265 || cap.h264 || '');
+    const famMap = {videotoolbox:'VideoToolbox', nvenc:'NVENC', qsv:'QuickSync', amf:'AMF'};
+    let fam = ''; for(const k in famMap){ if(enc && enc.indexOf(k)>=0){ fam = famMap[k]; break; } }
+    const hwCodecs = [cap&&cap.h264&&'H.264', cap&&cap.h265&&'H.265'].filter(Boolean).join(' ');
+    const rv = document.getElementById('rig-v');
+    if(rv) rv.innerHTML = (cap && cap.available)
+      ? `Soft <b>ffmpeg ${cap.ffmpeg_version||'?'}</b> · Hard <b>${fam||'hardware'}</b> ${hwCodecs}`
+      : `Soft <b>ffmpeg ${(cap&&cap.ffmpeg_version)||'?'}</b> · no hardware encoder`;
+    // Where HEVC won't play in the webview (Windows), default previews to H.264.
+    if(cap && cap.preview_codec === 'h264' && typeof pvCodec!=='undefined'){
+      try { pvCodec='h264'; document.querySelectorAll('#pv-codec button').forEach(b=>b.classList.toggle('on', b.dataset.c==='h264')); } catch(e){}
+    }
     const q = (typeof M!=='undefined') && M.find(x=>x.id==='encoder');
     if(!q) return;
     if(!cap || !cap.available){
@@ -400,7 +449,7 @@ _BRIDGE_JS = r"""
     document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
     document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`;
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
-    api.estimate(Object.assign({adv: window.ADV||{}}, answers)).then(e=>{
+    api.estimate(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)).then(e=>{
       if(!e || e.error){ return baseEstimate(); }
       document.getElementById('est').innerHTML = tbHTML(e.out_tb);
       document.getElementById('est-d').textContent = `−${e.saved_pct}% · ${tbStr(SRC.tb-e.out_tb)} back`;
@@ -442,7 +491,14 @@ _BRIDGE_JS = r"""
     acc.length = 0;
     pgStart(0, 0);               // show the working screen IMMEDIATELY — scanning a big
                                  // library can take a moment, and a blank pause looks broken
-    api.run(Object.assign({adv: window.ADV||{}}, answers));   // __vtcRunStart refreshes with the real total once scanned
+    api.run(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers));
+  };
+  // "New folder" destination: let the user pick where outputs go. Returns the dir
+  // (or '' if cancelled — build_config then falls back to <src>/converted).
+  window.__pickOutputDir = async ()=>{
+    try { const d = await api.pick_output_folder(); if(d && d.dir){ window.__outputDir = d.dir; return d.dir; } }
+    catch(e){}
+    return window.__outputDir || '';
   };
 })();
 """
@@ -465,6 +521,15 @@ class Api:
         self._last_failed: list[Path] = []           # files that ERRORed last run
 
     # -- folder pick + fast scan -------------------------------------------------
+    def pick_output_folder(self):
+        """Native folder picker for the 'New folder' destination. Returns {dir} or
+        None (cancelled) — does not scan; just the path the outputs should go to."""
+        import webview
+        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        if not picked:
+            return None
+        return {"dir": str(Path(picked[0]))}
+
     def pick_folder(self):
         import webview
         log.info('pick_folder: opening native folder dialog')
@@ -486,7 +551,7 @@ class Api:
         # Build the real preview encodes in the background while they configure.
         self._preview_gen += 1
         threading.Thread(target=self._preview_worker,
-                         args=(src, OutCodec.H265, self._preview_gen), daemon=True).start()
+                         args=(src, _PREVIEW_CODEC, self._preview_gen), daemon=True).start()
         return {"k": str(src), "scanning": True}
 
     def _scan_folder(self, src: Path, gen: int) -> None:
@@ -662,7 +727,9 @@ class Api:
     def hw_capabilities(self):
         """What hardware encoding is actually available — probed on demand at load
         so the UI's encoder choice reflects this machine, not a guess."""
-        rep = encode.hardware_report(FFMPEG)
+        rep = dict(encode.hardware_report(FFMPEG))
+        rep["preview_codec"] = _PREVIEW_CODEC.value   # 'h265' on mac, 'h264' where HEVC won't play
+        rep["ffmpeg_version"] = _ffmpeg_version()      # for the toolbar readout
         log.info("hw_capabilities: %s", rep)
         return rep
 
@@ -855,6 +922,7 @@ _SKIP_LABEL = {
     Outcome.SKIP_EXISTING: "already converted",
     Outcome.SKIP_MIN_SAVING: "saving too small",
     Outcome.SKIP_INCOMPATIBLE: "codec kept",
+    Outcome.SKIP_NON_MP4: "left as-is",
     Outcome.SKIP_CODEC: "unsupported codec",
     Outcome.RESUME: "already done",
 }

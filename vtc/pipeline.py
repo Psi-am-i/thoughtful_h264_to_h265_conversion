@@ -40,10 +40,11 @@ STOP_FILE = Path(tempfile.gettempdir()) / f"vtc_stop.{os.getpid()}"
 # floor-inflation blow-ups, not to nitpick a rounding-error of overhead.
 _TRANSCODE_GROW_TOLERANCE = 1.005
 
-# Directories never descended into during a scan.
+# Directories never descended into during a scan. (No blanket "Library" — it's a
+# real media/user folder on Windows/Linux; the Apple dot-dirs are harmless elsewhere.)
 _PRUNE_DIRS = {
     ".Trashes", ".Spotlight-V100", ".fseventsd", ".TemporaryItems",
-    "originals", "new versions", "archived", "Library",
+    "originals", "new versions", "archived",
 }
 
 # Per-file event callback: (result). Used by the CLI/GUI for live logging.
@@ -88,6 +89,10 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
     already_mp4 = info.path.suffix.lower() in (".mp4", ".m4v", ".mov")
     src_kbps = info.effective_bps / 1000.0
 
+    # "Leave non-MP4 files alone": don't touch anything outside an MP4 container.
+    if config.leave_non_mp4 and not already_mp4:
+        return (None, Outcome.SKIP_NON_MP4, 0)
+
     def tgt(clamp: bool) -> int:
         return target_kbps(
             config.tier, info.pixels, info.fps, config.out_codec,
@@ -111,12 +116,12 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
 
     if category is CodecCategory.LEGACY:
         if config.compat_transcode:
-            # Max-fidelity rescue: target the source's OWN bitrate — never inflate.
-            # The bitrate FLOOR must not push a low-bitrate SD source UP to it (that
-            # grew XviD SD files by ~30%). Use the floor only as a fallback when the
-            # source bitrate is unknown, and never above the source.
-            tgt = int(src_kbps) if src_kbps > 0 else config.bitrate_floor_kbps
-            return (Mode.TRANSCODE, None, tgt)
+            # Rescue legacy to a modern codec at ~15% below the source bitrate. H.264
+            # is far more efficient than XviD/MPEG-2, so this preserves quality while
+            # actually SHRINKING the file (never inflating — the floor is only a
+            # fallback when the source bitrate is unknown).
+            t = int(src_kbps * 0.85) if src_kbps > 0 else config.bitrate_floor_kbps
+            return (Mode.TRANSCODE, None, t)
         return (None, Outcome.SKIP_INCOMPATIBLE, 0)
 
     return (None, Outcome.SKIP_CODEC, 0)

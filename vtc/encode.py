@@ -231,6 +231,18 @@ def _container_decision(config: RunConfig, info: MediaInfo) -> tuple[Container, 
         return Container.MP4, ""
     if config.container == Container.MKV:
         return Container.MKV, "you set the container to MKV"
+    # "Shrink but keep the source format": stay in the source's container. Fall back
+    # to Matroska for containers that can't cleanly hold a modern codec (AVI etc.) or
+    # when image subtitles need it, so we still never drop a stream.
+    if config.keep_source_container:
+        ext = info.path.suffix.lower()
+        if config.keep_image_subs and info.image_subs and ext != ".mkv":
+            return Container.MKV, "image subtitles need Matroska"
+        if ext in (".mp4", ".m4v", ".mov"):
+            return Container.MP4, ""
+        if ext == ".mkv":
+            return Container.MKV, "kept as MKV"
+        return Container.MKV, "kept in Matroska (source container can't hold a modern codec)"
     if config.audio_policy == AudioPolicy.FLAC:
         return Container.MKV, "FLAC (lossless) audio needs Matroska"
     if config.keep_image_subs and info.image_subs:
@@ -292,6 +304,20 @@ def _describe_audio(aargs: list[str], has_audio: bool) -> str:
     br = aargs[3] if len(aargs) > 3 else ""
     name = {"aac": "AAC", "ac3": "AC-3", "flac": "FLAC"}.get(codec, codec.upper())
     return f"{name} {br}" if br else name
+
+
+def _select_subs(config: RunConfig, subs: list) -> list:
+    """The subtitle tracks to keep, per the sub policy (all / forced / hearing-
+    impaired / chosen languages). Empty language list falls back to keep-all."""
+    mode = getattr(config, "sub_mode", "all")
+    if mode == "forced":
+        return [s for s in subs if getattr(s, "forced", False)]
+    if mode == "hoh":
+        return [s for s in subs if getattr(s, "hearing_impaired", False)]
+    if mode == "lang" and getattr(config, "sub_langs", ()):
+        langs = {l.lower() for l in config.sub_langs}
+        return [s for s in subs if (s.language or "und").lower() in langs]
+    return list(subs)
 
 
 # ── ffmpeg execution ──────────────────────────────────────────────────────────
@@ -454,8 +480,11 @@ def run_encode(
     ffmpeg = config.ffmpeg
     vargs = build_video_args(config, info, mode, target_kbps, hw_encoder)
     audio_attempts = _audio_attempts(config, info, container)
-    text_subs = info.text_subs
-    image_subs = info.image_subs
+    # Which subtitle tracks survive (all / forced / hoh / languages), split by kind.
+    kept_subs = _select_subs(config, info.subtitles)
+    text_subs = [s for s in kept_subs if s.is_text]
+    image_subs = [s for s in kept_subs if not s.is_text]
+    all_subs_kept = len(kept_subs) == len(info.subtitles)
 
     encode_ok = False
     subs_embedded = False
@@ -466,11 +495,14 @@ def run_encode(
     errs: list[str] = []                # ffmpeg stderr tails from failed attempts
 
     if container == Container.MKV:
-        # Matroska carries every stream — copy all subtitles, keep everything.
+        # Matroska carries every stream. Copy all subtitles, or just the selected
+        # ones when a subtitle filter is active.
+        mkv_sub_maps = (["-map", "0:s?"] if all_subs_kept
+                        else [x for s in kept_subs for x in ("-map", f"0:{s.index}")])
         for aargs in audio_attempts:
             args = [
                 "-y", "-i", str(src),
-                "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?",
+                "-map", "0:v:0", "-map", "0:a?", *mkv_sub_maps,
                 *vargs, *aargs, "-c:s", "copy",
                 str(out),
             ]

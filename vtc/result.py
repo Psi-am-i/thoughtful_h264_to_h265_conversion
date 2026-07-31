@@ -30,6 +30,7 @@ class Outcome(str, Enum):
     SKIP_EXISTING = "skip-existing"         # output already existed
     SKIP_MIN_SAVING = "skip-min-saving"     # encoded, but saving too small -> kept original
     SKIP_INCOMPATIBLE = "skip-incompatible" # MP4-incompatible codec, transcode declined
+    SKIP_NON_MP4 = "skip-non-mp4"           # non-MP4 container, "leave them alone" policy
     SKIP_CODEC = "skip-codec"               # unsupported/mezzanine codec, left untouched
     RESUME = "resume"                       # already done under these settings (ledger hit)
     ERROR = "error"                         # encode failed / empty output; source untouched
