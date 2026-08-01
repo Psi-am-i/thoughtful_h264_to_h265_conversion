@@ -582,6 +582,9 @@ body{
    middle, processed files below. Dense, no dividers between rows. */
 .pg-recent{margin-top:14px;height:38vh;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:11.5px;
   scrollbar-width:thin;position:relative}
+/* "Stop now", once armed: it is about to discard work, so it says so in the
+   accent colour rather than looking like the neutral button beside it. */
+#pg-abort.arm{color:var(--accent);border-color:var(--accent);font-weight:700}
 .pg-r{display:grid;grid-template-columns:1fr auto;gap:10px;padding:2px 2px;
   color:var(--ink-2);line-height:1.3;white-space:nowrap}
 .pg-r span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1296,7 +1299,13 @@ body{
       </div>
       <div class="pg-recent" id="pg-recent"></div>
     </div>
-    <div class="sheet-f">
+    <!-- Two ways out. "After current" is the safe one: the files already encoding
+         are finished and kept. "Stop now" kills them where they stand — which is
+         safe too, because an encode writes to a temp file and only replaces the
+         original once it has succeeded, so a cancelled file is simply left as it
+         was. The destructive-sounding one is second and quieter, deliberately. -->
+    <div class="sheet-f" style="display:flex;gap:10px;align-items:center;justify-content:flex-end">
+      <button class="btn-ghost" id="pg-abort" title="Cancel the encodes in progress and stop straight away. Files already finished are kept; a cancelled file is left untouched.">Stop now</button>
       <button class="btn-ghost" id="pg-stop">Stop after current file</button>
     </div>
   </div>
@@ -2231,6 +2240,8 @@ function pgStart(total, est, queue){
   // "current file" there reads as a promise to stop within seconds, when it can
   // mean another full encode. Name the real number.
   $('#pg-stop').disabled=false; $('#pg-stop').textContent=pgStopLabel();
+  { const b=$('#pg-abort'); if(b){ b.disabled=false; b.textContent='Stop now';
+      delete b.dataset.armed; b.classList.remove('arm'); clearTimeout(PG._armT); } }
   openSheet('#progress-sheet');
   { const L=document.getElementById('lamp'); if(L){ L.classList.add('busy'); L.title='Processing…'; } }
   if(!preparing) PG.timer=setInterval(pgTick, 1000);   // no countdown until we know the total
@@ -2345,6 +2356,23 @@ function pgFinish(){ if(PG.timer){ clearInterval(PG.timer); PG.timer=null; } shu
 $('#pg-stop').onclick=()=>{ if(window.__vtcStop) window.__vtcStop();
   $('#pg-stop').textContent=(pgJobs()>1?'Stopping after the files in flight…':'Stopping after current…');
   $('#pg-stop').disabled=true; };
+// "Stop now" throws away the encoding done so far on the files in flight, so it
+// ARMS on the first click and fires on the second. Deliberately not a confirm()
+// dialog: a native modal blocks the webview, and this window is driving a run.
+$('#pg-abort').onclick=()=>{
+  const b=$('#pg-abort');
+  if(!b.dataset.armed){
+    b.dataset.armed='1';
+    b.textContent = pgJobs()>1 ? `Discard ${pgJobs()} encodes — click again` : 'Discard this encode — click again';
+    b.classList.add('arm');
+    clearTimeout(PG._armT);
+    PG._armT=setTimeout(()=>{ delete b.dataset.armed; b.textContent='Stop now'; b.classList.remove('arm'); }, 5000);
+    return;
+  }
+  clearTimeout(PG._armT); delete b.dataset.armed; b.classList.remove('arm');
+  if(window.__vtcAbort) window.__vtcAbort();
+  b.textContent='Stopping…'; b.disabled=true; $('#pg-stop').disabled=true;
+};
 
 function runNow(){
   shutSheet('#confirm-sheet');

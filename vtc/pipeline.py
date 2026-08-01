@@ -33,6 +33,20 @@ from .result import EncodeResult, FileDetail, FileResult, Mode, Note, Outcome, P
 # as well and is per-process, so two app instances can't stop each other.
 TMPROOT = Path(tempfile.gettempdir()) / "vtcwork"
 STOP_FILE = Path(tempfile.gettempdir()) / f"vtc_stop.{os.getpid()}"
+# Two ways to stop, because "after the current file" can still mean half an hour
+# of encoding: STOP lets the files in flight finish, ABORT kills them where they
+# stand. Aborting is safe by construction — an encode writes to a temp file and is
+# only moved into place once it succeeds, so the original is never mid-write.
+ABORT_FILE = Path(tempfile.gettempdir()) / f"vtc_abort.{os.getpid()}"
+
+
+def abort_requested() -> bool:
+    return ABORT_FILE.exists()
+
+
+def stop_requested() -> bool:
+    """True for EITHER kind of stop — both mean 'start no further files'."""
+    return STOP_FILE.exists() or ABORT_FILE.exists()
 
 # A transcode may end up a whisker larger than the source at a matched bitrate
 # (container/codec overhead); allow up to this much before treating it as inflation
@@ -247,7 +261,7 @@ def plan(config: RunConfig) -> list[PlanRow]:
 
 # ── Per-file processing ───────────────────────────────────────────────────────
 def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
-                 src_file: Path, progress: ProgressCB | None = None) -> FileResult:
+                 src_file: Path, progress: ProgressCB | None = None) -> FileResult | None:
     lkey = ledger.key(src_file) if ledger.enabled else ""
     if ledger.enabled and ledger.has(lkey):
         return FileResult(src_file, Outcome.RESUME)
@@ -290,6 +304,12 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
     res = encode.run_encode(config, info, mode, src_file, tmp, target, hw_encoder, container, progress)
     if not res.ok:
         tmp.unlink(missing_ok=True)
+        # An abort kills ffmpeg mid-encode, so of course it "failed" — but that is
+        # the user's own doing, not a fault of the file. Reporting it as an ERROR
+        # would put a red row in the report and offer to retry it in software.
+        # Drop it instead: nothing was written, and the original is untouched.
+        if abort_requested():
+            return None
         return FileResult(src_file, Outcome.ERROR,
                           notes=[Note("ERROR", f"encode failed: {res.error}")])
 
@@ -381,7 +401,7 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
     # the start of each unit means the in-flight file(s) finish and every remaining
     # queued file returns None immediately -> a true "stop after current file".
     def work(f: Path) -> FileResult | None:
-        if STOP_FILE.exists():
+        if stop_requested():
             return None
         return process_file(config, ledger, hw_encoder, f, progress)
 

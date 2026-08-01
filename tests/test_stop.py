@@ -1,8 +1,18 @@
-"""Stop-after-current tests.
+"""Tests for both ways of stopping a run.
 
-Regression: with jobs=1 every file is submitted to the pool up front, so guarding
-only the submit loop stopped nothing — the Stop button did nothing. The guard now
-lives inside each work unit, so a requested stop skips every not-yet-started file.
+STOP (graceful) — start no further files, let the ones in flight finish. The
+original regression: with jobs=1 every file is submitted to the pool up front, so
+guarding only the submit loop stopped nothing. The guard lives inside each work
+unit instead. Note how many files that lets through depends on `jobs` — with two
+workers, two files finish, which is what made it look like Stop was ignored.
+
+ABORT (immediate) — kill the encodes where they stand. Killing the running ffmpeg
+is not sufficient on its own: an encode is a ladder of attempts, so a killed one
+looks like a failed one and the next rung starts a fresh ffmpeg. A latch in
+encode.py makes the rest of the ladder fail fast, and the cancelled file is
+dropped rather than reported as an error.
+
+These run REAL software encodes, so they need ffmpeg; they skip cleanly without.
 
 Run:  python tests/test_stop.py   |   pytest tests/test_stop.py
 """
@@ -18,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import shutil  # noqa: E402
 import subprocess  # noqa: E402
 
-from vtc import pipeline  # noqa: E402
+from vtc import encode, pipeline  # noqa: E402
 from vtc.config import Encoder, RunConfig, SourceAction  # noqa: E402
 from vtc.model import OutCodec  # noqa: E402
 from vtc.result import Outcome  # noqa: E402
@@ -46,6 +56,8 @@ def _stop_midrun(jobs: int):
                     jobs=jobs, ledger_enabled=False,
                     source_action=SourceAction.ARCHIVE)
     pipeline.STOP_FILE.unlink(missing_ok=True)
+    pipeline.ABORT_FILE.unlink(missing_ok=True)
+    encode.clear_abort()
     try:
         # Press Stop from the PROGRESS callback — i.e. while the first file is still
         # encoding, which is what a user actually does. Triggering it from on_result
@@ -63,6 +75,55 @@ def _stop_midrun(jobs: int):
         return len(results), total
     finally:
         pipeline.STOP_FILE.unlink(missing_ok=True)
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_abort_kills_the_running_encode():
+    """'Stop immediately': the in-flight encode is KILLED, not waited for.
+
+    The point of the second button — waiting for a 45-minute encode is exactly what
+    the graceful stop already does. Asserts three things: the run ends, it ends
+    FAST (so the encode really was cut short rather than allowed to finish), and
+    the killed file is not reported as a failure.
+    """
+    if not _HAVE_FF:
+        print("  skip test_abort_kills_the_running_encode (ffmpeg/ffprobe not found)")
+        return
+    import time
+    d = Path(tempfile.mkdtemp())
+    total = 5
+    for i in range(total):
+        _fat_clip(d / f"clip{i}.mp4", secs=25)      # long enough to catch mid-encode
+    cfg = RunConfig(src=d, encoder=Encoder.SOFTWARE, out_codec=OutCodec.H264,
+                    jobs=1, ledger_enabled=False, source_action=SourceAction.ARCHIVE)
+    pipeline.STOP_FILE.unlink(missing_ok=True)
+    pipeline.ABORT_FILE.unlink(missing_ok=True)
+    try:
+        fired = []
+
+        def progress(label, frac, stats=None):
+            if not fired and frac and frac > 0.05:   # well into the first encode
+                fired.append(True)
+                pipeline.ABORT_FILE.touch()
+                encode.abort_running()
+
+        t0 = time.monotonic()
+        results = pipeline.run(cfg, progress=progress)
+        took = time.monotonic() - t0
+
+        assert fired, "never saw progress — the clip encoded too fast to test an abort"
+        assert len(results) == 0, (
+            f"a killed encode should not be reported at all, got {[r.outcome for r in results]}")
+        assert not any(r.outcome is Outcome.ERROR for r in results), \
+            "a cancelled encode must not be reported as a failure"
+        # Every source must still be exactly where it was.
+        assert len(list(d.glob("clip*.mp4"))) == total, "an aborted run lost a source file"
+        print(f"  ok  abort killed the encode and ended the run in {took:.1f}s, "
+              f"all {total} sources intact")
+    finally:
+        pipeline.STOP_FILE.unlink(missing_ok=True)
+        pipeline.ABORT_FILE.unlink(missing_ok=True)
+        encode.clear_abort()
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -98,6 +159,7 @@ def test_stop_flag_skips_everything():
         (d / f"clip{i}.mp4").write_bytes(b"x")   # dummy files; skipped before any probe
     cfg = RunConfig(src=d, ledger_enabled=False)
     pipeline.STOP_FILE.unlink(missing_ok=True)
+    encode.clear_abort()
     try:
         pipeline.STOP_FILE.touch()               # stop requested before the run starts
         results = pipeline.run(cfg)

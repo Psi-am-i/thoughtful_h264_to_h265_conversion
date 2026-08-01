@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 from .config import MP4_AUDIO_CODECS, AudioPolicy, Container, Encoder, RunConfig
@@ -306,24 +307,110 @@ def _describe_audio(aargs: list[str], has_audio: bool) -> str:
     return f"{name} {br}" if br else name
 
 
+def _track_kinds(s) -> set:
+    """
+    Which kinds a subtitle track counts as.
+
+    A track can be BOTH forced and hearing-impaired, so this returns a set
+    rather than picking one label — otherwise a forced SDH track would be
+    invisible to someone who asked for HoH. A track that is neither is 'normal'.
+    """
+    kinds = set()
+    if getattr(s, "forced", False):
+        kinds.add("forced")
+    if getattr(s, "hearing_impaired", False):
+        kinds.add("hoh")
+    if not kinds:
+        kinds.add("normal")
+    return kinds
+
+
 def _select_subs(config: RunConfig, subs: list) -> list:
-    """The subtitle tracks to keep, per the sub policy (all / forced / hearing-
-    impaired / chosen languages). Empty language list falls back to keep-all."""
-    mode = getattr(config, "sub_mode", "all")
-    if mode == "forced":
-        return [s for s in subs if getattr(s, "forced", False)]
-    if mode == "hoh":
-        return [s for s in subs if getattr(s, "hearing_impaired", False)]
-    if mode == "lang" and getattr(config, "sub_langs", ()):
-        langs = {l.lower() for l in config.sub_langs}
-        return [s for s in subs if (s.language or "und").lower() in langs]
-    return list(subs)
+    """
+    The subtitle tracks to keep.
+
+    Language and kind are INDEPENDENT filters applied in series, so
+    "English forced subs" is expressible. The previous single `sub_mode`
+    (all/forced/hoh/lang) made them mutually exclusive: choosing languages
+    meant you could no longer restrict to forced, and vice versa.
+
+    An empty language list means every language. An empty kind list means
+    every kind — NOT "drop everything" — because a config that silently
+    discarded all subtitles would be a nasty default to inherit.
+    """
+    out = list(subs)
+
+    langs = {l.lower() for l in getattr(config, "sub_langs", ()) or ()}
+    if langs:
+        out = [s for s in out if (s.language or "und").lower() in langs]
+
+    kinds = {k.lower() for k in getattr(config, "sub_kinds", ()) or ()}
+    if kinds:
+        out = [s for s in out if _track_kinds(s) & kinds]
+
+    return out
 
 
 # ── ffmpeg execution ──────────────────────────────────────────────────────────
 
 _DUR_RE = re.compile(r"out_time_ms=(\d+)")
 _PROGRESS_RE = re.compile(r"progress=(\w+)")
+
+
+# ── live process registry (for "stop immediately") ────────────────────────────
+# Every ffmpeg this process starts is registered while it runs, so an abort can
+# kill them mid-encode. That is safe by construction: an encode writes to a TEMP
+# file and is only moved into place after it succeeds, so a killed encode leaves
+# the original untouched and the half-written temp is discarded by the caller.
+_live_procs: set[subprocess.Popen] = set()
+_live_lock = threading.Lock()
+# Killing the running ffmpeg is not enough on its own: an encode is a LADDER of
+# attempts (audio strategies, subtitles embedded then not), so a killed attempt
+# just looks like a failed one and the next rung starts a fresh ffmpeg. This latch
+# makes every remaining attempt fail immediately instead.
+_abort = threading.Event()
+
+
+def clear_abort() -> None:
+    """Re-arm for a new run. Without this an aborted run poisons the next one."""
+    _abort.clear()
+
+
+def aborted() -> bool:
+    return _abort.is_set()
+
+
+class _tracked:
+    """Register `proc` as killable for as long as it is running."""
+
+    def __init__(self, proc: subprocess.Popen) -> None:
+        self.proc = proc
+
+    def __enter__(self):
+        with _live_lock:
+            _live_procs.add(self.proc)
+        return self.proc
+
+    def __exit__(self, *exc):
+        with _live_lock:
+            _live_procs.discard(self.proc)
+        return False
+
+
+def abort_running() -> int:
+    """Kill every ffmpeg started by this process. Returns how many were signalled."""
+    _abort.set()
+    with _live_lock:
+        procs = list(_live_procs)
+    n = 0
+    for p in procs:
+        try:
+            if p.poll() is None:
+                p.kill()
+                n += 1
+        except OSError:
+            pass
+    return n
 
 
 def _run_ffmpeg(
@@ -341,19 +428,27 @@ def _run_ffmpeg(
     On failure, the tail of ffmpeg's stderr is appended to `errsink` (when given)
     so the caller can report *why* it failed rather than a generic message.
     """
+    if _abort.is_set():          # cancelled: don't start another attempt
+        if errsink is not None:
+            errsink.append("cancelled")
+        return False
     if progress is None:
+        # Popen rather than subprocess.run purely so the process is REGISTERED and
+        # an abort can reach it — this is the path the CLI encodes on.
         try:
-            r = subprocess.run(
+            proc = subprocess.Popen(
                 [ffmpeg, *args],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            if r.returncode != 0 and errsink is not None:
-                tail = [ln.strip() for ln in (r.stderr or "").strip().splitlines() if ln.strip()]
-                errsink.append(" / ".join(tail[-2:]) if tail else f"ffmpeg exit {r.returncode}")
-            return r.returncode == 0
+            with _tracked(proc):
+                _, err = proc.communicate()
+            if proc.returncode != 0 and errsink is not None:
+                tail = [ln.strip() for ln in (err or "").strip().splitlines() if ln.strip()]
+                errsink.append(" / ".join(tail[-2:]) if tail else f"ffmpeg exit {proc.returncode}")
+            return proc.returncode == 0
         except (OSError, subprocess.SubprocessError) as e:
             if errsink is not None:
                 errsink.append(str(e))
@@ -381,26 +476,27 @@ def _run_ffmpeg(
         return False
 
     stats: dict = {}
-    try:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            line = line.strip()
-            if line.startswith("fps="):
-                stats["fps"] = line[4:]
-            elif line.startswith("bitrate="):
-                stats["bitrate"] = line[8:]
-            elif line.startswith("speed="):
-                stats["speed"] = line[6:]
-            m = _DUR_RE.search(line)
-            if m and duration > 0:
-                done = int(m.group(1)) / 1_000_000.0
-                frac = max(0.0, min(1.0, done / duration))
-                progress(label, frac, dict(stats))
-            elif line.startswith("progress="):
-                progress(label, None, dict(stats))
-    except Exception:  # noqa: BLE001 — progress must never break the encode
-        pass
-    proc.wait()
+    with _tracked(proc):
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.strip()
+                if line.startswith("fps="):
+                    stats["fps"] = line[4:]
+                elif line.startswith("bitrate="):
+                    stats["bitrate"] = line[8:]
+                elif line.startswith("speed="):
+                    stats["speed"] = line[6:]
+                m = _DUR_RE.search(line)
+                if m and duration > 0:
+                    done = int(m.group(1)) / 1_000_000.0
+                    frac = max(0.0, min(1.0, done / duration))
+                    progress(label, frac, dict(stats))
+                elif line.startswith("progress="):
+                    progress(label, None, dict(stats))
+        except Exception:  # noqa: BLE001 — progress must never break the encode
+            pass
+        proc.wait()
     if proc.returncode != 0 and errsink is not None:
         try:
             err_f.seek(0)

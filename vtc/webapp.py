@@ -335,6 +335,14 @@ _AUDIO_POLICY = {"passthrough": AudioPolicy.PASSTHROUGH, "aac": AudioPolicy.AAC,
 _CONTAINER = {"auto": Container.AUTO, "mp4": Container.MP4, "mkv": Container.MKV}
 
 
+def _clear_stop_flags() -> None:
+    """Start a run unstopped. BOTH flags must go — a leftover abort flag would make
+    the next run drop every file it touched as 'cancelled' without saying why."""
+    pipeline.STOP_FILE.unlink(missing_ok=True)
+    pipeline.ABORT_FILE.unlink(missing_ok=True)
+    encode.clear_abort()
+
+
 def _apply_advanced(cfg: RunConfig, adv: dict) -> None:
     """Overlay the Advanced Settings modal's tunables onto a base RunConfig.
 
@@ -481,6 +489,7 @@ _BRIDGE_JS = r"""
   window.__vtcETA = (sec)=> pgSetETA(sec);                                    // engine: work-based ETA
   window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
+  window.__vtcAbort = ()=> { try { api.abort_run(); } catch(e){} };      // Stop NOW button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
   window.__vtcRetryFailed = ()=> { try { api.retry_failed_software(); } catch(e){} };
   // Two-phase save: ask for the path FIRST (nothing but a filename crosses the
@@ -784,13 +793,30 @@ class Api:
         return {"ok": True}
 
     def stop_run(self):
-        """Ask the run to stop after the current file(s) (graceful, no corruption)."""
+        """Ask the run to stop after the file(s) already in flight (graceful)."""
         try:
             pipeline.STOP_FILE.touch()
-            log.info("stop requested")
+            log.info("stop requested (after files in flight)")
         except OSError as e:
             log.error("stop_run: %s", e)
         return {"stopping": True}
+
+    def abort_run(self):
+        """Stop NOW: start nothing further and kill the encodes already running.
+
+        Safe by construction — an encode writes to a temp file and is only moved
+        into place once it succeeds, so killing one discards the temp and leaves
+        the original exactly as it was. The killed file is dropped from the report
+        rather than counted as a failure, since it did not fail: it was cancelled.
+        """
+        try:
+            pipeline.ABORT_FILE.touch()
+        except OSError as e:
+            log.error("abort_run: %s", e)
+            return {"error": str(e)}
+        killed = encode.abort_running()
+        log.info("abort requested — killed %d running encode(s)", killed)
+        return {"stopping": True, "killed": killed}
 
     def pick_save_path(self, name: str = "report.txt"):
         """Ask for a save location and return it. Nothing but the filename crosses
@@ -836,7 +862,7 @@ class Api:
         except ValueError as e:
             log.error("run: bad config: %s", e)
             return {"error": str(e)}
-        pipeline.STOP_FILE.unlink(missing_ok=True)   # clear any prior stop flag
+        _clear_stop_flags()                          # a new run starts unstopped
         self._last_config = config
         threading.Thread(target=self._run_worker, args=(config,), daemon=True).start()
         return {"started": True}
@@ -851,7 +877,7 @@ class Api:
             return {"error": "nothing to retry"}
         import dataclasses
         soft = dataclasses.replace(cfg, encoder=Encoder.SOFTWARE)
-        pipeline.STOP_FILE.unlink(missing_ok=True)
+        _clear_stop_flags()
         log.info("retry_failed_software: %d file(s)", len(failed))
         threading.Thread(target=self._run_worker, args=(soft,), kwargs={"files": failed},
                          daemon=True).start()
@@ -1049,7 +1075,7 @@ class Api:
         results = pipeline.run(config, progress=prog, on_result=emit, files=files)
         summary = _summary(results)
         summary["mins"] = int((_time.monotonic() - run_t0) / 60)   # real elapsed (was hardcoded 0)
-        summary["stopped"] = pipeline.STOP_FILE.exists()            # user hit Stop mid-run
+        summary["stopped"] = pipeline.stop_requested()              # user hit either Stop
         # remember which files errored so the report can offer a software retry
         self._last_failed = [r.path for r in results if r.outcome is Outcome.ERROR]
         summary["failed_retryable"] = len(self._last_failed)
