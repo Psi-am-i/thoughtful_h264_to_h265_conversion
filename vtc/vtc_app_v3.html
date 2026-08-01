@@ -2156,20 +2156,22 @@ function pgStart(total, est, queue){
   if(!preparing) PG.timer=setInterval(pgTick, 1000);   // no countdown until we know the total
 }
 function pgFile(name, frac, stats){
-  if(name){ $('#pg-cur-n').textContent=name; if(name!==PG.curName){ PG.curName=name; pgRenderList(); } }
+  // The filename lives in the list below (bold, "processing") — don't repeat the
+  // cropped name here. This line is the current file's PROCESSING INFO instead.
+  if(name && name!==PG.curName){ PG.curName=name; pgRenderList(); }
   const f=(frac==null?0:Math.max(0,Math.min(1,frac)));
   PG.curFrac=f;
   $('#pg-cur-f').style.width=(f*100)+'%';
   // overall bar + % should include the current file's progress, not just whole files
   if(PG.total){ const op=(PG.done+f)/PG.total; $('#pg-overall').style.width=(op*100)+'%'; $('#pg-pct').textContent=Math.round(op*100)+'%'; }
   let bits=[];
-  if(frac!=null) bits.push(Math.round(f*100)+'%');
   if(stats){
     if(stats.fps && +stats.fps>0) bits.push(Math.round(+stats.fps)+' fps');
     if(stats.bitrate){ const kb=parseFloat(stats.bitrate); if(kb>0) bits.push((kb/1000).toFixed(1)+' Mbps'); }
-    if(stats.speed && parseFloat(stats.speed)>0) bits.push(parseFloat(stats.speed).toFixed(1)+'×');
+    if(stats.speed && parseFloat(stats.speed)>0) bits.push(parseFloat(stats.speed).toFixed(1)+'× realtime');
   }
-  $('#pg-stats').textContent=bits.join('  ·  ');
+  $('#pg-cur-n').textContent = frac!=null ? `Encoding · ${Math.round(f*100)}%` : 'Working…';
+  $('#pg-stats').textContent = bits.join('  ·  ');
   // NB: do NOT re-anchor the ETA here — pgTick counts it down and re-anchors on a
   // timer. Re-anchoring every progress frame is what made the clock bounce.
 }
