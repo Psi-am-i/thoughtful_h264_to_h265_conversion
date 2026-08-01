@@ -16,9 +16,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vtc import pipeline, report  # noqa: E402
-from vtc.config import Encoder, RunConfig, SourceAction  # noqa: E402
-from vtc.ffprobe import probe  # noqa: E402
-from vtc.result import Outcome  # noqa: E402
+from vtc.config import Encoder, RunConfig, SourceAction, Tier  # noqa: E402
+from vtc.ffprobe import MediaInfo, probe  # noqa: E402
+from vtc.model import target_kbps  # noqa: E402
+from vtc.result import Mode, Outcome  # noqa: E402
 
 _HAVE_FF = shutil.which("ffmpeg") and shutil.which("ffprobe")
 
@@ -76,6 +77,36 @@ def test_pipeline_mixed_folder():
         assert Outcome.SHRINK not in out2.values(), out2
         assert out2.get("lean.mp4") is Outcome.RESUME, out2
         print("  ok  second run resumes (no re-encode)")
+
+
+def _h264(kbps: int) -> MediaInfo:
+    return MediaInfo(path=Path("x.mp4"), ok=True, vcodec="h264",
+                     width=1920, height=1080, fps=24.0, bit_rate=kbps * 1000)
+
+
+def test_shrink_only_when_it_can_clear_the_savings_bar():
+    """A shrink must be predicted to clear the post-encode min-saving gate.
+
+    Files merely OVER target used to be encoded and then thrown away by the size
+    gate — original safe, but the time wasted and the estimate over-promising.
+    """
+    cfg = RunConfig(src=Path("."), tier=Tier.GOOD)
+    target = target_kbps(cfg.tier, 1920 * 1080, 24.0, cfg.out_codec)
+    bar = target / cfg.min_saving_ratio          # source must be at least this fat
+
+    # Comfortably fat: shrink.
+    mode, outcome, _ = pipeline.decide(cfg, _h264(int(bar * 1.5)))
+    assert mode is Mode.SHRINK and outcome is None, (mode, outcome)
+
+    # In the old dead zone — over target, but the output could never be 25%
+    # smaller. Left alone rather than encoded-then-discarded.
+    mode, outcome, _ = pipeline.decide(cfg, _h264(int(bar * 0.9)))
+    assert mode is None and outcome is Outcome.SKIP_AT_TIER, (mode, outcome)
+
+    # Already at tier: unchanged behaviour.
+    mode, outcome, _ = pipeline.decide(cfg, _h264(int(target * 0.9)))
+    assert mode is None and outcome is Outcome.SKIP_AT_TIER, (mode, outcome)
+    print("  ok  shrink decision requires a predicted saving, not just over-target")
 
 
 def _run_all():

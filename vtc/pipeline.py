@@ -102,7 +102,17 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
 
     if category is CodecCategory.H264:
         decision_target = tgt(clamp=False)
-        worth = over_target(src_kbps, decision_target, config.tier_over_tolerance)
+        # Two gates, and a shrink has to clear BOTH:
+        #   1. convergence — a file already at (or within tolerance of) its tier
+        #      target is left alone, so re-runs don't keep shaving the same file.
+        #   2. worth-it — the target must be far enough below the source to clear
+        #      the post-encode min-saving bar. Without this, a file 10-25% over
+        #      target got encoded and then thrown away by the size gate: the
+        #      original was safe, but the time was spent for nothing and the
+        #      estimate counted savings that could never arrive. Rampant on
+        #      H.264 -> H.264, where the target sits near the source bitrate.
+        worth = (over_target(src_kbps, decision_target, config.tier_over_tolerance)
+                 and decision_target <= src_kbps * config.min_saving_ratio)
         if config.remux_to_mp4 and not already_mp4:
             return (Mode.SHRINK, None, tgt(clamp=True)) if worth else (Mode.REMUX, None, 0)
         if worth:

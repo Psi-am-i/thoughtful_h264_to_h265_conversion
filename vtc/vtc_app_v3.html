@@ -401,11 +401,13 @@ body{
   padding:10px 12px;background:var(--panel);border-left:3px solid var(--accent);
   border-radius:0 var(--r) var(--r) 0}
 /* ── Advanced Settings: the gear entry point + the modal's controls ─────────── */
-.gear{width:26px;height:26px;flex:0 0 auto;display:flex;align-items:center;
+.gear{width:28px;height:28px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;background:none;border:0;border-radius:var(--r);
-  color:var(--ink-3);cursor:pointer;padding:0;transition:color .15s,transform .15s}
-.gear:hover{color:var(--accent);transform:rotate(30deg)}
-.gear svg{width:18px;height:18px;fill:currentColor}
+  color:var(--ink-2);cursor:pointer;padding:0;transition:color .15s,transform .2s}
+.gear:hover{color:var(--accent);transform:rotate(30deg)}   /* half a 60° lobe: it turns */
+/* The glyph runs edge to edge in its box (no built-in margin), so it needs to be
+   set smaller than an icon drawn with padding or it overpowers the brow. */
+.gear svg{width:19px;height:19px;fill:currentColor;stroke:none}
 .adv-sec{margin:0 0 20px}
 .adv-sec > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--accent);margin:0 0 10px;padding-bottom:6px;
@@ -511,12 +513,16 @@ body{
   text-transform:uppercase;color:var(--ink-3);padding:8px 12px;margin-bottom:-1px}
 .r-tabs button.on{color:var(--ink);border-bottom-color:var(--accent)}
 .r-list{max-height:46vh;overflow:auto;font-family:'IBM Plex Mono',monospace;font-size:13.5px}
-.r-row{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(0,1.8fr) auto;gap:14px;padding:7px 2px;
+/* The FILENAME is the thing you read, so it gets the flexible column; the sizes
+   are short and fixed-width, so they take only what they need and sit next to
+   the name; the status pins right. (Was the other way round: the size column
+   hogged 1.8fr while long filenames were capped and ellipsised.) */
+.r-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:18px;padding:7px 2px;
   border-bottom:1px solid var(--rule);align-items:center}
 .r-row:last-child{border-bottom:0}
 .r-f{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
-.r-d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:500}
+.r-d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46ch;
+  font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:500;justify-self:start}
 .r-t{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:2px}
 .r-star{color:var(--accent);font-weight:700;margin-left:1px;cursor:help}
 .r-t.ok{background:rgba(38,36,31,.08);color:var(--ink-2)}
@@ -837,7 +843,16 @@ body{
       </div>
       <div class="brow-right">
         <button class="gear" id="gear" title="Advanced settings" aria-label="Advanced settings">
-          <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9.4 4a7.5 7.5 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-2-1.2l-.4-2.6H9.5l-.4 2.6a7.3 7.3 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.5 7.5 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 2 1.2l.4 2.6h4.9l.4-2.6a7.3 7.3 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg>
+          <!-- The user's own artwork (Pixelmator, ~/Desktop/settings.svg): a six-lobe
+               cog with deep scallops and a wide bore. It replaces a filled path whose
+               teeth were implied by soft arcs — at 18px that collapsed into a blob.
+               Inlined rather than pulled from an icon font: the app deliberately has
+               no network dependency (fonts are bundled), and one glyph is not worth
+               shipping a font for. Coordinates trimmed to 2dp — on a 1024 grid drawn
+               at 21px that is far below a pixel. -->
+          <svg viewBox="0 0 1024 1024" aria-hidden="true">
+            <path d="M 0 509.29 C 0 481.91 2.66 451.87 8.00 419.16 C 44.26 421.65 78.66 414.53 111.19 397.82 C 143.73 381.11 169.24 356.58 187.73 324.22 C 206.22 290.80 214.57 255.96 212.80 219.69 C 211.02 183.42 200.00 150.18 179.73 119.96 C 226.66 79.42 281.42 48.13 344 26.09 C 360.71 56.31 383.99 80.40 413.86 98.36 C 443.73 116.31 476.44 125.29 512 125.29 C 547.55 125.29 580.17 116.31 609.86 98.36 C 639.55 80.40 662.75 56.31 679.46 26.09 C 741.33 48.13 796.08 79.42 843.73 119.96 C 828.08 148.76 820.26 179.78 820.26 213.02 C 820.26 246.27 828.79 277.65 845.86 307.16 C 863.28 337.38 886.93 360.85 916.79 377.56 C 946.66 394.27 978.48 402.62 1012.26 402.62 C 1020.08 438.53 1024 474.09 1024 509.29 C 1024 532.76 1021.51 559.96 1016.53 590.89 C 983.82 591.60 953.15 600.40 924.53 617.29 C 895.91 634.18 873.06 657.38 856 686.89 C 837.86 718.89 829.24 752.40 830.13 787.42 C 831.02 822.45 840.71 854.71 859.20 884.22 C 811.19 928.31 758.22 962.09 700.26 985.56 C 683.55 954.98 660.17 930.62 630.13 912.49 C 600.08 894.36 567.28 885.29 531.73 885.29 C 493.68 885.29 458.93 895.51 427.46 915.96 C 395.99 936.40 372.62 963.51 357.33 997.29 C 297.24 978.09 241.60 948.05 190.39 907.16 C 210.66 877.29 221.60 844.31 223.19 808.22 C 224.80 772.13 216.17 737.38 197.33 703.96 C 178.13 670.18 151.37 644.85 117.06 627.96 C 82.75 611.07 46.93 604.76 9.60 609.02 C 3.19 579.16 0 545.91 0 509.29 Z M 376 373.82 C 338.66 411.16 320 456.31 320 509.29 C 320 562.27 338.75 607.51 376.26 645.02 C 413.77 682.53 459.02 701.29 512 701.29 C 564.97 701.29 610.22 682.53 647.73 645.02 C 685.24 607.51 704 562.27 704 509.29 C 704 456.31 685.24 411.07 647.73 373.56 C 610.22 336.05 564.97 317.29 512 317.29 C 459.02 317.29 413.68 336.13 376 373.82 Z"/>
+          </svg>
         </button>
         <div class="readout" id="readout">
           <button class="src" id="src" title="Change source folder">
@@ -2143,7 +2158,7 @@ function pgStart(total, est, queue){
   const preparing = !total;                    // total unknown yet -> still scanning
   PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), curFrac:0, anchored:false, timer:null, _rt:null,
       spf:0, spf0:(est&&total)?est/total:0, lastDone:Date.now(), sinceAnchor:0, etaFromEngine:false,
-      queue:queue||[], tags:{}, curName:'', userScroll:false, _scrollT:null};
+      queue:queue||[], tags:{}, curName:'', lastIdx:0, userScroll:false, _scrollT:null};
   $('#pg-total').textContent = preparing ? '…' : PG.total.toLocaleString();
   $('#pg-done').textContent='0'; $('#pg-pct').textContent = preparing ? '' : '0%';
   $('#pg-overall').style.width='0'; $('#pg-cur-f').style.width='0';
@@ -2201,20 +2216,44 @@ function pgRowHTML(name, kind){
   const title = esc(name + (t&&t.detail ? '  —  '+t.detail : ''));
   return `<div class="pg-r ${kind}"><span title="${title}">${name}</span><span class="pg-r-t ${cls}">${label}${star}</span></div>`;
 }
+// The queue arrives in chunks (the whole list in one call would be a huge string).
+// Append and re-render: once the run is past the first chunk the strip needs the
+// tail to find the current file at all.
+function pgQueueMore(names){
+  if(!names || !names.length || !PG) return;
+  PG.queue = (PG.queue||[]).concat(names);
+  pgRenderList();
+}
 function pgRenderList(){
   const box=$('#pg-recent'); if(!box) return;
   const q=PG.queue||[], cur=PG.curName;
-  let idx = (q.length && cur) ? q.indexOf(cur) : -1;
-  if(idx<0){   // no queue (retry run / beyond the 2000 cap / not found) — degrade to a done list
+  // Files arrive in scan order, so start from the last hit — faster on a long
+  // queue, and it picks the RIGHT one when two files share a name.
+  let idx=-1;
+  if(q.length && cur){
+    idx = q.indexOf(cur, Math.max(0, PG.lastIdx||0));
+    if(idx<0) idx = q.indexOf(cur);            // wrapped or out of order: full scan
+    if(idx>=0) PG.lastIdx = idx;
+  }
+  // Only ENCODES report progress frames, so on a stretch of skipped files curName
+  // is whatever was last encoded — already finished. Files are processed in queue
+  // order, so q[PG.done] is where the run actually is; pin that instead.
+  if(q.length && PG.done < q.length && (idx<0 || PG.tags[cur])) idx = PG.done;
+  if(idx<0){   // no queue at all (retry run) or a name we can't place
     const done=Object.keys(PG.tags);
-    box.innerHTML = done.slice(-200).reverse().map(n=>pgRowHTML(n,'done')).join('');
+    const rows=done.slice(-200).reverse().map(n=>pgRowHTML(n,'done'));
+    // Always show what's being worked on. A run with no visible active file reads
+    // as a stall, which is exactly how the truncated-queue bug looked.
+    if(cur && !PG.tags[cur]) rows.unshift(pgRowHTML(cur,'cur'));
+    box.innerHTML=rows.join('');
+    if(!PG.userScroll) pgCenterCurrent();
     return;
   }
   const UP=8, DOWN=250, parts=[];
   const topEnd=Math.min(q.length-1, idx+UP);
   if(topEnd < q.length-1) parts.push(`<div class="pg-more">+${(q.length-1-topEnd).toLocaleString()} more queued</div>`);
   for(let i=topEnd;i>idx;i--) parts.push(pgRowHTML(q[i],'up'));   // queued, farthest first
-  parts.push(pgRowHTML(cur,'cur'));                              // the processing file, pinned
+  parts.push(pgRowHTML(q[idx],'cur'));                           // the processing file, pinned
   const botStart=Math.max(0, idx-DOWN);
   for(let i=idx-1;i>=botStart;i--) parts.push(pgRowHTML(q[i],'done'));   // processed, newest first
   if(botStart>0) parts.push(`<div class="pg-more">+${botStart.toLocaleString()} more done</div>`);
@@ -2423,6 +2462,10 @@ $('#r-retry').onclick=()=>{
   if(window.__vtcRetryFailed){ shutSheet('#report-sheet'); window.__vtcRetryFailed(); }
 };
 $('#r-log').onclick=()=>{
+  // Building the log is deferred into buildLog() so the real app can open the
+  // native Save dialog FIRST and only assemble the text (thousands of rows on a
+  // big library) once a path is chosen — clicking used to spin before the dialog.
+  const buildLog = ()=>{
   const R=RUN, lines=[`Very Thoughtful Compression — run report`,`Source: ${SRC.k}`,
     `Settings: ${M.map(q=>q.short+'='+q.opts[answers[q.id]].k).join(', ')}`,
     `Re-encoded ${R.done} · left alone ${R.skip} · failed ${R.fail} · recovered ${tbStr(R.tb)}`,'',
@@ -2434,12 +2477,14 @@ $('#r-log').onclick=()=>{
       const line = `${tag.padEnd(5)} ${r.f} — ${r.d}`;
       return r.detail ? `${line}\n        ${r.detail}` : line;
     })].join('\n');
+    return lines;
+  };
   // Real app: a native Save dialog writes the file (UTF-8). The old blob+download
   // route made WKWebView NAVIGATE the whole window to the text — mojibake, no way
   // back. Only the standalone mock (no bridge) falls back to the blob download.
-  if(window.__vtcSaveLog){ window.__vtcSaveLog(lines); return; }
+  if(window.__vtcSaveLog){ window.__vtcSaveLog(buildLog); return; }
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain;charset=utf-8'}));
+  a.href=URL.createObjectURL(new Blob([buildLog()],{type:'text/plain;charset=utf-8'}));
   a.download='vtc-run-report.txt'; a.click(); URL.revokeObjectURL(a.href);
 };
 addEventListener('keydown',e=>{
@@ -2493,8 +2538,33 @@ document.querySelectorAll('.dtab').forEach(t=>{
 // a shrunk-to-fit thumbnail, and the full frame is too small to compare across
 // panels. The engine encodes the sample at each tier and streams the panels in
 // (see the pywebview bridge); standalone, the deck waits for a real run.
-const PV = { n:0, sw:0, sh:0, dur:5, fps:24, cropX:0, cropY:0, playing:false,
+// PV.pos is the deck's ONE transport position. Every panel is parked on it as it
+// becomes playable, so the grid shows the same moment in every tier from the first
+// frame — a video left on its own default renders wherever its container's timeline
+// happens to start, which is what made the Source panel show a different frame than
+// the tiers until you scrubbed. A late-arriving panel joins at the current position.
+const PV_ANCHOR = 0.04;                       // ~1 frame in: past any leading black
+const PV = { n:0, sw:0, sh:0, dur:5, fps:24, cropX:0, cropY:0, playing:false, pos:PV_ANCHOR,
              ready:new Set(), started:false, meta:{}, codec:'', compare:null };
+// Park one video on the shared position. `nudge` (use it the first time a video
+// becomes playable) seeks AWAY and back rather than just setting currentTime,
+// because a freshly-loaded video shows whatever frame its container's timeline
+// happens to open on — and the copied source sample opens differently from the
+// re-encoded tiers. Only a real seek makes them agree; that's why dragging the
+// scrubber fixed it by hand. This is the same drag, done invisibly at load.
+function pvPark(v, nudge){
+  if(!v || v.readyState < 1) return;           // no timeline yet: a later call parks it
+  const dur = PV.dur || 5;
+  const set = t => { try { if(Math.abs((v.currentTime||0) - t) > 0.005) v.currentTime = t; } catch(e){} };
+  if(!nudge || v._pvNudged){ set(PV.pos); return; }
+  v._pvNudged = true;
+  // somewhere else to seek FROM — ahead if there's room, else behind
+  let away = PV.pos + 0.5 <= dur - 0.05 ? PV.pos + 0.5 : PV.pos - 0.5;
+  if(away < 0 || Math.abs(away - PV.pos) < 0.05){ set(PV.pos); return; }   // too short to nudge
+  const land = ()=>{ v.removeEventListener('seeked', land); set(PV.pos); };  // PV.pos, not a
+  v.addEventListener('seeked', land);          // remembered value: the user may have scrubbed
+  set(away);
+}
 const pvVideos = ()=> PV.compare
   ? [document.getElementById('cmp-a'), document.getElementById('cmp-b')].filter(Boolean)
   : [...document.querySelectorAll('#grid video')];
@@ -2504,7 +2574,7 @@ const human2 = b => { b=Math.max(0,b); return b>=1e9 ? (b/1e9).toFixed(2)+' GB'
   : b>=1e6 ? (b/1e6).toFixed(2)+' MB' : b>=1e3 ? (b/1e3).toFixed(2)+' KB' : (b|0)+' B'; };
 
 function pvPlaceholder(msg){
-  PV.started=false; PV.ready.clear(); PV.playing=false;
+  PV.started=false; PV.ready.clear(); PV.playing=false; PV.pos=PV_ANCHOR;
   $('#grid').classList.remove('live');
   $('#grid').innerHTML = `<div class="pv-empty mono">${msg||'Choose a folder — your footage previews here at each quality tier.'}</div>`;
   $('#prev-note').textContent = 'The same five seconds at each tier, compared 1:1 on a cropped region — so you can actually see the quality, not a shrunk thumbnail.';
@@ -2584,6 +2654,7 @@ function pvRenderMeta(){
 }
 window.__vtcPreviewStart = (info)=>{
   PV.sw=info.w||1920; PV.sh=info.h||1080; PV.meta={}; PV.codec=info.codec||'';
+  PV.pos=PV_ANCHOR;                            // a fresh set of previews starts at the top
   PV.cropX=Math.max(0,(PV.sw-320)/2); PV.cropY=Math.max(0,(PV.sh-180)/2);   // center-ish
   buildPreviewGrid(info.n||6);
 };
@@ -2601,7 +2672,9 @@ window.__vtcPreviewPanel = (p)=>{
     pvApply(); pvSyncUI();
   };
   v.oncanplay=()=>{ cell.classList.add('ready'); PV.ready.add(p.i);
+    if(!PV.playing) pvPark(v, true);            // same frame as every other panel
     if(PV.ready.size>=1) setEncodingUI(false); pvApply(); };
+  v._pvNudged=false;
   v.onerror=()=>{ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent="can't play"; };
   v.src=p.url; v.load();
 };
@@ -2626,6 +2699,7 @@ function pvSyncUI(){
 }
 function pvSeek(t){
   const dur=PV.dur||5; t=Math.max(0,Math.min(dur-0.03,t));
+  PV.pos=t;                                    // the shared position panels park on
   pvVideos().forEach(v=>{ try{ v.currentTime=t; }catch(e){} });
   pvSyncUI();
 }
@@ -2637,6 +2711,7 @@ function pvPlay(){
     pvVideos().forEach(v=>{ v.play().catch(()=>{}); });
   } else {
     const t=pvLeader()?pvLeader().currentTime:0;
+    PV.pos=t;
     pvVideos().forEach(v=>{ v.pause(); try{v.currentTime=t;}catch(e){} });   // re-sync on pause
   }
   pvSyncUI();
@@ -2724,9 +2799,11 @@ function cmpFillTagSels(ai, bi){
 function cmpSwap(which, idx){
   const m=PV.meta[idx]; if(!m||!m.url||!PV.compare) return;
   const v = which==='a' ? $('#cmp-a') : $('#cmp-b');
-  const cur = v.currentTime||0;
   if(which==='a') PV.compare.a=idx; else PV.compare.b=idx;
-  v.onloadedmetadata=()=>{ try{ v.currentTime=cur; }catch(e){} requestAnimationFrame(pvApply); pvSyncUI(); };
+  // land the new side on the deck's shared position, so the swap doesn't jump the
+  // frame OR leave the two sides a frame apart
+  v.onloadedmetadata=()=>{ pvPark(v, true); requestAnimationFrame(pvApply); pvSyncUI(); };
+  v._pvNudged=false;                           // new source: it has to re-seek to agree
   v.src=m.url; v.load();
 }
 function openCompare(ai, bi){
@@ -2740,8 +2817,11 @@ function openCompare(ai, bi){
   $('#big-e').textContent='Drag the handle to wipe between the two · drag elsewhere to pan · scrub to move both together';
   cmpSetSplit(50);
   const ready=()=>{ if(va.videoWidth){ PV.sw=va.videoWidth; PV.sh=va.videoHeight; }
-    if(va.duration&&isFinite(va.duration)) PV.dur=va.duration; requestAnimationFrame(pvApply); pvSyncUI(); };
+    if(va.duration&&isFinite(va.duration)) PV.dur=va.duration;
+    pvPark(va, true); pvPark(vb, true);        // both sides open on the same frame
+    requestAnimationFrame(pvApply); pvSyncUI(); };
   va.onloadedmetadata=ready; vb.onloadedmetadata=ready;
+  va._pvNudged=false; vb._pvNudged=false;      // fresh sources: both must re-seek to agree
   va.src=A.url; vb.src=B.url; va.load(); vb.load();
   $('#big-sheet').classList.add('on');
   const el=$('#big-sheet'); if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
@@ -2799,6 +2879,7 @@ $('#pv-codec').querySelectorAll('button').forEach(b=>{
 function pvLoop(){
   if(PV.playing){
     const L=pvLeader();
+    if(L) PV.pos=L.currentTime||0;            // keep the shared position current
     if(L && L.currentTime>=(PV.dur||L.duration||5)-0.05){ PV.playing=false; pvVideos().forEach(v=>v.pause()); }
     pvSyncUI();
   }

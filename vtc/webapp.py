@@ -268,6 +268,12 @@ _CODECS = [OutCodec.H264, OutCodec.H265, None, None]    # 0=H264, 1=H265, 2=AV1,
 # in H.264 there or the tier panels are black. The output codec is unaffected.
 _PREVIEW_CODEC = OutCodec.H265 if sys.platform == "darwin" else OutCodec.H264
 _TIERS = [Tier.OK, Tier.GOOD, Tier.EXCELLENT, Tier.STELLAR, Tier.INSANE]
+# The progress list finds the CURRENT file inside the queue it was given, so a
+# truncated queue means everything past the cut-off loses its "processing" row and
+# its upcoming files. Ship the whole queue, but in chunks — one evaluate_js call
+# carrying 20k filenames is a megabyte-plus string.
+_QUEUE_CHUNK = 2000
+_QUEUE_MAX = 50_000                     # backstop for an absurd library
 _SAVING = [0.15, 0.25, 0.40]
 _ENCODER = [Encoder.HARDWARE, Encoder.SOFTWARE]
 # non-MP4 policy: ADV.format -> the four container flags. Convert = to MP4 (remux +
@@ -465,12 +471,24 @@ _BRIDGE_JS = r"""
   // Run -> real pipeline.run streamed back per file, with LIVE progress, then the report.
   const acc = [];
   window.__vtcRunStart = (total, est, files)=> pgStart(total, est, files);   // engine: run begins
+  window.__vtcQueueMore = (files)=> pgQueueMore(files);                       // engine: rest of the queue
   window.__vtcETA = (sec)=> pgSetETA(sec);                                    // engine: work-based ETA
   window.__vtcEncodeProgress = (name, frac, stats)=> pgFile(name, frac, stats);  // current file
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
   window.__vtcRetryFailed = ()=> { try { api.retry_failed_software(); } catch(e){} };
-  window.__vtcSaveLog = (text)=> { try { api.save_text_file('vtc-run-report.txt', text); } catch(e){} };
+  // Two-phase save: ask for the path FIRST (nothing but a filename crosses the
+  // bridge, so the native dialog opens immediately), then build the log text and
+  // ship it. Passing a builder means a huge report isn't assembled at all if the
+  // user cancels. A plain string still works.
+  window.__vtcSaveLog = (build)=> {
+    try {
+      Promise.resolve(api.pick_save_path('vtc-run-report.txt')).then(r=>{
+        if(!r || !r.path) return;                                  // cancelled
+        api.write_text_file(r.path, typeof build==='function' ? build() : String(build));
+      });
+    } catch(e){}
+  };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
     acc.push(r);
     pgDone1({ f:r.name, t:r.t, sev:r.sev });
@@ -620,6 +638,13 @@ class Api:
             else:
                 svargs = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
                           "-pix_fmt", "yuv420p"]
+            # NB: a stream copy can only start on a keyframe, so ffmpeg writes an
+            # EDIT LIST to trim back to the requested moment — the sample's frame 0
+            # is therefore a player-interpreted thing, while the tier panels
+            # (re-encoded from this sample) start plainly at 0. Measured: dropping
+            # the edit list (-use_editlist 0) is worse, not better — it re-exposes
+            # the pre-roll AND leaves an 0.08s start offset. The panels are aligned
+            # on the front end instead, by seeking every video to one position.
             r = subprocess.run(
                 [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
                  "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
@@ -761,10 +786,11 @@ class Api:
             log.error("stop_run: %s", e)
         return {"stopping": True}
 
-    def save_text_file(self, name: str, content: str):
-        """Write `content` to a path the user picks in a native Save dialog, UTF-8.
-        Replaces the old blob+download, which made WKWebView navigate the whole app
-        window to the text (mojibake, no way back)."""
+    def pick_save_path(self, name: str = "report.txt"):
+        """Ask for a save location and return it. Nothing but the filename crosses
+        the bridge, so the dialog appears the instant the button is clicked — the
+        one-shot version shipped the whole (possibly multi-megabyte) log across the
+        JS bridge FIRST, which is why "Save log…" sat there spinning."""
         import webview
         try:
             picked = self.window.create_file_dialog(
@@ -774,12 +800,27 @@ class Api:
         if not picked:
             return {"cancelled": True}
         path = picked[0] if isinstance(picked, (list, tuple)) else picked
+        return {"path": str(path)}
+
+    def write_text_file(self, path: str, content: str):
+        """Write `content` to an already-chosen path, UTF-8. (The blob+download this
+        replaced made WKWebView navigate the whole app window to the text — mojibake,
+        no way back.)"""
+        if not path:
+            return {"error": "no path"}
         try:
             Path(path).write_text(content, encoding="utf-8")
             log.info("saved report -> %s", path)
         except OSError as e:
             log.error("could not write %s: %s", path, e); return {"error": str(e)}
         return {"saved": str(path)}
+
+    def save_text_file(self, name: str, content: str):
+        """One-shot pick-then-write. Kept for callers that already hold the text."""
+        picked = self.pick_save_path(name)
+        if "path" not in picked:
+            return picked
+        return self.write_text_file(picked["path"], content)
 
     def run(self, answers: dict):
         if self._src is None:
@@ -853,17 +894,35 @@ class Api:
         total_work = sum(work_by_path.values())
         est_seconds = int(max(1, total_work))
         if self.window:
-            # the ordered file names let the progress list show what's coming next;
-            # cap what we ship so a huge library doesn't bloat the JS call (the UI
-            # windows the list anyway and shows "+N more" beyond the cap).
-            names = [f.name for f in files[:2000]]
+            # The ordered file names let the progress list pin the current file and
+            # show what's coming next. It used to ship only the first 2000 — so on a
+            # big library every file past #2000 fell out of the queue entirely: no
+            # "processing" row, no upcoming files, just a list of what was already
+            # done. Send all of them, chunked so no single JS call is enormous.
+            names = [f.name for f in files[:_QUEUE_MAX]]
             self.window.evaluate_js(
                 f"window.__vtcRunStart && window.__vtcRunStart({total}, {est_seconds}, "
-                f"{json.dumps(names)})")
+                f"{json.dumps(names[:_QUEUE_CHUNK])})")
+            for i in range(_QUEUE_CHUNK, len(names), _QUEUE_CHUNK):
+                self.window.evaluate_js(
+                    f"window.__vtcQueueMore && window.__vtcQueueMore("
+                    f"{json.dumps(names[i:i + _QUEUE_CHUNK])})")
+            if len(files) > _QUEUE_MAX:
+                log.warning("queue list truncated at %d of %d files (list only, the "
+                            "run still covers everything)", _QUEUE_MAX, len(files))
 
         run_t0 = _time.monotonic()
-        eta_state = {"done_work": 0.0, "n_done": 0}
+        eta_state = {"done_work": 0.0, "n_done": 0, "file_t0": run_t0}
         last = {"frac": -1.0, "t": 0.0, "eta": 0.0}   # throttle progress + ETA chatter
+
+        # ETA cadence. Within a single file the estimate barely moves, so re-emitting
+        # it every few seconds only made the clock twitch and flashed "re-estimating…"
+        # at the user for no new information. Instead: re-estimate at every file
+        # boundary (emit()), then every ETA_REFRESH seconds for the first
+        # ETA_SETTLE seconds of a file — which covers short files and titles, where
+        # the boundaries are what actually move the number — then leave the clock
+        # alone to count down until the file ends.
+        ETA_REFRESH, ETA_SETTLE = 30.0, 300.0
 
         def _emit_eta():
             if not self.window:
@@ -888,7 +947,8 @@ class Api:
                 return
             f = -1.0 if frac is None else float(frac)
             now = _time.monotonic()
-            if now - last["eta"] >= 3.0:            # refresh the work-based ETA every ~3s
+            if (now - eta_state["file_t0"] < ETA_SETTLE
+                    and now - last["eta"] >= ETA_REFRESH):
                 last["eta"] = now
                 _emit_eta()
             # emit on a ~1% move OR at least every ~1.5s (so stats keep ticking)
@@ -913,7 +973,8 @@ class Api:
             if self.window:
                 self.window.evaluate_js(
                     f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(_row(r))})")
-            _emit_eta()
+            _emit_eta()                             # file boundary: the honest moment
+            eta_state["file_t0"] = last["eta"] = _time.monotonic()
 
         results = pipeline.run(config, progress=prog, on_result=emit, files=files)
         summary = _summary(results)
