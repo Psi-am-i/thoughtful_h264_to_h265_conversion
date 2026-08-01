@@ -313,13 +313,19 @@ def build_config(src: Path, a: dict) -> RunConfig:
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
-    # Subtitle policy from Advanced settings.
-    sub = adv.get("subs")
-    if isinstance(sub, str) and sub in ("all", "forced", "hoh", "lang"):
-        cfg.sub_mode = sub
+    # Subtitle policy from Advanced settings: language and kind are independent
+    # filters (see RunConfig.sub_langs / sub_kinds).
     langs = adv.get("subLangs")
     if isinstance(langs, list):
         cfg.sub_langs = tuple(str(x) for x in langs)
+    kinds = adv.get("subKinds")
+    if isinstance(kinds, list):
+        valid = {"normal", "forced", "hoh"}
+        picked = tuple(str(k) for k in kinds if str(k) in valid)
+        # All three ticked is the same as no filter; store it as the empty
+        # "keep every kind" rather than an explicit list, so the engine's
+        # meaning stays obvious in logs and in the ledger.
+        cfg.sub_kinds = () if len(picked) == len(valid) else picked
     _apply_advanced(cfg, adv)
     return cfg
 
@@ -868,9 +874,34 @@ class Api:
         # cost: an encode ≈ its video duration ÷ encoder speed; a remux is a quick
         # stream copy; a skip is ~free. The live ETA below then SELF-CORRECTS this
         # by how our prediction has tracked the real clock so far.
-        enc_speed = 8.0 if hw else 0.18            # encode ×realtime (hardware vs software)
-        REMUX_S, SKIP_S = 4.0, 0.05
+        # Constants measured from real runs on this machine (M1, VideoToolbox):
+        # an encode averaged ~230s a file at ~11x realtime, a remux ~10s, and every
+        # flavour of skip landed between 0.02s and 0.25s. enc_speed stays a little
+        # pessimistic because corr below scales it to whatever the content really is.
+        # Hardware speed measured on this machine (M1 + h264_videotoolbox, 1080p):
+        # ffmpeg reported 4.4-6.3x realtime and encodes took a 303s median, so the
+        # old 8.0 under-priced every encode by about a third. 6.0 starts slightly
+        # pessimistic, which is the right way for a clock to be wrong, and corr
+        # below pulls it to whatever this run's content and codec really do.
+        enc_speed = 6.0 if hw else 0.18            # encode ×realtime (hardware vs software)
+        REMUX_S, SKIP_S = 10.0, 0.10
         probe_by_path = {info.path: info for info, _ in self._probes}
+
+        # A RESUMED file costs nothing — the pipeline sees it in the ledger and
+        # returns immediately (measured: 0.02s). decide() knows nothing about the
+        # ledger, so without this every already-done file was budgeted as a full
+        # encode. On a resumed run that is thousands of phantom encodes: the model
+        # "completed" hundreds of predicted hours in seconds, which collapsed the
+        # calibration below and with it the whole estimate.
+        run_ledger = pipeline.Ledger(config)
+
+        def _resumed(f: Path) -> bool:
+            if not run_ledger.enabled:
+                return False
+            try:
+                return run_ledger.has(run_ledger.key(f))
+            except OSError:
+                return False
 
         def _work_of(info) -> float:
             """Predicted wall-seconds for one PROBED file (a skip is ~free)."""
@@ -887,6 +918,8 @@ class Api:
         avg_work = (sum(probed_works) / len(probed_works)) if probed_works else (5 * 60 / enc_speed)
 
         def _work(f):
+            if _resumed(f):
+                return SKIP_S
             info = probe_by_path.get(f)
             return _work_of(info) if (info and info.ok) else avg_work
 
@@ -912,7 +945,21 @@ class Api:
                             "run still covers everything)", _QUEUE_MAX, len(files))
 
         run_t0 = _time.monotonic()
-        eta_state = {"done_work": 0.0, "file_t0": run_t0}
+        # Two POOLS, calibrated separately. Measured on real runs: an encode averages
+        # ~230s while every kind of skip is 0.02-0.25s, so the two classes are five
+        # thousand times apart and their prediction errors are unrelated — one shared
+        # correction factor just lets the thousands of skips drag the handful of
+        # encodes around. Heavy = encodes and remuxes (predicted work, scaled by how
+        # the prediction has actually tracked); light = skips and resumes (a measured
+        # flat cost per file, since predicting them individually is pointless).
+        HEAVY_S = 5.0                        # predicted-seconds above which a file is "heavy"
+        eta_state = {
+            "file_t0": run_t0, "boundary": run_t0,
+            "heavy_left": sum(w for w in work_by_path.values() if w >= HEAVY_S),
+            "light_left": sum(1 for w in work_by_path.values() if w < HEAVY_S),
+            "heavy_pred": 0.0, "heavy_real": 0.0,       # finished heavy: predicted vs actual
+            "light_real": 0.0, "light_done": 0,
+        }
         last = {"frac": -1.0, "t": 0.0, "eta": 0.0}   # throttle progress + ETA chatter
 
         # ETA cadence. Within a single file the estimate barely moves, so re-emitting
@@ -938,14 +985,15 @@ class Api:
             """
             if not self.window:
                 return
-            elapsed = _time.monotonic() - run_t0
-            done_work = eta_state["done_work"]
-            remaining_work = max(0.0, total_work - done_work)
-            # Measured cost of one predicted work-second. Held at 1.0 until enough
-            # work is behind us for the ratio to mean anything — early on it is
-            # dominated by start-up and a couple of skips.
-            corr = (elapsed / done_work) if done_work > 30 else 1.0
-            eta = remaining_work * corr
+            s = eta_state
+            # How a predicted encode-second has really cost so far. Clamped so one
+            # freak file (a 4K feature among episodes) cannot produce a fantasy in
+            # either direction; held at 1.0 until enough encoding is behind us.
+            corr = (s["heavy_real"] / s["heavy_pred"]) if s["heavy_pred"] > 30 else 1.0
+            corr = max(0.2, min(5.0, corr))
+            # Skips get a MEASURED flat cost, not a predicted one.
+            rate = (s["light_real"] / s["light_done"]) if s["light_done"] > 20 else SKIP_S
+            eta = s["heavy_left"] * corr + s["light_left"] * rate
             self.window.evaluate_js(f"window.__vtcETA && window.__vtcETA({max(0.0, eta):.0f})")
 
         def prog(label, frac, stats=None):
@@ -969,7 +1017,21 @@ class Api:
 
         def emit(r):
             last["frac"] = -1.0                     # next file starts fresh
-            eta_state["done_work"] += work_by_path.get(r.path, avg_work)
+            # Book this file's REAL wall time against the pool it was predicted in.
+            # (With jobs>1 the per-file split is rough, but the pool totals still
+            # add up to the wall clock, which is all the ratios need.)
+            now = _time.monotonic()
+            dt = max(0.0, now - eta_state["boundary"])
+            eta_state["boundary"] = now
+            w = work_by_path.get(r.path, avg_work)
+            if w >= HEAVY_S:
+                eta_state["heavy_left"] = max(0.0, eta_state["heavy_left"] - w)
+                eta_state["heavy_pred"] += w
+                eta_state["heavy_real"] += dt
+            else:
+                eta_state["light_left"] = max(0, eta_state["light_left"] - 1)
+                eta_state["light_real"] += dt
+                eta_state["light_done"] += 1
             if r.outcome is Outcome.ERROR:
                 log.error("  FAIL %s: %s", r.path.name,
                           r.notes[0].message if r.notes else "encode failed")
