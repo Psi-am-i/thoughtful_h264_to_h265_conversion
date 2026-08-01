@@ -4,3 +4,23 @@
 
 # local Claude settings
 .claude/settings.local.json
+
+# resume ledger (written into the scan directory)
+.vtc_processed.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# packaging build artifacts (deliverables are produced fresh; never committed)
+packaging/build-gui/
+packaging/dist-gui/
+packaging/build-win/
+packaging/dist-win/
+packaging/build/
+packaging/dist/
+build/
+dist/
+*.spec.bak
