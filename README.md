@@ -1,23 +1,23 @@
 # very_thoughtful_compression
 
-Selectively repackages and/or re-encodes your videos so that they are a sane size at the qualiuty you want and are as comaptible as you need them to be.
+Selectively repackages and/or re-encodes your videos so that they are a sane size at the quality you want and are as comaptible as you need them to be.
 
 ## Why "thoughtful"
 
-The tool never applies one dumb rule (like "half the bitrate") to every file. Per file, it:
+The tool never applies one dumb rule (like "half the bitrate") to every file. It adjusts it's settings for every file:
 
-1. **Reads the source's real density** — bitrate, resolution and frame rate → bits per pixel per frame.
-2. **Compares against an absolute tier target**, not a fraction of the current file. It works out what *this* resolution/fps should cost at your chosen tier and only re-encodes a file that is **more than 10 % over** it (`SKIP: already at tier` otherwise). A file already at or under its target is left exactly as it is.
-3. **Converges instead of grinding files down.** Because the target is absolute, running the tool twice is safe: once a file has been brought to its tier, a second run sees it's at target and skips it. It never shaves the same file smaller and smaller across runs — the failure mode of any "encode to a fraction of the current size" approach.
-4. **Never re-encodes an already-efficient codec** — H.265/AV1/VP9 are only ever remuxed, never transcoded (that just costs a generation of quality).
-5.  **Never wastes time** It pre-scans each file, models the expected output size, and skips files that definitely won't meet your space-saving threshold before spending hours encoding them,
+1. **Reads the source video's information density** — not just bitrate, it looks at bitrate, resolution and frame rate → giving bits per pixel per frame.
+2. **Compares against an absolute tier target**, based on your quality requirement, it  works out what *this* resolution/fps should cost at your chosen tier and only re-encodes a file that is **more than 10 % over** the density required for the quality you want at the resolution and frame rate you want (`SKIP: already at tier` otherwise). A file already at or under its target is left exactly as it is.
+3. **Converges instead of grinding files down.** Because the target is absolute, running the tool twice is safe: once a file has been brought to its tier, a second run sees it's at target and skips it. It never shaves the same file smaller and smaller across runs — which is what normal batch processing generally does. 
+4. **Never re-encodes an already-efficient codec** — H.265/AV1/VP9 are only ever remuxed, never transcoded (that just costs a generation of quality). Optimizing these codecs might be added in future .
+5.  **Never wastes time** It pre-scans each file, models the expected output size, and skips files that definitely won't meet your space-saving threshold before spending hours encoding them.
 5. **Verifies after encoding** — a shrink replaces the source only if the new file exists, is non-empty, and is meaningfully smaller than your minimum-saving threshold; otherwise the original stays and the file is reported.
 6. **Remembers what it did.** A resume ledger (`.vtc_processed.log` at the scan root) lets a re-run skip files already handled under the same settings, so a big job you stopped picks up where it left off.
-7. **Refuses to destroy subtitle tracks silently** — see below.
-8. preserves all subtitles — embedded when possible, sidecar `.srt` files otherwise
-9. fully configurable
+7. **Will never destroy subtitle tracks silently** — it preserves and embeds all subtitles if it can, or it uses sidecar `.srt` files when they cannot be embedded. It can optionally, leave containers like MKV alone.
+9. Fully configurable
 
-If you would like to know exactly how, read on...
+
+If you would like to know more details, read on...
 
 
 ## What actually matters: codecs vs containers
@@ -27,17 +27,22 @@ Everyone wants the same four things — **quality, small size, fast encoding, wi
 - **The codec** (H.264, H.265, AV1, VP9, Xvid…) does the actual compression. It decides the **file size at a given quality** and **how long encoding takes**. Nearly all the size difference between two files comes from here.
 - **The container** (MP4, MKV, WebM, AVI) is just the wrapper holding the video bitstream plus its audio and subtitle tracks. It adds only rounding-error overhead to the size — what it really decides is **compatibility**, **streaming behaviour**, and **which subtitle/audio track types can ride along**.
 
-> **Myth: "MKV is smaller than MP4."** It isn't. The same H.264 video is the same size in either container. MKV files are often big because they're used for high-bitrate rips — not because of the container.
+> **Myth: "MKV is smaller than MP4."** It isn't. The same H.264 video is the same size in either container. MKV files are used because they're can contain high-bitrate video with multiple audio and subtitle tracks in multiple formats. They make distribution easier but they are not as compatible as MP4, especially when they have exotic qualities. Most users only want some of what these fat MKV's contain, so we enable you to choose and move everything to a more compatible container without any quality loss. 
 
-### At the same visual quality
 
-Rough 1–10 scores (higher is better). **Space** = how small at equal quality · **Compat** = plays out-of-the-box across today's phones, TVs and browsers · **Stream** = progressive + adaptive (HLS/DASH) friendliness · **Speed** = encode speed, where ★ means it jumps to near-max *if your machine has a hardware encoder for that codec*.
+### An unscientific comparison of Containers and Codecs
+
+There are always trade-offs, so you need to decide which is the most important: file size, playback compatibility or the speed at which files can be made. 
+
+So using a scale of 1–10 (higher is better). **Space** = how small at equal quality · **Compat** = how well does it play out-of-the-box across today's phones, TVs and browsers · **Stream** = progressive + adaptive (HLS/DASH) friendliness · **Speed** = encode speed. an Asterisk * means *if your machine has a hardware encoder for that codec*.
+
+To make files of the same perceptual quality this is roughly how containers and codecs perform.
 
 | Era | Container | Codec | Space | Compat | Stream | Speed |
 |-----|-----------|-------|:-:|:-:|:-:|:-:|
 | **Modern standard** | MP4 | H.264 | 5.5 | 10 | 9.5 | 8 ★ |
 | | MKV | H.264 | 5.5 | 7 | 4 | 8 ★ |
-| **Efficiency** | MP4 | H.265 | 7.5 | 8 | 8 | 5 ★ |
+| **More Modern** | MP4 | H.265 | 7.5 | 8 | 8 | 5 ★ |
 | | MKV | H.265 | 7.5 | 6.5 | 4 | 5 ★ |
 | | WebM | VP9 | 7 | 5.5 | 7 | 3 ★ |
 | **Next-gen** | MP4 | AV1 | 9 | 5.5 | 7 | 2 ★ |
@@ -47,7 +52,7 @@ Rough 1–10 scores (higher is better). **Space** = how small at equal quality �
 
 *(Scores are rough calibration for guidance, not precise benchmarks. Space efficiency is a property of the **codec** — it's identical across containers on the same row.)*
 
-Reading it: **H.264** is the "just works everywhere" baseline, but the least space-efficient modern codec. **H.265** roughly halves the size and still plays on most 2015-and-newer hardware. **AV1** is smaller again, but hardware *decode* is only on very recent devices. **Legacy** codecs (Xvid, MPEG-2) are both bigger *and* older — almost always worth replacing.
+Reading it: **H.264** is the "just works everywhere" baseline, but the least space-efficient modern codec. **H.265** roughly halves the size and still plays on most 2015-and-newer hardware. **AV1** is smaller again, but hardware *decoding* is only on very recent devices. **Legacy** codecs (Xvid, MPEG-2) are both bigger *and* older — almost always worth replacing.
 
 ### What do you actually want?
 
@@ -64,18 +69,18 @@ Pick what matters for *your* library — the tool can't guess it:
 
 ## Quality tiers
 
-A tier is a **quality density**, not a fixed bitrate. Density means **bits per pixel per frame** (bpp) — `bitrate ÷ (pixels × frame-rate)` — which is what actually decides how a file *looks*, because a bitrate only means something once you know the resolution and frame rate it's paying for. 8 Mbps is lavish at 720p, fine at 1080p, and starved at 4K; bits/pixel/frame folds all three into one number.
+A Quality Tier is **information density**, not a fixed bitrate. Density means **bits per pixel per frame** (bpp) — `bitrate ÷ (pixels × frame-rate)` — which is what actually decides how a file *looks*, because a bitrate only means something once you know the resolution and frame rate it's paying for. 8 Mbps is lavish at 720p, fine at 1080p, and starved at 4K; bits/pixel/frame folds all three into one number.
 
-WHat Quality is quality?
-To make it obvious what quality to expect, we compare to Netflix with full HD videos at 30fps, then extrapolate the 'bppf' that implies. Because bppf is normalised for resolution *and* frame rate, that one anchor scales to any file automatically — a 4K clip gets ~4× the 1080p bitrate, a 60 fps clip ~2× the 30 fps bitrate — with no per-resolution rules.
+What Quality to Expect
+To make it obvious what quality to expect, we compare to Netflix with full HD videos at 30fps, then extrapolate the 'bpp' that implies. Because bpp is normalised for resolution *and* frame rate, that one anchor scales to any file automatically — a 4K clip gets ~4× the 1080p bitrate, a 60 fps clip ~2× the 30 fps bitrate — with no per-resolution rules.
 
 | Tier | 1080p30 H.264 | bpp | …as H.265 @1080p | What it's for |
 |------|--------------|-----|------------------|---------------|
 | **OK** | 4.0 Mbps | 0.064 | ~2.4 Mbps | Space-first. Fine for phones, tablets and softer/older content; visible softening on detailed 1080p. |
-| **GOOD** | 5.0 Mbps | 0.080 | ~3.0 Mbps | Solid streaming quality — roughly what Netflix/Amazon deliver at 1080p. |
-| **EXCELLENT** *(default)* | 6.8 Mbps | 0.109 | ~4.1 Mbps | Matches the top streaming rung, with headroom for a home encoder. The safe default. |
-| **STELLAR** | 8.0 Mbps | 0.129 | ~4.8 Mbps | Above streaming, heading toward Blu-ray-lite — for films or grainy/high-motion material you want kept crisp. |
-| **INSANE** | 9.0 Mbps | 0.145 | ~5.4 Mbps | Near-transparent for anything sourced from streaming / WEB-DL. Past this, just keep the original. |
+| **GOOD** | 5.0 Mbps | 0.080 | ~3.0 Mbps | Solid streaming quality you see on the web.|
+| **EXCELLENT** *(default)* | 6.8 Mbps | 0.109 | ~4.1 Mbps | Matches the top streaming rung you would get wit hNetlix or Amazon - with some headroom for a home encoder. The safe default. |
+| **STELLAR** | 8.0 Mbps | 0.129 | ~4.8 Mbps | Above streaming, heading toward Blu-ray-lite — for films or grainy/high-motion material you want kept crisp and good for projectors. |
+| **INSANE** | 9.0 Mbps | 0.145 | ~5.4 Mbps | Near-transparent for anything sourced from streaming / WEB-DL. Past this, you may as well keep the original. |
 
 *Mbps shown are H.264 at 1080p30. The tool re-derives the real target for every file from its own resolution and frame rate.*
 
@@ -83,10 +88,10 @@ To make it obvious what quality to expect, we compare to Netflix with full HD vi
 
 The **tier** fixes the quality; the **output codec** fixes how many bits that quality costs.
 
-- **H.265 / HEVC** *(default)* — reaches the same quality as H.264 at roughly **40–55% less bitrate**, the advantage growing with resolution. Plays on essentially all 2015-and-newer hardware. Pick this unless you have a specific reason not to — it's what the "…as H.265" column above targets.
-- **H.264 / AVC** — the universal baseline that direct-plays on virtually anything, but ~2× larger at the same quality and increasingly wasteful above 1080p. Choose it only for maximum compatibility (old TVs, projectors, ancient phones).
+- **H.265 / HEVC** *(default)* — reaches the same quality as H.264 at roughly **40–55% less bitrate**, the advantage growing with resolution. Plays on essentially all 2015-and-newer hardware. Pick this unless you have a specific reason not to.
+- **H.264 / AVC** — the universal baseline that direct-plays on virtually anything, but ~2× larger at the same quality and increasingly wasteful above 1080p. If you are streaming to many people or all sorts of devices, this offers maximum compatibility (all modern equipmen, old TVs, projectors, ancient phones).
 
-So EXCELLENT is *one quality*: in H.264 it costs 6.8 Mbps at 1080p, in H.265 about 4.1 Mbps — same picture, half the size.
+EXCELLENT QUALITY: in H.264 it will cost about 6.8 Mbps at 1080p, in H.265 it is only 4.1 Mbps — same picture, half the size.
 
 ### How the target is computed
 ```
@@ -117,8 +122,6 @@ The last two behaviours are opt-in, asked once at startup:
 
 - *"If possible, convert files into MP4 for maximum compatibility with NO loss of quality?"* — the lossless **remux** (a fast `-c copy`, no re-encode; also fixes MP4 faststart). Default yes.
 - *"If a file uses a codec incompatible with MP4, transcode it with maximum fidelity and convert it to MP4?"* — the legacy **transcode**. Default yes.
-
-**When does a fat H.264 shrink?** When its current bitrate is **more than 10 % over** its tier target for that resolution and frame rate (`TIER_OVER_TOLERANCE`, default `1.10`). A file already at or under target is left alone (`SKIP: already at tier`) — judged by density, not raw file size.
 
 The **minimum-saving** gate is a second safety net: even when a file is over target, the re-encode is only *kept* if the output turns out to be smaller by at least your threshold. It's codec-aware — a healthy H.265 re-encode saves 30–45 %, so its default is **25 %**; H.264→H.264 only trims fat, so its default is **15 %**. The gate applies only to a shrink — a remux (lossless) and a compatibility transcode (fidelity-first) are kept regardless of size.
 
