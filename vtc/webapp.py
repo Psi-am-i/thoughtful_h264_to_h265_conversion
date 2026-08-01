@@ -830,18 +830,24 @@ class Api:
         enc_speed = 8.0 if hw else 0.18            # encode ×realtime (hardware vs software)
         REMUX_S, SKIP_S = 4.0, 0.05
         probe_by_path = {info.path: info for info, _ in self._probes}
-        _enc_durs = [info.duration for info, _ in self._probes
-                     if info.duration and pipeline.decide(config, info)[0] in (Mode.SHRINK, Mode.TRANSCODE)]
-        avg_enc_work = (sum(_enc_durs) / len(_enc_durs) / enc_speed) if _enc_durs else (30 * 60 / enc_speed)
+
+        def _work_of(info) -> float:
+            """Predicted wall-seconds for one PROBED file (a skip is ~free)."""
+            mode = pipeline.decide(config, info)[0]
+            if mode in (Mode.SHRINK, Mode.TRANSCODE):
+                return (info.duration / enc_speed) if info.duration else (30 * 60 / enc_speed)
+            return REMUX_S if mode is Mode.REMUX else SKIP_S
+
+        # Average over the PROBED MIX — skips included. An un-probed file is assumed
+        # to be a TYPICAL file for this library, NOT automatically a full encode:
+        # assuming every un-probed file was an encode is what produced the 380-hour
+        # fantasy on a library that's mostly already-lean skips.
+        probed_works = [_work_of(info) for info, _ in self._probes if info.ok]
+        avg_work = (sum(probed_works) / len(probed_works)) if probed_works else (5 * 60 / enc_speed)
 
         def _work(f):
             info = probe_by_path.get(f)
-            if info is None or not info.ok:
-                return avg_enc_work                # not probed yet → assume an average encode
-            mode = pipeline.decide(config, info)[0]
-            if mode in (Mode.SHRINK, Mode.TRANSCODE):
-                return (info.duration / enc_speed) if info.duration else avg_enc_work
-            return REMUX_S if mode is Mode.REMUX else SKIP_S
+            return _work_of(info) if (info and info.ok) else avg_work
 
         work_by_path = {f: _work(f) for f in files}
         total_work = sum(work_by_path.values())
@@ -856,17 +862,26 @@ class Api:
                 f"{json.dumps(names)})")
 
         run_t0 = _time.monotonic()
-        eta_state = {"done_work": 0.0}
+        eta_state = {"done_work": 0.0, "n_done": 0}
         last = {"frac": -1.0, "t": 0.0, "eta": 0.0}   # throttle progress + ETA chatter
 
         def _emit_eta():
             if not self.window:
                 return
             elapsed = _time.monotonic() - run_t0
-            done = eta_state["done_work"]
-            remaining = max(0.0, total_work - done)
-            corr = (elapsed / done) if done > 30 else 1.0   # learn the real speed once past the noise
-            self.window.evaluate_js(f"window.__vtcETA && window.__vtcETA({remaining * corr:.0f})")
+            n = eta_state["n_done"]
+            if n >= 5 and elapsed > 5:
+                # Sanity check that beats any prediction: the ACTUAL average wall-time
+                # per file so far × the files still to go. Files process in scan order,
+                # so this sample carries the real skip/encode mix and self-corrects.
+                eta = (total - n) * (elapsed / n)
+            else:
+                # Seed from the mix-aware work model, corrected by measured speed,
+                # until enough files have finished to trust the observed average.
+                done = eta_state["done_work"]
+                corr = (elapsed / done) if done > 30 else 1.0
+                eta = max(0.0, total_work - done) * corr
+            self.window.evaluate_js(f"window.__vtcETA && window.__vtcETA({max(0.0, eta):.0f})")
 
         def prog(label, frac, stats=None):
             if not self.window:
@@ -888,7 +903,8 @@ class Api:
 
         def emit(r):
             last["frac"] = -1.0                     # next file starts fresh
-            eta_state["done_work"] += work_by_path.get(r.path, avg_enc_work)
+            eta_state["done_work"] += work_by_path.get(r.path, avg_work)
+            eta_state["n_done"] += 1
             if r.outcome is Outcome.ERROR:
                 log.error("  FAIL %s: %s", r.path.name,
                           r.notes[0].message if r.notes else "encode failed")
