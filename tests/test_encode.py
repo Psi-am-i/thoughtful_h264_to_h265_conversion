@@ -169,3 +169,69 @@ def _run_all():
 
 if __name__ == "__main__":
     _run_all()
+
+
+# ── subtitle selection ───────────────────────────────────────────────────────
+# Language and kind are independent filters. The single sub_mode this replaced
+# made them mutually exclusive, so "English forced subs" could not be asked for.
+
+def _sub(idx, lang="eng", forced=False, hoh=False):
+    from vtc.ffprobe import SubtitleTrack
+    return SubtitleTrack(index=idx, codec="subrip", is_text=True, language=lang,
+                         forced=forced, hearing_impaired=hoh)
+
+
+_SUBS = [
+    _sub(0, "eng"),                          # english normal
+    _sub(1, "eng", forced=True),             # english forced
+    _sub(2, "eng", hoh=True),                # english SDH
+    _sub(3, "fre"),                          # french normal
+    _sub(4, "fre", forced=True),             # french forced
+    _sub(5, "spa", forced=True, hoh=True),   # spanish forced AND SDH
+]
+
+
+def _keep(**kw):
+    from vtc.encode import _select_subs
+    return [s.index for s in _select_subs(_cfg(**kw), _SUBS)]
+
+
+def test_select_subs_defaults_keep_everything():
+    assert _keep() == [0, 1, 2, 3, 4, 5]
+
+
+def test_select_subs_language_only():
+    assert _keep(sub_langs=("eng",)) == [0, 1, 2]
+    assert _keep(sub_langs=("eng", "fre")) == [0, 1, 2, 3, 4]
+
+
+def test_select_subs_kind_only():
+    assert _keep(sub_kinds=("forced",)) == [1, 4, 5]
+    assert _keep(sub_kinds=("normal",)) == [0, 3]
+    assert _keep(sub_kinds=("hoh",)) == [2, 5]
+
+
+def test_select_subs_multiple_kinds():
+    """The reason chips replaced a dropdown: more than one kind at a time.
+
+    Track 5 is forced AND SDH, so it belongs here on the strength of 'forced'
+    alone — a track matches if ANY of its kinds was asked for.
+    """
+    assert _keep(sub_kinds=("normal", "forced")) == [0, 1, 3, 4, 5]
+
+
+def test_select_subs_language_and_kind_compose():
+    """The combination the old mutually-exclusive sub_mode could not express."""
+    assert _keep(sub_langs=("eng",), sub_kinds=("forced",)) == [1]
+    assert _keep(sub_langs=("fre",), sub_kinds=("normal",)) == [3]
+
+
+def test_select_subs_track_can_be_two_kinds():
+    """Track 5 is forced AND SDH, so either filter must find it."""
+    assert 5 in _keep(sub_kinds=("forced",))
+    assert 5 in _keep(sub_kinds=("hoh",))
+
+
+def test_select_subs_empty_kinds_means_all_not_none():
+    """An empty kind list must never be read as 'drop every subtitle'."""
+    assert _keep(sub_kinds=()) == [0, 1, 2, 3, 4, 5]

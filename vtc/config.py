@@ -73,9 +73,13 @@ class RunConfig:
     keep_source_container: bool = False     # shrink non-MP4 files but KEEP their container
     leave_non_mp4: bool = False             # don't touch non-MP4 containers at all
 
-    # Subtitles: which tracks survive. mode = all|forced|hoh|lang; langs used for "lang".
-    sub_mode: str = "all"
+    # Subtitles: which tracks survive. Two INDEPENDENT filters, applied together,
+    # so "English forced subs" is expressible (the old single sub_mode of
+    # all|forced|hoh|lang made language and kind mutually exclusive).
+    #   sub_langs — ISO codes to keep; empty means every language
+    #   sub_kinds — any of "normal" / "forced" / "hoh"; empty means every kind
     sub_langs: tuple[str, ...] = ()
+    sub_kinds: tuple[str, ...] = ()
 
     # Audio & container
     audio_policy: AudioPolicy = AudioPolicy.PASSTHROUGH
