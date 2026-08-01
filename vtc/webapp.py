@@ -912,7 +912,7 @@ class Api:
                             "run still covers everything)", _QUEUE_MAX, len(files))
 
         run_t0 = _time.monotonic()
-        eta_state = {"done_work": 0.0, "n_done": 0, "file_t0": run_t0}
+        eta_state = {"done_work": 0.0, "file_t0": run_t0}
         last = {"frac": -1.0, "t": 0.0, "eta": 0.0}   # throttle progress + ETA chatter
 
         # ETA cadence. Within a single file the estimate barely moves, so re-emitting
@@ -925,21 +925,27 @@ class Api:
         ETA_REFRESH, ETA_SETTLE = 30.0, 300.0
 
         def _emit_eta():
+            """Remaining PREDICTED WORK × how much a predicted second really costs.
+
+            Never seconds-per-file × files-left. That average is mix-blind, and a
+            library is not a uniform mix: it is ordered, so a run can spend hours
+            on instant skips (a lean show, alphabetically early) and then meet a
+            block of real encodes. At 3,308 of 3,680 the flat average was 0.7s a
+            file and promised 4 minutes for 372 files that were mostly encodes.
+            The work model already predicts each file individually (encode ≈
+            duration ÷ encoder speed, remux ≈ a stream copy, skip ≈ free), so what
+            is LEFT is known — it only needs calibrating against the real clock.
+            """
             if not self.window:
                 return
             elapsed = _time.monotonic() - run_t0
-            n = eta_state["n_done"]
-            if n >= 5 and elapsed > 5:
-                # Sanity check that beats any prediction: the ACTUAL average wall-time
-                # per file so far × the files still to go. Files process in scan order,
-                # so this sample carries the real skip/encode mix and self-corrects.
-                eta = (total - n) * (elapsed / n)
-            else:
-                # Seed from the mix-aware work model, corrected by measured speed,
-                # until enough files have finished to trust the observed average.
-                done = eta_state["done_work"]
-                corr = (elapsed / done) if done > 30 else 1.0
-                eta = max(0.0, total_work - done) * corr
+            done_work = eta_state["done_work"]
+            remaining_work = max(0.0, total_work - done_work)
+            # Measured cost of one predicted work-second. Held at 1.0 until enough
+            # work is behind us for the ratio to mean anything — early on it is
+            # dominated by start-up and a couple of skips.
+            corr = (elapsed / done_work) if done_work > 30 else 1.0
+            eta = remaining_work * corr
             self.window.evaluate_js(f"window.__vtcETA && window.__vtcETA({max(0.0, eta):.0f})")
 
         def prog(label, frac, stats=None):
@@ -964,7 +970,6 @@ class Api:
         def emit(r):
             last["frac"] = -1.0                     # next file starts fresh
             eta_state["done_work"] += work_by_path.get(r.path, avg_work)
-            eta_state["n_done"] += 1
             if r.outcome is Outcome.ERROR:
                 log.error("  FAIL %s: %s", r.path.name,
                           r.notes[0].message if r.notes else "encode failed")
