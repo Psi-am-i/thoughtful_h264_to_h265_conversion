@@ -1,0 +1,115 @@
+name: Release builds
+
+# Builds the distributable GUI apps. PyInstaller cannot cross-compile, so each OS
+# bundle is produced on a runner of that OS:
+#   - windows-latest -> VeryThoughtfulCompression-windows.zip (.exe onedir + ffmpeg/ffprobe.exe;
+#       runtime functionally probes nvenc/qsv/amf and uses whatever the machine has, else software)
+#   - macos-latest   -> VeryThoughtfulCompression-macos.zip   (.app, arm64 / Apple Silicon,
+#       arm64 ffmpeg with working VideoToolbox — the build gates on this)
+# NOTE: the macOS build verifies hevc_videotoolbox actually encodes on the runner. If a
+# GitHub macOS runner lacks VideoToolbox the job fails by design — build on a real Apple
+# Silicon Mac with packaging/build_gui_app.sh (the authoritative path).
+# On a v* tag the zips are attached to a GitHub release. Also runnable by hand
+# from the Actions tab (workflow_dispatch) to get artifacts without a release.
+#
+# Both bundles are UNSIGNED. To ship signed/notarized builds, add the signing
+# steps from packaging/BUILD.md (Apple Developer ID + notarytool; signtool).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg (GPL, has libx264/libx265)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Engine tests (real ffmpeg encodes + decisions)
+        run: |
+          for t in tests/test_*.py; do echo "== $t =="; PYTHONPATH=. python "$t"; done
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download static ffmpeg + ffprobe (GPL build, gyan.dev)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffbuild
+          $ff = Get-ChildItem ffbuild -Recurse -Filter ffmpeg.exe  | Select-Object -First 1
+          $fp = Get-ChildItem ffbuild -Recurse -Filter ffprobe.exe | Select-Object -First 1
+          Copy-Item $ff.FullName "$env:GITHUB_WORKSPACE\ffmpeg.exe"
+          Copy-Item $fp.FullName "$env:GITHUB_WORKSPACE\ffprobe.exe"
+          & "$env:GITHUB_WORKSPACE\ffmpeg.exe" -version | Select-Object -First 1
+      - name: Install build deps
+        run: pip install pyinstaller pywebview
+      - name: PyInstaller build
+        env:
+          FFMPEG_BINARY_PATH: ${{ github.workspace }}\ffmpeg.exe
+          FFPROBE_BINARY_PATH: ${{ github.workspace }}\ffprobe.exe
+        run: pyinstaller --clean --noconfirm --distpath dist-win --workpath build-win packaging/vtc-gui-win.spec
+      - name: Add licenses + README, zip
+        shell: bash
+        run: |
+          source packaging/lib_licenses.sh
+          FFVER="$(./ffmpeg.exe -version | head -1)"
+          write_ffmpeg_licenses "dist-win/VeryThoughtfulCompression/licenses" "$FFVER"
+          cp packaging/APP_README.txt dist-win/VeryThoughtfulCompression/README.txt
+          cd dist-win && 7z a ../VeryThoughtfulCompression-windows.zip VeryThoughtfulCompression
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VeryThoughtfulCompression-windows
+          path: VeryThoughtfulCompression-windows.zip
+
+  macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build .app (downloads static ffmpeg + ffprobe)
+        env:
+          PYTHON: python3
+        run: packaging/build_gui_app.sh
+      - name: Rename zip
+        run: mv packaging/dist-gui/VeryThoughtfulCompression.zip VeryThoughtfulCompression-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VeryThoughtfulCompression-macos
+          path: VeryThoughtfulCompression-macos.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Create release and attach builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --generate-notes \
+            VeryThoughtfulCompression-windows.zip VeryThoughtfulCompression-macos.zip \
+          || gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --clobber VeryThoughtfulCompression-windows.zip VeryThoughtfulCompression-macos.zip
