@@ -67,7 +67,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'Very Thoughtful Compression',
         'CFBundleDisplayName': 'Very Thoughtful Compression',
-        'CFBundleShortVersionString': '0.1.0',
+        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleVersion': '1.0.0',        # Finder shows Short; this is the build number
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '10.14',
     },
