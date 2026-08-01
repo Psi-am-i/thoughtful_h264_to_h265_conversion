@@ -859,9 +859,12 @@ class Api:
 
     def _run_worker(self, config: RunConfig, files=None):
         hw = encode.select_hw_encoder(config)
-        log.info("run start: src=%s codec=%s tier=%s encoder=%s -> hw=%s remux=%s xcode=%s dest=%s%s",
+        # jobs is logged because it changes what "stop after current file" means: with
+        # more than one worker, several files are in flight and all of them finish.
+        log.info("run start: src=%s codec=%s tier=%s encoder=%s -> hw=%s jobs=%d remux=%s "
+                 "xcode=%s dest=%s%s",
                  config.src, config.out_codec.value, config.tier.name, config.encoder.value,
-                 hw or "software", config.remux_to_mp4, config.compat_transcode,
+                 hw or "software", config.jobs, config.remux_to_mp4, config.compat_transcode,
                  config.source_action.value, f" (retry {len(files)} files)" if files else "")
 
         import time as _time

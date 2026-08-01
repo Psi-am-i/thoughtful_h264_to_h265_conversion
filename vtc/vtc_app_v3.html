@@ -438,6 +438,20 @@ body{
 .adv-tog::after{content:"";position:absolute;top:1px;left:1px;width:18px;height:18px;border-radius:50%;
   background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .12s}
 .adv-tog.on{background:var(--accent)} .adv-tog.on::after{left:19px}
+/* Multi-select chips. Deliberately NOT radio buttons: the whole point is that
+   more than one kind can be kept at once, which is exactly what the old
+   dropdown could not express. */
+.adv-checks{display:flex;gap:6px;flex-wrap:wrap}
+.adv-chk{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.02em;
+  padding:5px 10px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel);color:var(--ink-2);cursor:pointer;transition:all .12s;
+  white-space:nowrap}
+.adv-chk:hover:not(.on){border-color:var(--ink-3);color:var(--ink)}
+.adv-chk.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.adv-chk.on::before{content:"✓ ";}
+/* Plain-English readback of what the two filters combine to. */
+.adv-subs-summary{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding-top:2px}
+.adv-subs-summary.warn{color:var(--accent);font-weight:600}
 /* a section that's not wired yet: visible so the shape is real, but inert */
 .adv-soon{opacity:.6;pointer-events:none}
 .adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
@@ -1119,22 +1133,26 @@ body{
       <div class="adv-sec">
         <h3>Subtitles</h3>
         <div class="adv-grid one">
+          <!-- Language and kind are INDEPENDENT filters, so they get one control
+               each. The single dropdown this replaced forced a false choice —
+               picking "Keep languages…" meant you could no longer say "forced
+               only", so "English forced subs" was not expressible at all. -->
           <div class="adv-row">
-            <div class="adv-lab"><b>Which subtitle tracks to keep</b>
-              <span>Text subs embed in MP4; image subs (PGS/DVD) need MKV or get dropped.</span></div>
-            <div class="adv-ctrl">
-              <select id="adv-subs">
-                <option value="all">Keep all</option>
-                <option value="forced">Keep forced only</option>
-                <option value="hoh">Keep hard-of-hearing</option>
-                <option value="lang">Keep languages…</option>
-              </select>
+            <div class="adv-lab"><b>Languages to keep</b>
+              <span>Comma-separated ISO codes, e.g. eng, fre, spa. Leave empty to keep every language.</span></div>
+            <div class="adv-ctrl"><input type="text" id="adv-subs-langs" placeholder="all languages" style="width:150px;text-align:left"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Kinds to keep</b>
+              <span>Tick any combination. Text subs embed in MP4; image subs (PGS/DVD) need MKV or get dropped.</span></div>
+            <div class="adv-ctrl adv-checks" id="adv-subs-kinds">
+              <button type="button" class="adv-chk" data-k="normal"  role="checkbox">Normal</button>
+              <button type="button" class="adv-chk" data-k="forced"  role="checkbox">Forced</button>
+              <button type="button" class="adv-chk" data-k="hoh"     role="checkbox">HoH / SDH</button>
             </div>
           </div>
-          <div class="adv-row" id="adv-subs-lang-row" hidden>
-            <div class="adv-lab"><b>Languages to keep</b>
-              <span>Comma-separated ISO codes, e.g. eng, fre, spa.</span></div>
-            <div class="adv-ctrl"><input type="text" id="adv-subs-langs" placeholder="eng, fre" style="width:130px;text-align:left"></div>
+          <div class="adv-row">
+            <div class="adv-lab adv-subs-summary" id="adv-subs-summary"></div>
           </div>
         </div>
       </div>
@@ -2013,20 +2031,51 @@ const shutSheet=id=>{
 // The tunables the guided flow hides. Held in one object, sent alongside the
 // flow answers when a run starts (the bridge reads window.ADV). Defaults mirror
 // the engine (vtc/model.py, vtc/config.py); Reset restores exactly these.
-const ADV_DEFAULTS = { format:'convert', subs:'all', subLangs:[], floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
+// subLangs: [] means every language. subKinds: the kinds to keep — all three
+// ticked is "keep everything", which is the default. The two are independent,
+// so "eng + forced only" is now expressible; the old single `subs` dropdown
+// could not say that.
+const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], subLangs:[],
+  floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
   imageSubs:true, mkvTracks:0, jobs:1, ledger:true };
 const ADV = Object.assign({}, ADV_DEFAULTS);
 window.ADV = ADV;
+// Two independent filters are easy to combine into something you didn't mean —
+// most importantly ticking nothing, which silently discards every subtitle. Say
+// out loud what the current pair actually does.
+const KIND_LABEL = { normal:'normal', forced:'forced', hoh:'HoH / SDH' };
+function advSubsSummary(){
+  const el = $('#adv-subs-summary'); if(!el) return;
+  const kinds = ADV.subKinds || [], langs = ADV.subLangs || [];
+  el.classList.remove('warn');
+  if(!kinds.length){
+    el.classList.add('warn');
+    el.textContent = 'Nothing ticked — every subtitle track will be dropped.';
+    return;
+  }
+  const allKinds = kinds.length === 3;
+  const kindTxt = allKinds ? 'all subtitle kinds'
+    : kinds.map(k=>KIND_LABEL[k]||k).join(' + ') + ' only';
+  const langTxt = langs.length
+    ? ' in ' + langs.join(', ')
+    : ' in every language';
+  el.textContent = `Keeping ${kindTxt}${langTxt}.`;
+}
+
 function advToForm(){                                  // ADV -> controls
   [['#adv-floor','floor'],['#adv-tol','tol'],['#adv-hevc-hd','hevcHd'],
    ['#adv-hevc-4k','hevc4k'],['#adv-hevc-8k','hevc8k'],['#adv-ab-stereo','abStereo'],
    ['#adv-ab-multi','abMulti'],['#adv-mkv-tracks','mkvTracks'],['#adv-jobs','jobs']
   ].forEach(([id,key])=>{ const el=$(id); if(el) el.value=ADV[key]; });
   $('#adv-audio').value = ADV.audio;
-  $('#adv-subs').value = ADV.subs;
   $('#adv-subs-langs').value = (ADV.subLangs||[]).join(', ');
-  $('#adv-subs-lang-row').hidden = ADV.subs!=='lang';
+  $('#adv-subs-kinds').querySelectorAll('.adv-chk').forEach(b=>{
+    const on = (ADV.subKinds||[]).indexOf(b.dataset.k) >= 0;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  advSubsSummary();
   $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
@@ -2050,8 +2099,20 @@ function advBind(){                                    // controls -> ADV
   num('#adv-mkv-tracks','mkvTracks',{min:0,max:64});
   num('#adv-jobs','jobs',{min:1,max:16});
   $('#adv-audio').onchange=e=>{ ADV.audio=e.target.value; };
-  $('#adv-subs').onchange=e=>{ ADV.subs=e.target.value; $('#adv-subs-lang-row').hidden = ADV.subs!=='lang'; };
-  $('#adv-subs-langs').oninput=e=>{ ADV.subLangs = e.target.value.split(',').map(s=>s.trim()).filter(Boolean); };
+  $('#adv-subs-langs').oninput=e=>{
+    ADV.subLangs = e.target.value.split(',').map(s=>s.trim()).filter(Boolean);
+    advSubsSummary();
+  };
+  $('#adv-subs-kinds').querySelectorAll('.adv-chk').forEach(b=>{
+    b.onclick=()=>{
+      const k=b.dataset.k, list=ADV.subKinds||(ADV.subKinds=[]);
+      const i=list.indexOf(k);
+      if(i>=0) list.splice(i,1); else list.push(k);
+      b.classList.toggle('on', i<0);
+      b.setAttribute('aria-checked', i<0 ? 'true' : 'false');
+      advSubsSummary();
+    };
+  });
   $('#adv-format').querySelectorAll('button').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     ADV.container=b.dataset.v;
@@ -2165,11 +2226,19 @@ function pgStart(total, est, queue){
   $('#pg-cur-n').textContent = preparing ? 'Scanning your library…' : 'Starting…';
   $('#pg-stats').textContent=''; $('#pg-recent').innerHTML=''; $('#pg-recalc').style.opacity='0';
   $('#pg-clock').textContent = est ? fmtClock(est) : (preparing ? 'scanning…' : 'estimating…');
-  $('#pg-stop').disabled=false; $('#pg-stop').textContent='Stop after current file';
+  // With more than one worker there are several files IN FLIGHT, and a stop lets
+  // every one of them finish — including any that only just started. Saying
+  // "current file" there reads as a promise to stop within seconds, when it can
+  // mean another full encode. Name the real number.
+  $('#pg-stop').disabled=false; $('#pg-stop').textContent=pgStopLabel();
   openSheet('#progress-sheet');
   { const L=document.getElementById('lamp'); if(L){ L.classList.add('busy'); L.title='Processing…'; } }
   if(!preparing) PG.timer=setInterval(pgTick, 1000);   // no countdown until we know the total
 }
+const pgJobs = ()=> Math.max(1, (window.ADV && +window.ADV.jobs) || 1);
+const pgStopLabel = ()=> pgJobs()>1
+  ? `Stop after the ${pgJobs()} files in flight`
+  : 'Stop after current file';
 function pgFile(name, frac, stats){
   // The filename lives in the list below (bold, "processing") — don't repeat the
   // cropped name here. This line is the current file's PROCESSING INFO instead.
@@ -2274,7 +2343,8 @@ $('#pg-recent').addEventListener('scroll',()=>{
 function pgFinish(){ if(PG.timer){ clearInterval(PG.timer); PG.timer=null; } shutSheet('#progress-sheet');
   { const L=document.getElementById('lamp'); if(L){ L.classList.remove('busy'); L.title='Idle'; } } }
 $('#pg-stop').onclick=()=>{ if(window.__vtcStop) window.__vtcStop();
-  $('#pg-stop').textContent='Stopping after current…'; $('#pg-stop').disabled=true; };
+  $('#pg-stop').textContent=(pgJobs()>1?'Stopping after the files in flight…':'Stopping after current…');
+  $('#pg-stop').disabled=true; };
 
 function runNow(){
   shutSheet('#confirm-sheet');
