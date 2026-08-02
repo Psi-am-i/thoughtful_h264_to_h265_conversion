@@ -30,7 +30,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import encode, pipeline
+from . import encode, netmove, pipeline
 from .config import AudioPolicy, Container, Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
 from .model import OutCodec, Tier, target_kbps
@@ -55,6 +55,13 @@ def _log_path() -> Path:
     except OSError:
         d = Path(tempfile.gettempdir())
     return d / "VeryThoughtfulCompression.log"
+
+
+def _session_path() -> Path:
+    """Where the in-progress run is remembered so a crash / force-quit / reboot mid-run
+    can be resumed. Sits next to the log (a persistent dir, NOT temp — it must survive
+    a reboot)."""
+    return _log_path().with_name("vtc_session.json")
 
 
 def _setup_logging() -> Path:
@@ -533,6 +540,83 @@ _BRIDGE_JS = r"""
     catch(e){}
     return window.__outputDir || '';
   };
+
+  // ── Network-volume banner ───────────────────────────────────────────────────
+  // The output library is often a network share. When placing a finished file the
+  // engine tells us if that share goes missing or stalls (__vtcVolumeStuck) and when
+  // it returns (__vtcVolumeBack). Surface it loudly: a stalled move is the one thing
+  // that can make a healthy run look frozen. The run continues on its own the moment
+  // the share is back — the user just has to reconnect it.
+  function volBanner(){
+    let el = document.getElementById('vtc-volbar');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'vtc-volbar';
+      el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'font:600 14px/1.4 system-ui,-apple-system,sans-serif;padding:11px 18px;'
+        + 'text-align:center;color:#1a1200;box-shadow:0 2px 10px rgba(0,0,0,.35);'
+        + 'transition:transform .2s ease;transform:translateY(-100%)';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  window.__vtcVolumeStuck = (path)=>{
+    const el = volBanner();
+    const name = String(path||'the output volume').replace(/\/+$/,'').split('/').pop() || path;
+    el.style.background = 'linear-gradient(#ffd257,#f4b41a)';
+    el.innerHTML = '⚠️ The output volume <b>'+name+'</b> appears missing or stuck — '
+      + 'reconnect it and the run will continue on its own. '
+      + '<span style="opacity:.7">(or use Stop now to give up)</span>';
+    el.style.transform = 'translateY(0)';
+    clearTimeout(el._hideT);
+  };
+  window.__vtcVolumeBack = (path)=>{
+    const el = volBanner();
+    el.style.background = 'linear-gradient(#b8f0c0,#7fd897)';
+    el.innerHTML = '✓ Output volume reconnected — continuing…';
+    el.style.transform = 'translateY(0)';
+    clearTimeout(el._hideT);
+    el._hideT = setTimeout(()=>{ el.style.transform = 'translateY(-100%)'; }, 3200);
+  };
+
+  // ── Resume an interrupted run ────────────────────────────────────────────────
+  // If a previous run was cut off mid-flight (crash / force-quit / reboot — e.g. the
+  // only way out of a fully-hung network move), offer to continue it. The ledger makes
+  // resume cheap: it re-runs the same settings and every already-done file is skipped
+  // instantly, so only the interrupted file (and the rest of the queue) is processed.
+  function askResume(src){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:99998;display:flex;'
+      + 'align-items:center;justify-content:center;background:rgba(0,0,0,.55)';
+    const name = String(src).replace(/\/+$/,'').split('/').pop() || src;
+    wrap.innerHTML =
+      '<div style="max-width:460px;background:#1c1c22;color:#eee;border:1px solid #333;'
+      + 'border-radius:14px;padding:26px 26px 20px;font:14px/1.5 system-ui,sans-serif;'
+      + 'box-shadow:0 18px 60px rgba(0,0,0,.6)">'
+      + '<div style="font-size:17px;font-weight:700;margin-bottom:8px">Continue previous run?</div>'
+      + '<div style="opacity:.85">A run over <b>'+name+'</b> didn’t finish last time. '
+      + 'Resume it? Files already done are skipped — it picks up where it stopped.</div>'
+      + '<div style="opacity:.55;font-size:12px;margin:6px 0 18px">'+String(src)+'</div>'
+      + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+      + '<button id="vtc-res-no" style="padding:9px 16px;border-radius:9px;border:1px solid #444;'
+      + 'background:#26262d;color:#ddd;font-weight:600;cursor:pointer">Not now</button>'
+      + '<button id="vtc-res-yes" style="padding:9px 16px;border-radius:9px;border:0;'
+      + 'background:#f4b41a;color:#1a1200;font-weight:700;cursor:pointer">Resume</button>'
+      + '</div></div>';
+    document.body.appendChild(wrap);
+    wrap.querySelector('#vtc-res-no').onclick = ()=>{
+      try { api.discard_session(); } catch(e){}
+      wrap.remove();
+    };
+    wrap.querySelector('#vtc-res-yes').onclick = ()=>{
+      wrap.remove();
+      try { pgStart(0, 0); } catch(e){}          // flip to the working screen at once
+      try { api.resume_session(); } catch(e){}
+    };
+  }
+  try {
+    Promise.resolve(api.pending_session()).then(r=>{ if(r && r.src) askResume(r.src); }).catch(()=>{});
+  } catch(e){}
 })();
 """
 
@@ -864,8 +948,60 @@ class Api:
             return {"error": str(e)}
         _clear_stop_flags()                          # a new run starts unstopped
         self._last_config = config
+        self._save_session(answers)                  # so a crash mid-run can be resumed
         threading.Thread(target=self._run_worker, args=(config,), daemon=True).start()
         return {"started": True}
+
+    # ── crash-resumable session ───────────────────────────────────────────────
+    # The whole run is reconstructable from the src folder + the answer dict: the
+    # ledger (on by default, <src>/.vtc_processed.log) already skips files finished
+    # under the same settings, so "resume" is just "run the same thing again" and the
+    # done files fall away instantly. We persist that intent at run start and clear it
+    # on a clean finish; if the app dies mid-run the file survives and next launch
+    # offers to continue.
+    def _save_session(self, answers: dict) -> None:
+        try:
+            _session_path().write_text(
+                json.dumps({"src": str(self._src), "answers": answers}), encoding="utf-8")
+        except OSError as e:
+            log.warning("could not save session: %s", e)
+
+    def _clear_session(self) -> None:
+        try:
+            _session_path().unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def pending_session(self):
+        """Called on launch. If a previous run was cut off mid-flight, return its src
+        so the UI can offer to continue; otherwise {}."""
+        try:
+            data = json.loads(_session_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        src = data.get("src")
+        if not src or not Path(src).is_dir():        # folder gone -> nothing to resume
+            self._clear_session()
+            return {}
+        return {"src": src}
+
+    def resume_session(self):
+        """Continue the interrupted run: re-run the saved answers; the ledger skips
+        everything already done and redoes only the file that was in flight."""
+        try:
+            data = json.loads(_session_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "no session"}
+        src, answers = data.get("src"), data.get("answers")
+        if not src or answers is None:
+            return {"error": "no session"}
+        self._src = Path(src)
+        log.info("resuming previous session: %s", src)
+        return self.run(answers)
+
+    def discard_session(self):
+        self._clear_session()
+        return {"discarded": True}
 
     def retry_failed_software(self):
         """Re-run just the files that ERRORed in the last run, in software — a quirky
@@ -1072,7 +1208,21 @@ class Api:
             _emit_eta()                             # file boundary: the honest moment
             eta_state["file_t0"] = last["eta"] = _time.monotonic()
 
-        results = pipeline.run(config, progress=prog, on_result=emit, files=files)
+        def notify(event, path):
+            """Placement told us the output volume went missing/stuck (or came back).
+            Raise a banner in the UI so the user can reconnect the share and let the
+            run continue on its own — a stalled network move is the one thing that can
+            otherwise look like a frozen app (see the S02E01 incident)."""
+            if not self.window:
+                return
+            self._volume_stuck = (event == netmove.STUCK)
+            fn = "__vtcVolumeStuck" if event == netmove.STUCK else "__vtcVolumeBack"
+            log.warning("output volume %s: %s", event, path)
+            self.window.evaluate_js(
+                f"window.{fn} && window.{fn}({json.dumps(path)})")
+
+        results = pipeline.run(config, progress=prog, on_result=emit, files=files,
+                               notify=notify)
         summary = _summary(results)
         summary["mins"] = int((_time.monotonic() - run_t0) / 60)   # real elapsed (was hardcoded 0)
         summary["stopped"] = pipeline.stop_requested()              # user hit either Stop
@@ -1080,6 +1230,10 @@ class Api:
         self._last_failed = [r.path for r in results if r.outcome is Outcome.ERROR]
         summary["failed_retryable"] = len(self._last_failed)
         log.info("run done: %s", summary)
+        # Reached the end under our own power (finished, stopped, or aborted — all
+        # user-controlled). Nothing is left dangling, so forget the resume session; it
+        # only survives to next launch when the app dies WITHOUT getting here.
+        self._clear_session()
         if self.window:
             self.window.evaluate_js(
                 f"window.__vtcOnDone && window.__vtcOnDone({json.dumps(summary)})")

@@ -17,7 +17,7 @@ from typing import Callable
 
 from dataclasses import dataclass
 
-from . import encode
+from . import encode, netmove
 from .config import Container, OutputMode, RunConfig, SourceAction
 from .ffprobe import MediaInfo, probe
 from .ledger import Ledger
@@ -159,7 +159,7 @@ def _archive_dest(config: RunConfig, src_file: Path) -> Path:
 
 
 def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
-           res: EncodeResult) -> list[Note]:
+           res: EncodeResult, notify: netmove.NotifyCB | None = None) -> list[Note]:
     """Move tmp->out, relocate sidecars, and handle the original. Returns notes.
 
     Critical ordering: when the output lands on the SAME path as the source (an
@@ -167,6 +167,11 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
     h265.mp4), writing the output destroys the original. So anything that must
     keep the original (archive, or delete-but-subs-were-dropped) MUST move it out
     of the way BEFORE the output is written — never after.
+
+    Every move that can land on the (often network) output volume goes through
+    netmove.robust_move: same-volume moves stay instant renames, but a cross-volume
+    copy onto a stalled/missing share is watched and waited-out (via `notify`)
+    instead of hanging the run. See netmove for the honest limits of `abort`.
     """
     notes: list[Note] = []
     dropped = res.dropped_subs_reason
@@ -178,7 +183,8 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
         nonlocal archived_dir
         dest = _archive_dest(config, src_file)
         dest.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src_file), str(dest / src_file.name))
+        netmove.robust_move(src_file, dest / src_file.name,
+                            notify=notify, abort=abort_requested)
         archived_dir = dest
 
     # The original is preserved (archived) rather than discarded when: the action
@@ -190,7 +196,7 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
         _archive_original()
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(tmp), str(out))
+    netmove.robust_move(tmp, out, notify=notify, abort=abort_requested)
     # Relocate any sidecar .srt files the encoder wrote next to the (local) temp.
     # shutil.move, not Path.rename: the destination is often a different volume than
     # the local scratch, and os.rename across filesystems throws EXDEV and hangs the run.
@@ -261,7 +267,8 @@ def plan(config: RunConfig) -> list[PlanRow]:
 
 # ── Per-file processing ───────────────────────────────────────────────────────
 def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
-                 src_file: Path, progress: ProgressCB | None = None) -> FileResult | None:
+                 src_file: Path, progress: ProgressCB | None = None,
+                 notify: netmove.NotifyCB | None = None) -> FileResult | None:
     lkey = ledger.key(src_file) if ledger.enabled else ""
     if ledger.enabled and ledger.has(lkey):
         return FileResult(src_file, Outcome.RESUME)
@@ -328,7 +335,24 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
             ledger.add(lkey)
         return r
 
-    notes = _place(config, src_file, out, tmp, res)
+    # Placement moves the finished temp onto the (often network) output volume. That
+    # copy can stall if the share goes unresponsive and then fail late with an OSError
+    # (e.g. NFS ETIMEDOUT / Errno 60). That must fail THIS file, not escape and crash
+    # the whole worker: an uncaught error here kills the run mid-queue, so "stop after
+    # current file" never gets its chance and the UI freezes on the last frame with no
+    # completion event. Report it as an ERROR row (retryable) and keep the encoded temp
+    # in scratch so nothing that was computed is lost.
+    try:
+        notes = _place(config, src_file, out, tmp, res, notify=notify)
+    except netmove.Aborted:
+        # The user aborted while the destination was stuck/waiting. Like an aborted
+        # encode, that is the user's own doing, not a failed file: drop it (the temp
+        # is left in scratch, the original untouched) rather than logging an ERROR.
+        tmp.unlink(missing_ok=True)
+        return None
+    except OSError as e:
+        return FileResult(src_file, Outcome.ERROR, src_bytes=src_bytes,
+                          notes=[Note("ERROR", f"could not write output to {out.parent}: {e}")])
     outcome = {Mode.SHRINK: Outcome.SHRINK, Mode.TRANSCODE: Outcome.TRANSCODE,
                Mode.REMUX: Outcome.REMUX}[mode]
     detail = _build_detail(config, info, mode, target, container, ext, src_file, res)
@@ -387,7 +411,8 @@ def _build_detail(config: RunConfig, info: MediaInfo, mode: Mode, target: int,
 # ── Run ───────────────────────────────────────────────────────────────────────
 def run(config: RunConfig, progress: ProgressCB | None = None,
         on_result: ResultCB | None = None,
-        files: list[Path] | None = None) -> list[FileResult]:
+        files: list[Path] | None = None,
+        notify: netmove.NotifyCB | None = None) -> list[FileResult]:
     """Process the scan tree (or an explicit `files` list — used to retry just the
     files that failed). Returns one FileResult per file processed."""
     ledger = Ledger(config)
@@ -403,7 +428,7 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
     def work(f: Path) -> FileResult | None:
         if stop_requested():
             return None
-        return process_file(config, ledger, hw_encoder, f, progress)
+        return process_file(config, ledger, hw_encoder, f, progress, notify=notify)
 
     with ThreadPoolExecutor(max_workers=max(1, config.jobs)) as pool:
         futures = [pool.submit(work, f) for f in files]
