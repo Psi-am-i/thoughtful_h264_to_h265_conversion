@@ -766,9 +766,18 @@ class Api:
                 panel_codec = src_codec_label if tier is None else codec_label
                 if tier is None:
                     out = sample
+                    # The SOURCE's own density, from its real bitrate — the number that
+                    # explains the shrink. A source already at/below a tier's BPP is
+                    # already efficient and will barely move; showing it stops "only 10%
+                    # smaller?" from looking like a bug when the source was simply lean.
+                    bpp = (info.effective_bps / (info.pixels * info.fps)
+                           if info.pixels and info.fps else 0.0)
                 else:
                     out = pdir / f"{key}.mp4"
                     tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, codec)
+                    # The tier's TARGET density for this file — compare against source BPP.
+                    bpp = (tgt * 1000.0 / (sinfo.pixels * sinfo.fps)
+                           if sinfo.pixels and sinfo.fps else 0.0)
                     cfg2 = RunConfig(src=src, out_codec=codec, tier=tier, ffmpeg=FFMPEG)
                     vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
                     rr = subprocess.run(
@@ -784,6 +793,7 @@ class Api:
                 size = out.stat().st_size
                 self._emit("__vtcPreviewPanel",
                            {"i": idx, "key": key, "label": label, "codec": panel_codec, "bytes": size,
+                            "bpp": round(bpp, 3),
                             "url": f"http://127.0.0.1:{port}/{out.name}?v={size}"})
             self._emit("__vtcPreviewDone", "")
             log.info("previews: done (codec=%s)", codec.value)
