@@ -26,6 +26,7 @@ from .config import MP4_AUDIO_CODECS, AudioPolicy, Container, Encoder, RunConfig
 from .ffprobe import MediaInfo, SubtitleTrack
 from .model import OutCodec
 from .result import EncodeResult, Mode, ProgressCB
+from .winproc import NO_WINDOW, TEXT_UTF8
 
 # ── Encoder probing ───────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ def _encoders_list(ffmpeg: str) -> str:
         out = subprocess.run(
             [ffmpeg, "-hide_banner", "-encoders"],
             capture_output=True, text=True, stdin=subprocess.DEVNULL,
+            **TEXT_UTF8, **NO_WINDOW,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         out = ""
@@ -71,7 +73,7 @@ def _encoder_works(ffmpeg: str, enc: str) -> bool:
              "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=1",
              "-frames:v", "1", "-c:v", enc, "-f", "null", "-"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, timeout=30,
+            stderr=subprocess.DEVNULL, timeout=30, **NO_WINDOW,
         )
         ok = r.returncode == 0
     except (OSError, subprocess.SubprocessError):
@@ -441,7 +443,7 @@ def _run_ffmpeg(
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                text=True,
+                text=True, **TEXT_UTF8, **NO_WINDOW,
             )
             with _tracked(proc):
                 _, err = proc.communicate()
@@ -466,7 +468,7 @@ def _run_ffmpeg(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=err_f,
-            text=True,
+            text=True, **TEXT_UTF8, **NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError) as e:
         if err_f is not None:

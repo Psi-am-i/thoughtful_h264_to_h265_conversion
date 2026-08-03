@@ -377,8 +377,11 @@ body{
 .est-n{font-size:13px;color:var(--ink-2);margin-top:4px;line-height:1.4}
 
 /* ── sheets: confirm + report ───────────────────────────── */
+/* No backdrop-filter: a full-viewport blur makes WebView2 recomposite the whole
+   page continuously under software rendering ("Not Responding"). A more opaque
+   scrim reads the same over the dark shell. (WINDOWS-GOTCHAS.md #5) */
 .sheet{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;
-  background:rgba(38,36,31,.44);backdrop-filter:blur(3px);padding:24px}
+  background:rgba(38,36,31,.72);padding:24px}
 .sheet.on{display:flex;animation:sheet-in .18s ease both}
 @keyframes sheet-in{from{opacity:0}}
 .sheet-c{background:var(--shell);border:1px solid var(--rule);border-radius:8px;

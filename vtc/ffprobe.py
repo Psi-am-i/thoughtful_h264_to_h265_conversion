@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 
+from .winproc import NO_WINDOW, TEXT_UTF8
+
 # Subtitle codecs that can live in an MP4 (as mov_text) or extract to .srt.
 _TEXT_SUB_CODECS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
 
@@ -94,7 +96,7 @@ def probe(path: Path, ffprobe: str = "ffprobe") -> MediaInfo:
     try:
         out = subprocess.run(
             [ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, **TEXT_UTF8, **NO_WINDOW,
         ).stdout
         data = json.loads(out)
     except subprocess.CalledProcessError as e:

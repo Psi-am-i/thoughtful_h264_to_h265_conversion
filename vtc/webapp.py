@@ -35,6 +35,7 @@ from .config import AudioPolicy, Container, Encoder, OutputMode, RunConfig, Sour
 from .ffprobe import probe
 from .model import OutCodec, Tier, target_kbps
 from .result import Mode, Outcome
+from .winproc import NO_WINDOW, TEXT_UTF8, reconfigure_std_streams
 
 
 # ── debug log ────────────────────────────────────────────────────────────────
@@ -125,7 +126,7 @@ def _log_environment() -> None:
         ver = "?"
         try:
             ver = subprocess.run([tool, "-version"], capture_output=True, text=True,
-                                 timeout=15).stdout.splitlines()[0]
+                                 timeout=15, **TEXT_UTF8, **NO_WINDOW).stdout.splitlines()[0]
         except Exception as e:  # noqa: BLE001
             ver = f"<could not run: {e}>"
         log.info("%s -> %s  [%s]", label, tool, ver)
@@ -165,7 +166,8 @@ def _ffmpeg_version() -> str:
     """Short ffmpeg version for the toolbar readout, e.g. '8.1.2'. Best-effort."""
     try:
         out = subprocess.run([FFMPEG, "-version"], capture_output=True, text=True,
-                             stdin=subprocess.DEVNULL, timeout=5).stdout
+                             stdin=subprocess.DEVNULL, timeout=5,
+                             **TEXT_UTF8, **NO_WINDOW).stdout
         m = re.search(r"ffmpeg version (\S+)", out)
         if m:
             return m.group(1).split("-")[0]
@@ -638,11 +640,36 @@ class Api:
         self._last_failed: list[Path] = []           # files that ERRORed last run
 
     # -- folder pick + fast scan -------------------------------------------------
+    def _file_dialog(self, *args, **kwargs):
+        """Show a native file dialog safely across platforms.
+
+        js_api methods run on pywebview's MTA worker thread (so a slow bridge call
+        can't freeze the UI), but the Windows picker is the Vista COM
+        ``IFileDialog`` and showing a COM dialog off the STA GUI thread hangs
+        outright. Marshal onto the owning form's thread — the same mechanism
+        pywebview uses internally. macOS/Linux have no such requirement, and if the
+        winforms host isn't present we just call through. (WINDOWS-GOTCHAS.md #2)"""
+        if sys.platform != "win32":
+            return self.window.create_file_dialog(*args, **kwargs)
+        try:
+            from System import Action                       # pythonnet
+            from webview.platforms.winforms import BrowserView
+        except Exception:  # noqa: BLE001 — not the winforms backend; call directly
+            return self.window.create_file_dialog(*args, **kwargs)
+        form = BrowserView.instances.get(self.window.uid)
+        if form is None:                                    # fall back rather than hang
+            return self.window.create_file_dialog(*args, **kwargs)
+        box: dict = {}
+        def _on_gui_thread():
+            box["result"] = self.window.create_file_dialog(*args, **kwargs)
+        form.Invoke(Action(_on_gui_thread))                 # blocks until the STA call returns
+        return box.get("result")
+
     def pick_output_folder(self):
         """Native folder picker for the 'New folder' destination. Returns {dir} or
         None (cancelled) — does not scan; just the path the outputs should go to."""
         import webview
-        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        picked = self._file_dialog(webview.FOLDER_DIALOG)
         if not picked:
             return None
         return {"dir": str(Path(picked[0]))}
@@ -650,7 +677,7 @@ class Api:
     def pick_folder(self):
         import webview
         log.info('pick_folder: opening native folder dialog')
-        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        picked = self._file_dialog(webview.FOLDER_DIALOG)
         if not picked:
             return None
         src = Path(picked[0])
@@ -748,7 +775,8 @@ class Api:
                 [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
                  "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
                  "-movflags", "+faststart", str(sample)],
-                stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                **TEXT_UTF8, **NO_WINDOW)
             if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
                 self._emit("__vtcPreviewError", "could not extract a sample clip"); return
             if stale():
@@ -783,7 +811,8 @@ class Api:
                     rr = subprocess.run(
                         [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
                          "-movflags", "+faststart", str(out)],
-                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                        stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                        **TEXT_UTF8, **NO_WINDOW)
                     if rr.returncode != 0 or not out.exists() or out.stat().st_size == 0:
                         log.error("preview %s failed: %s", key,
                                   (rr.stderr or "").strip().splitlines()[-1:])
@@ -919,7 +948,7 @@ class Api:
         JS bridge FIRST, which is why "Save log…" sat there spinning."""
         import webview
         try:
-            picked = self.window.create_file_dialog(
+            picked = self._file_dialog(
                 webview.SAVE_DIALOG, save_filename=name or "report.txt")
         except Exception as e:  # noqa: BLE001
             log.error("save dialog failed: %s", e); return {"error": str(e)}
@@ -1315,6 +1344,7 @@ def _summary(results: list) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    reconfigure_std_streams()   # UTF-8 stdout/stderr before anything prints a path
     log_path = _setup_logging()
     _install_crash_handlers(log_path)
     try:
