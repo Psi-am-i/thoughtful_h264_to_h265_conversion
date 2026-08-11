@@ -240,10 +240,15 @@ if __name__ == "__main__":
 def test_encoder_choice_is_in_the_ledger_signature():
     """A file finished in hardware is not finished in software.
 
-    Found the hard way: after a hardware run, re-running the same folder with
-    --encoder software skipped every file as 'already done' — exactly defeating
-    the reason someone switches to software. AUTO stays unsuffixed so ledgers
-    written before this change still match.
+    Scope, because it is easy to state this wrongly: this is NOT about improving
+    a file we already replaced. You cannot re-encode your way to better quality,
+    and the engine refuses to try — its own output is HEVC, which classifies as
+    MODERN and is never transcoded, ledger or no ledger.
+
+    It matters only where the SOURCES SURVIVE: separate output dir + KEEP
+    originals. Clearing the output folder and re-running with the other encoder
+    is a legitimate redo from intact sources, and it was silently refused.
+    AUTO stays unsuffixed so ledgers written before this change still match.
     """
     from vtc.config import Encoder
     auto = RunConfig(src=Path("."))

@@ -206,12 +206,17 @@ class RunConfig:
         bpp = self.bpp_for()
         if abs(bpp - self.tier.bpp) > 1e-9:
             parts.append(f"bpp{bpp:.5f}")
-        # The encoder changes the OUTPUT, not the decision — but the ledger records
-        # "this file is done", and a file done in hardware is not done in software.
-        # Without this, someone who re-runs with --encoder software precisely BECAUSE
-        # they want better quality gets "already done" for the entire library and no
-        # explanation. Appended only for an explicit choice, so a default (AUTO) run
-        # still matches ledgers written before this existed.
+        # The encoder changes the OUTPUT, not the decision. This is NOT about
+        # re-encoding a file we already replaced — that would be generation loss,
+        # and the engine refuses it anyway: our own output is HEVC, which classifies
+        # as MODERN and is never transcoded (verified with the ledger disabled).
+        #
+        # It matters in the one mode where the SOURCES SURVIVE: separate output
+        # directory + KEEP originals. There, deleting the output folder and running
+        # again with the other encoder is a legitimate redo from intact sources —
+        # and without this it was silently refused as "already done".
+        # Appended only for an explicit choice, so a default (AUTO) run still
+        # matches ledgers written before this existed.
         if self.encoder is not Encoder.AUTO:
             parts.append(f"enc{self.encoder.value}")
         return "|".join(parts)
