@@ -3641,7 +3641,16 @@ function pvPlay(){
   PV.playing=!PV.playing;
   if(PV.playing){
     const L=pvLeader(); if(L && L.currentTime>=(PV.dur||L.duration||5)-0.06) pvSeek(0);
-    pvVideos().forEach(v=>{ v.play().catch(()=>{}); });
+    // Start from one agreed position at one agreed rate, in a single tick — then
+    // pvHold() keeps them there. Starting alone was never going to be enough.
+    const t0 = L ? (L.currentTime || 0) : PV.pos;
+    pvVideos().forEach(v=>{
+      if(v !== L && Math.abs((v.currentTime||0) - t0) > SYNC_IGNORE){
+        try { v.currentTime = t0; } catch(e){}
+      }
+      v.playbackRate = PV.rate || 1;
+      v.play().catch(()=>{});
+    });
   } else {
     const t=pvLeader()?pvLeader().currentTime:0;
     PV.pos=t;
@@ -3653,7 +3662,7 @@ $('#play').onclick=pvPlay;
 $('#prev').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)-1/(PV.fps||24)); };
 $('#next').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)+1/(PV.fps||24)); };
 $('#rates').querySelectorAll('button').forEach(b=>{ b.onclick=()=>{
-  const r=+b.dataset.r; pvVideos().forEach(v=>v.playbackRate=r);
+  const r=+b.dataset.r; PV.rate=r; pvVideos().forEach(v=>v.playbackRate=r);
   $('#rates').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); }; });
 $('#scrub').onpointerdown=e=>{
   const set=ev=>{ const r=$('#scrub').getBoundingClientRect();
@@ -3887,9 +3896,38 @@ $('#pv-codec').querySelectorAll('button').forEach(b=>{
     if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec, pvPos);
   };
 });
+// Two <video> elements told to play at the same moment do not stay together:
+// each has its own clock and its own decoder, so they separate by a frame, then
+// two, then three. Pausing hid it, because pause re-seeks both to one position —
+// which is why the still frame always looked right and only motion drifted.
+//
+// So the followers are held against the leader every frame. A sub-frame gap is
+// ignored (correcting it would be visible jitter for no gain); a small one is
+// eased out by running that video fractionally faster or slower, which the eye
+// cannot see; only a real gulf — a stall, a decode hiccup — is worth a hard seek.
+const SYNC_IGNORE = 0.008;    // ~1/5 frame at 24fps: below this, leave it alone
+const SYNC_SEEK   = 0.250;    // beyond this it is a stall, not drift
+function pvHold(){
+  const L = pvLeader(); if(!L) return;
+  const rate = PV.rate || 1;
+  const t = L.currentTime || 0;
+  if(L.playbackRate !== rate) L.playbackRate = rate;
+  pvVideos().forEach(v=>{
+    if(v === L || v.readyState < 2) return;
+    const drift = (v.currentTime || 0) - t;
+    const off = Math.abs(drift);
+    if(off > SYNC_SEEK){ try { v.currentTime = t; } catch(e){} v.playbackRate = rate; return; }
+    if(off < SYNC_IGNORE){ if(v.playbackRate !== rate) v.playbackRate = rate; return; }
+    // ahead -> ease off, behind -> catch up. 4% is far too small to hear or see
+    // and closes a frame's worth of gap in well under a second.
+    v.playbackRate = rate * (drift > 0 ? 0.96 : 1.04);
+  });
+}
+
 function pvLoop(){
   if(PV.playing){
     const L=pvLeader();
+    pvHold();                                 // keep every panel on the leader's frame
     if(L) PV.pos=L.currentTime||0;            // keep the shared position current
     if(L && L.currentTime>=(PV.dur||L.duration||5)-0.05){ PV.playing=false; pvVideos().forEach(v=>v.pause()); }
     pvSyncUI();
