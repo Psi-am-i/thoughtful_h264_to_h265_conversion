@@ -552,9 +552,11 @@ _BRIDGE_JS = r"""
       });
     } catch(e){}
   };
-  window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev}
-    acc.push(r);
-    pgDone1({ f:r.name, t:r.t, sev:r.sev });
+  window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev,work}
+    acc.push(r);                                     // every file lands in the report
+    // ...but only the files being WORKED ON move the progress bar. The rest are
+    // instant skips; counting them made the bar race to 90% and then crawl.
+    if(r.work !== false) pgDone1({ f:r.name, t:r.t, sev:r.sev, star:r.star, detail:r.detail });
   };
   window.__vtcOnDone = (summary)=>{
     pgFinish();
@@ -1328,6 +1330,20 @@ class Api:
             info = probe_by_path.get(f)
             return _work_of(info) if (info and info.ok) else avg_work
 
+        # Which files are real WORK (an encode), as opposed to an instant skip.
+        # Un-probed files count as work: we cannot know yet, and a file that
+        # appears in the list mid-run is worse than one that leaves it.
+        def _is_work(f: Path) -> bool:
+            if _resumed(f):
+                return False
+            info = probe_by_path.get(f)
+            if info is None or not info.ok:
+                return True
+            return pipeline.decide(config, info)[0] in (Mode.SHRINK, Mode.TRANSCODE)
+
+        work_files = [f for f in files if _is_work(f)]
+        work_names = {f.name for f in work_files}
+        log.info("queue: %d file(s) to process of %d scanned", len(work_files), len(files))
         work_by_path = {f: _work(f) for f in files}
         total_work = sum(work_by_path.values())
         est_seconds = int(max(1, total_work))
@@ -1337,17 +1353,25 @@ class Api:
             # big library every file past #2000 fell out of the queue entirely: no
             # "processing" row, no upcoming files, just a list of what was already
             # done. Send all of them, chunked so no single JS call is enormous.
-            names = [f.name for f in files[:_QUEUE_MAX]]
+            # Only the files that will actually be WORKED ON. A library is mostly
+            # files that are already efficient and get left alone in milliseconds;
+            # counting those in the progress bar buries the real work ("3 of 1,155"
+            # crawling for an hour) and tells the user nothing they can act on. The
+            # skipped files still appear in the end-of-run report, with the reason
+            # for each. Anything we could not probe stays IN the queue — unknown is
+            # not the same as "will be skipped", and it is better to over-count the
+            # work than to have a file appear from nowhere mid-run.
+            names = [f.name for f in work_files[:_QUEUE_MAX]]
             self.window.evaluate_js(
-                f"window.__vtcRunStart && window.__vtcRunStart({total}, {est_seconds}, "
-                f"{json.dumps(names[:_QUEUE_CHUNK])})")
+                f"window.__vtcRunStart && window.__vtcRunStart({len(work_files)}, "
+                f"{est_seconds}, {json.dumps(names[:_QUEUE_CHUNK])})")
             for i in range(_QUEUE_CHUNK, len(names), _QUEUE_CHUNK):
                 self.window.evaluate_js(
                     f"window.__vtcQueueMore && window.__vtcQueueMore("
                     f"{json.dumps(names[i:i + _QUEUE_CHUNK])})")
-            if len(files) > _QUEUE_MAX:
+            if len(work_files) > _QUEUE_MAX:
                 log.warning("queue list truncated at %d of %d files (list only, the "
-                            "run still covers everything)", _QUEUE_MAX, len(files))
+                            "run still covers everything)", _QUEUE_MAX, len(work_files))
 
         run_t0 = _time.monotonic()
         # Two POOLS, calibrated separately. Measured on real runs: an encode averages
@@ -1365,7 +1389,12 @@ class Api:
             "heavy_pred": 0.0, "heavy_real": 0.0,       # finished heavy: predicted vs actual
             "light_real": 0.0, "light_done": 0,
         }
-        last = {"frac": -1.0, "t": 0.0, "eta": 0.0}   # throttle progress + ETA chatter
+        # Progress throttling is PER FILE. With jobs>1 every worker calls prog()
+        # for its own file against one shared "last frac", so whichever reported
+        # most recently suppressed the others and their bars sat frozen. eta stays
+        # shared — there is only one clock.
+        last = {"eta": 0.0}
+        seen: dict[str, dict] = {}                   # label -> {"frac", "t"}
 
         # ETA cadence. Within a single file the estimate barely moves, so re-emitting
         # it every few seconds only made the clock twitch and flashed "re-estimating…"
@@ -1410,18 +1439,20 @@ class Api:
                     and now - last["eta"] >= ETA_REFRESH):
                 last["eta"] = now
                 _emit_eta()
-            # emit on a ~1% move OR at least every ~1.5s (so stats keep ticking)
-            if frac is not None and abs(f - last["frac"]) < 0.01 and (now - last["t"]) < 1.5:
+            # emit on a ~1% move OR at least every ~1.5s (so stats keep ticking),
+            # judged against THIS file's own last frame
+            st = seen.setdefault(label, {"frac": -1.0, "t": 0.0})
+            if frac is not None and abs(f - st["frac"]) < 0.01 and (now - st["t"]) < 1.5:
                 return
-            last["frac"] = f
-            last["t"] = now
+            st["frac"] = f
+            st["t"] = now
             self.window.evaluate_js(
                 f"window.__vtcEncodeProgress && window.__vtcEncodeProgress("
                 f"{json.dumps(label)}, {'null' if frac is None else f}, "
                 f"{json.dumps(stats or {})})")
 
         def emit(r):
-            last["frac"] = -1.0                     # next file starts fresh
+            seen.pop(r.path.name, None)             # this file is no longer in flight
             # Book this file's REAL wall time against the pool it was predicted in.
             # (With jobs>1 the per-file split is rough, but the pool totals still
             # add up to the wall clock, which is all the ratios need.)
@@ -1443,8 +1474,12 @@ class Api:
             else:
                 log.debug("  %s %s", r.outcome.value, r.path.name)
             if self.window:
+                row = _row(r)
+                # Was this one of the files the progress bar is counting? Skips
+                # still reach the report — they just do not move the bar.
+                row["work"] = r.path.name in work_names
                 self.window.evaluate_js(
-                    f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(_row(r))})")
+                    f"window.__vtcOnResult && window.__vtcOnResult({json.dumps(row)})")
             _emit_eta()                             # file boundary: the honest moment
             eta_state["file_t0"] = last["eta"] = _time.monotonic()
 

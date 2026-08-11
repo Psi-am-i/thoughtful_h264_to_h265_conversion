@@ -44,3 +44,19 @@ def test_advanced_settings_ui():
     assert not failed, "UI controls not behaving as labelled:\n" + "\n".join(
         f"  {x['name']}: got {x['got']!r}, want {x['want']!r}" for x in failed)
     assert len(out["results"]) >= 40, "harness ran fewer checks than expected"
+
+
+@pytest.mark.skipif(not _have_jsdom(), reason="node + jsdom not installed (see tests/ui/README)")
+def test_parallel_progress_rows():
+    """With jobs>1 every file in flight must stay visible.
+
+    A single curName meant the workers overwrote each other: one file showed as
+    processing and the rest vanished, while the Stop button was already saying
+    "files in flight" (plural).
+    """
+    r = subprocess.run(["node", "flight.js"], cwd=_UI, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, timeout=120)
+    assert r.stdout.strip(), f"harness produced nothing:\n{r.stderr[:2000]}"
+    failed = [x for x in json.loads(r.stdout) if not x["ok"]]
+    assert not failed, "parallel progress broken:\n" + "\n".join(
+        f"  {x['n']}: got {x['g']!r}, want {x['e']!r}" for x in failed)

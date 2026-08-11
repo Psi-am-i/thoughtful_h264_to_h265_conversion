@@ -2708,7 +2708,7 @@ function pgStart(total, est, queue){
   const preparing = !total;                    // total unknown yet -> still scanning
   PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), curFrac:0, anchored:false, timer:null, _rt:null,
       spf:0, spf0:(est&&total)?est/total:0, lastDone:Date.now(), sinceAnchor:0, etaFromEngine:false,
-      queue:queue||[], tags:{}, curName:'', lastIdx:0, userScroll:false, _scrollT:null};
+      queue:queue||[], tags:{}, curName:'', flight:{}, lastIdx:0, userScroll:false, _scrollT:null};
   $('#pg-total').textContent = preparing ? '…' : PG.total.toLocaleString();
   $('#pg-done').textContent='0'; $('#pg-pct').textContent = preparing ? '' : '0%';
   $('#pg-overall').style.width='0'; $('#pg-cur-f').style.width='0';
@@ -2731,12 +2731,24 @@ const pgStopLabel = ()=> pgJobs()>1
   ? `Stop after the ${pgJobs()} files in flight`
   : 'Stop after current file';
 function pgFile(name, frac, stats){
-  // The filename lives in the list below (bold, "processing") — don't repeat the
-  // cropped name here. This line is the current file's PROCESSING INFO instead.
-  if(name && name!==PG.curName){ PG.curName=name; pgRenderList(); }
+  // With jobs>1 there are SEVERAL files in flight at once, and each worker calls
+  // this for its own file. A single curName meant they overwrote each other:
+  // one file showed as processing and the rest silently vanished from the list,
+  // even though the Stop button was already saying "files in flight" (plural).
+  // So keep a map of everything currently being worked on.
   const f=(frac==null?0:Math.max(0,Math.min(1,frac)));
+  if(name){
+    const known = PG.flight[name] !== undefined;
+    PG.flight[name] = f;
+    if(!known) pgRenderList();               // a new file joined the flight
+    PG.curName = name;
+  }
   PG.curFrac=f;
-  $('#pg-cur-f').style.width=(f*100)+'%';
+  // The per-file bar shows the LEAST advanced file in flight: it is the one the
+  // run is actually waiting on, and it never jumps backwards as others finish.
+  const inflight = Object.values(PG.flight);
+  const slowest = inflight.length ? Math.min(...inflight) : f;
+  $('#pg-cur-f').style.width=(slowest*100)+'%';
   // overall bar + % should include the current file's progress, not just whole files
   if(PG.total){ const op=(PG.done+f)/PG.total; $('#pg-overall').style.width=(op*100)+'%'; $('#pg-pct').textContent=Math.round(op*100)+'%'; }
   let bits=[];
@@ -2745,7 +2757,10 @@ function pgFile(name, frac, stats){
     if(stats.bitrate){ const kb=parseFloat(stats.bitrate); if(kb>0) bits.push((kb/1000).toFixed(1)+' Mbps'); }
     if(stats.speed && parseFloat(stats.speed)>0) bits.push(parseFloat(stats.speed).toFixed(1)+'× realtime');
   }
-  $('#pg-cur-n').textContent = frac!=null ? `Encoding · ${Math.round(f*100)}%` : 'Working…';
+  const n = Object.keys(PG.flight).length;
+  $('#pg-cur-n').textContent = n > 1
+    ? `Encoding ${n} files · slowest ${Math.round(slowest*100)}%`
+    : (frac!=null ? `Encoding · ${Math.round(f*100)}%` : 'Working…');
   $('#pg-stats').textContent = bits.join('  ·  ');
   // NB: do NOT re-anchor the ETA here — pgTick counts it down and re-anchors on a
   // timer. Re-anchoring every progress frame is what made the clock bounce.
@@ -2754,6 +2769,7 @@ function pgDone1(row){
   // update the smoothed seconds-per-file from how long THIS file actually took
   const now=Date.now(); const dt=(now-(PG.lastDone||PG.t0))/1000; PG.lastDone=now;
   if(dt>0.05) PG.spf = PG.spf>0 ? 0.3*dt + 0.7*PG.spf : dt;     // EMA (0.3 new / 0.7 history)
+  if(row && row.f) delete PG.flight[row.f];      // it is no longer in flight
   PG.done++; PG.curFrac=0;
   $('#pg-done').textContent=PG.done.toLocaleString();
   const frac=PG.total?PG.done/PG.total:0;
@@ -2768,8 +2784,11 @@ function pgDone1(row){
 // processed files below. Windowed (so thousands stay cheap) with "+N more" caps.
 function pgRowHTML(name, kind){
   const t=PG.tags[name];
+  const fl = PG.flight ? PG.flight[name] : undefined;
   const esc=s=>(s||'').replace(/"/g,'&quot;');
-  const label = kind==='cur' ? 'processing' : kind==='up' ? 'queued'
+  const label = kind==='cur'
+      ? (fl!==undefined ? `processing · ${Math.round(fl*100)}%` : 'processing')
+      : kind==='up' ? 'queued'
     : (t ? (t.t==='ok'?'done':t.t==='skip'?'left alone':t.sev==='err'?'error':t.sev==='warn'?'warn':'note') : 'done');
   const cls = t ? (t.sev==='err'?'err':t.sev==='warn'?'warn':'') : '';
   const star = (t && t.star) ? '*' : '';
@@ -2787,12 +2806,23 @@ function pgQueueMore(names){
 function pgRenderList(){
   const box=$('#pg-recent'); if(!box) return;
   const q=PG.queue||[], cur=PG.curName;
-  // Files arrive in scan order, so start from the last hit — faster on a long
-  // queue, and it picks the RIGHT one when two files share a name.
+  const flight = PG.flight || {};
+  const inflight = new Set(Object.keys(flight));
+  // Anchor the view on the EARLIEST file still in flight — with several workers
+  // the run's true position is the oldest unfinished file, not the latest one to
+  // report a frame. Files arrive in scan order, so start from the last hit:
+  // faster on a long queue, and it picks the RIGHT one when two names match.
   let idx=-1;
-  if(q.length && cur){
-    idx = q.indexOf(cur, Math.max(0, PG.lastIdx||0));
-    if(idx<0) idx = q.indexOf(cur);            // wrapped or out of order: full scan
+  const place = n => {
+    let i = q.indexOf(n, Math.max(0, PG.lastIdx||0));
+    if(i<0) i = q.indexOf(n);                  // wrapped or out of order: full scan
+    return i;
+  };
+  if(q.length && inflight.size){
+    for(const n of inflight){ const i = place(n); if(i>=0 && (idx<0 || i<idx)) idx = i; }
+    if(idx>=0) PG.lastIdx = idx;
+  } else if(q.length && cur){
+    idx = place(cur);
     if(idx>=0) PG.lastIdx = idx;
   }
   // Only ENCODES report progress frames, so on a stretch of skipped files curName
@@ -2804,7 +2834,9 @@ function pgRenderList(){
     const rows=done.slice(-200).reverse().map(n=>pgRowHTML(n,'done'));
     // Always show what's being worked on. A run with no visible active file reads
     // as a stall, which is exactly how the truncated-queue bug looked.
-    if(cur && !PG.tags[cur]) rows.unshift(pgRowHTML(cur,'cur'));
+    const live = [...inflight].filter(n=>!PG.tags[n]);
+    if(live.length) rows.unshift(...live.map(n=>pgRowHTML(n,'cur')));
+    else if(cur && !PG.tags[cur]) rows.unshift(pgRowHTML(cur,'cur'));
     box.innerHTML=rows.join('');
     if(!PG.userScroll) pgCenterCurrent();
     return;
@@ -2812,10 +2844,17 @@ function pgRenderList(){
   const UP=8, DOWN=250, parts=[];
   const topEnd=Math.min(q.length-1, idx+UP);
   if(topEnd < q.length-1) parts.push(`<div class="pg-more">+${(q.length-1-topEnd).toLocaleString()} more queued</div>`);
-  for(let i=topEnd;i>idx;i--) parts.push(pgRowHTML(q[i],'up'));   // queued, farthest first
-  parts.push(pgRowHTML(q[idx],'cur'));                           // the processing file, pinned
+  // Anything still in flight reads as processing wherever it sits in the queue —
+  // with several workers those are not contiguous, so this cannot just be one row.
+  // Above the anchor is NOT automatically "queued": with several workers a later
+  // file can already have finished while an earlier one is still encoding. A file
+  // with a result is done wherever it sits.
+  for(let i=topEnd;i>idx;i--)
+    parts.push(pgRowHTML(q[i], inflight.has(q[i]) ? 'cur' : (PG.tags[q[i]] ? 'done' : 'up')));
+  parts.push(pgRowHTML(q[idx],'cur'));                           // the earliest in flight, pinned
   const botStart=Math.max(0, idx-DOWN);
-  for(let i=idx-1;i>=botStart;i--) parts.push(pgRowHTML(q[i],'done'));   // processed, newest first
+  for(let i=idx-1;i>=botStart;i--)
+    parts.push(pgRowHTML(q[i], inflight.has(q[i]) ? 'cur' : 'done'));   // processed, newest first
   if(botStart>0) parts.push(`<div class="pg-more">+${botStart.toLocaleString()} more done</div>`);
   box.innerHTML=parts.join('');
   if(!PG.userScroll) pgCenterCurrent();
