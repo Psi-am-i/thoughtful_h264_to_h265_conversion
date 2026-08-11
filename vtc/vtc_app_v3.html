@@ -409,9 +409,12 @@ body{
    set smaller than an icon drawn with padding or it overpowers the brow. */
 .gear svg{width:19px;height:19px;fill:currentColor;stroke:none}
 .adv-sec{margin:0 0 20px}
-.adv-sec > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;
-  text-transform:uppercase;color:var(--accent);margin:0 0 10px;padding-bottom:6px;
-  border-bottom:1px solid var(--rule)}
+/* Matches a bare heading AND one wrapped in .adv-sec-h beside its own action
+   button — a direct-child selector silently dropped the styling from the
+   wrapped ones, which reads as two different kinds of section. */
+.adv-sec > h3, .adv-sec-h > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin:0 0 10px;
+  padding-bottom:6px;border-bottom:1px solid var(--rule)}
 .adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px}
 .adv-grid.one{grid-template-columns:1fr}
 .adv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;
@@ -2492,10 +2495,13 @@ window.__softwareFiles = [];
 const swSync = ()=>{ window.__softwareFiles = [...SW.picked]; };
 const gb = b => b/1e9;
 const swSize = b => b>=1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(0)+' MB';
-// Rough clock for the footer. Same constants the engine's ETA starts from
-// (hardware ~6x realtime, software ~0.18x); both self-correct during the run,
-// so this is an order-of-magnitude answer, deliberately labelled "about".
-const HW_SPEED = 6.0, SW_SPEED = 0.18;
+// Clock for the footer. The same measured constants the engine's ETA starts
+// from (webapp.py) — x realtime AT 1080p, scaled by frame size, because an
+// encoder is really a pixels-per-second machine and 4K costs about 4x 1080p.
+// This number is quoted BEFORE the run, so unlike the live ETA it never gets
+// to correct itself: it has to be honest up front, not merely pessimistic.
+const HW_SPEED = 6.0, SW_SPEED = 0.82, PX_1080P = 1920*1080;
+const swSecs = (r, speed) => (r.dur||0) / (speed * (r.px ? PX_1080P/r.px : 1));
 function swHuman(sec){
   sec = Math.max(0, Math.round(sec));
   const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
@@ -2531,8 +2537,8 @@ function swFoot(){
   const foot = $('#sw-foot'); if(!foot) return;
   const picked = SW.rows.filter(r=>SW.picked.has(r.path));
   const rest = SW.rows.filter(r=>!SW.picked.has(r.path));
-  const secs = a => a.reduce((s,r)=>s + (r.dur||0), 0);
-  const hw = secs(rest)/HW_SPEED, sw = secs(picked)/SW_SPEED;
+  const hw = rest.reduce((s,r)=>s + swSecs(r, HW_SPEED), 0);
+  const sw = picked.reduce((s,r)=>s + swSecs(r, SW_SPEED), 0);
   foot.innerHTML = `<b>${picked.length}</b> of ${SW.rows.length} to software`
     + (SW.rows.length ? ` · about ${swHuman(hw+sw)} in total`
         + (picked.length ? ` (${swHuman(sw)} of it software)` : '') : '');

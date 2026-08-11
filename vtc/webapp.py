@@ -274,6 +274,7 @@ _TIERS = [Tier.OK, Tier.GOOD, Tier.EXCELLENT, Tier.STELLAR, Tier.INSANE]
 # carrying 20k filenames is a megabyte-plus string.
 _QUEUE_CHUNK = 2000
 _QUEUE_MAX = 50_000                     # backstop for an absurd library
+_PX_1080P = 1920 * 1080                 # the frame the encoder speeds are quoted at
 _SAVING = [0.15, 0.25, 0.40]
 _ENCODER = [Encoder.HARDWARE, Encoder.SOFTWARE]
 # non-MP4 policy: ADV.format -> the four container flags. Convert = to MP4 (remux +
@@ -919,6 +920,7 @@ class Api:
                 "name": info.path.name,
                 "bytes": size,
                 "res": f"{info.width}x{info.height}" if info.width else "",
+                "px": info.pixels,
                 "dur": info.duration or 0.0,
                 "saving": round(saving * 100),
             })
@@ -1077,11 +1079,18 @@ class Api:
         # pessimistic, which is the right way for a clock to be wrong, and corr
         # below pulls it to whatever this run's content and codec really do.
         # Two speeds, because a run can now be MIXED: files picked out for software
-        # cost roughly 30x what the same file costs in hardware, so a single global
+        # cost roughly 7x what the same file costs in hardware, so a single global
         # constant would make the clock nonsense the moment one film is ticked.
-        # (Measured here: hardware ~5x realtime, software ~0.6x on 1080p. SW_SPEED
-        # stays pessimistic on purpose — corr below pulls both toward reality.)
-        HW_SPEED, SW_SPEED = 6.0, 0.18            # encode ×realtime
+        #
+        # Both are ×realtime AT 1080p and scale with frame size, because an encoder
+        # is really a pixels-per-second machine: 4K costs ~4x what 1080p costs. A
+        # flat ×realtime figure under-priced 4K by that factor.
+        # Measured on this machine (M-series, 1080p, preset medium): hardware 6.0x
+        # — the old constant was already right — and software 0.82x, against an
+        # assumed 0.18x that was 4.5x too pessimistic. That mattered beyond the
+        # clock: the picker quotes this figure BEFORE you commit, with no chance to
+        # self-correct, so it was quoting 545 hours for a job nearer 120.
+        HW_SPEED, SW_SPEED = 6.0, 0.82            # ×realtime at 1080p
         enc_speed = HW_SPEED if hw else SW_SPEED
         REMUX_S, SKIP_S = 10.0, 0.10
         probe_by_path = {info.path: info for info, _ in self._probes}
@@ -1109,6 +1118,7 @@ class Api:
                 # This file's OWN speed: a ticked file is software even on a
                 # hardware run, and it dominates the clock when it is.
                 spd = SW_SPEED if config.forces_software(info.path) else enc_speed
+                spd *= _PX_1080P / info.pixels if info.pixels else 1.0   # 4K costs ~4x
                 return (info.duration / spd) if info.duration else (30 * 60 / spd)
             return REMUX_S if mode is Mode.REMUX else SKIP_S
 

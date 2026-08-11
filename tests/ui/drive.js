@@ -142,6 +142,19 @@ setTimeout(() => {
   check('...and does not share state with the defaults object',
         (() => { window.ADV.bpp.OK = 9; click($('#adv-reset')); return window.ADV.bpp.OK; })(), 0.0643);
 
+  // ── every section heading must look like a section heading ────────────────
+  // Missed by the first version of this harness and caught by eye in a browser:
+  // wrapping an <h3> in a header div (to sit a button beside it) broke the
+  // `.adv-sec > h3` child selector, so two sections rendered as plain black text
+  // while the rest were orange mono caps. State was perfect; only the CSS lied.
+  const heads = [...d.querySelectorAll('#adv-sheet h3')];
+  const styles = heads.map(h => {
+    const c = window.getComputedStyle(h);
+    return [c.textTransform, c.fontSize, c.color].join('|');
+  });
+  check('every Advanced heading is styled the same', new Set(styles).size, 1);
+  check('...and there are headings to check', heads.length >= 7, true);
+
   // ── the software picker ───────────────────────────────────────────────────
   const SW = window.eval('SW');
   SW.rows = [
@@ -169,6 +182,15 @@ setTimeout(() => {
   check('Tick all', window.__softwareFiles.length, 3);
   click(d.querySelector('#sw-sheet [data-pick="none"]'));
   check('Tick none', window.__softwareFiles.length, 0);
+
+  // A 4K file costs about 4x a 1080p one to encode; a duration-only estimate
+  // under-priced it by that factor. Same duration, four times the pixels.
+  const hd = { path: '/a', name: 'a', bytes: 1e9, res: '1920x1080', px: 1920*1080, dur: 3600, saving: 50 };
+  const uhd = { path: '/b', name: 'b', bytes: 1e9, res: '3840x2160', px: 3840*2160, dur: 3600, saving: 50 };
+  const foot = rows => { SW.rows = rows; SW.picked = new Set(rows.map(r => r.path));
+                         window.swFoot(); return $('#sw-foot').textContent; };
+  check('a 4K file is priced above a 1080p one of the same length',
+        foot([hd]) !== foot([uhd]), true);
 
   process.stdout.write(JSON.stringify({ results, errors }));
   process.exit(0);   // the page keeps timers alive; nothing left to wait for
