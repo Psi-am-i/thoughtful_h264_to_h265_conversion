@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vtc import pipeline  # noqa: E402
-from vtc.config import RunConfig  # noqa: E402
+from vtc.config import Encoder, RunConfig  # noqa: E402
 from vtc.ledger import Ledger  # noqa: E402
 from vtc.model import OutCodec, Tier, target_kbps  # noqa: E402
 from vtc.webapp import _apply_advanced  # noqa: E402
@@ -258,3 +258,51 @@ def test_encoder_choice_is_in_the_ledger_signature():
     assert "enc" not in auto.settings_signature()
     assert hard.settings_signature() != soft.settings_signature()
     assert hard.settings_signature() != auto.settings_signature()
+
+
+# ── per-file software picks ───────────────────────────────────────────────────
+def test_forces_software_matches_resolved_paths():
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d)
+        a, b = _touch(src / "film.mkv"), _touch(src / "episode.mkv")
+        cfg = RunConfig(src=src)
+        assert cfg.forces_software(a) is False          # nothing picked: never
+        cfg.software_files = frozenset({str(a.resolve())})
+        assert cfg.forces_software(a) is True
+        assert cfg.forces_software(b) is False
+
+
+def test_picked_file_goes_to_software_on_a_hardware_run(monkeypatch):
+    """The whole point: one ticked file gets no hardware encoder, the rest do."""
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d)
+        picked = _touch(src / "film.mkv", 20_000_000)
+        other = _touch(src / "episode.mkv", 20_000_000)
+        cfg = RunConfig(src=src, encoder=Encoder.HARDWARE, ledger_enabled=False,
+                        software_files=frozenset({str(picked.resolve())}))
+
+        seen = {}
+        monkeypatch.setattr(pipeline.encode, "select_hw_encoder",
+                            lambda c: "hevc_videotoolbox")
+
+        def fake_process(config, ledger, hw_encoder, f, progress=None):
+            seen[f.name] = hw_encoder
+            return None
+        monkeypatch.setattr(pipeline, "process_file", fake_process)
+        pipeline.run(cfg)
+
+        assert seen["film.mkv"] is None, "ticked file was still sent to hardware"
+        assert seen["episode.mkv"] == "hevc_videotoolbox", "untouched file lost hardware"
+
+
+def test_ledger_key_separates_a_software_pick():
+    """A file done in hardware must not read as done once it is ticked."""
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d)
+        f = _touch(src / "film.mkv")
+        plain = Ledger(RunConfig(src=src))
+        picked = Ledger(RunConfig(src=src, software_files=frozenset({str(f.resolve())})))
+        assert plain.key(f) != picked.key(f)
+        plain.add(plain.key(f))
+        assert plain.has(plain.key(f)) is True
+        assert picked.has(picked.key(f)) is False     # ticking re-opens the decision

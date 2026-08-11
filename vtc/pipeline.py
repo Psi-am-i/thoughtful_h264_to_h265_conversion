@@ -432,7 +432,10 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
     def work(f: Path) -> FileResult | None:
         if stop_requested():
             return None
-        return process_file(config, ledger, hw_encoder, f, progress)
+        # A file the user picked out goes to software even on a hardware run:
+        # passing no hardware encoder IS the software path (see build_video_args).
+        hw = None if config.forces_software(f) else hw_encoder
+        return process_file(config, ledger, hw, f, progress)
 
     with ThreadPoolExecutor(max_workers=max(1, config.jobs)) as pool:
         futures = [pool.submit(work, f) for f in files]

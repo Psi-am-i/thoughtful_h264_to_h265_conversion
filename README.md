@@ -191,7 +191,9 @@ interactive prompts. Everything the app asks is a flag:
 entirely: it is never probed, counted, estimated or reported.
 **Compatibility** — `--no-remux` · `--no-transcode` · `--container {auto,mp4,mkv}` ·
 `--audio {passthrough,aac,ac3,flac}` · `--drop-image-subs`.
-**Execution** — `--encoder {auto,hardware,software}` · `--jobs N`.
+**Execution** — `--encoder {auto,hardware,software}` · `--jobs N` ·
+`--software-file PATH` (repeatable: encode just these files in software even on a
+hardware run — the GUI offers this as a tick-list after the scan).
 **Destination** — `--output DIR` (mirror the tree) · `--flat` ·
 `--originals {archive,delete,keep}` · `--archive-dir DIR`.
 **Other** — `--dry-run` (decide + report, encode nothing) · `--no-ledger` /

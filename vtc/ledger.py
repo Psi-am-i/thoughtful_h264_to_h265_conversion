@@ -28,6 +28,10 @@ class Ledger:
 
     def __init__(self, config: RunConfig) -> None:
         self._signature: str = config.settings_signature()
+        # Per-FILE encoder choices can't live in the run-wide signature, so they
+        # ride on the individual key instead: a file done in hardware must not
+        # count as done once it has been picked out for software.
+        self._config = config
         path = config.resolved_ledger_file()
         self._path: Path | None = None
         if path is not None:
@@ -61,7 +65,10 @@ class Ledger:
         except OSError:
             size = 0
             mtime = 0
-        return f"{self._signature}\t{abspath}\t{size}\t{mtime}"
+        sig = self._signature
+        if self._config.forces_software(path):
+            sig += "|sw"
+        return f"{sig}\t{abspath}\t{size}\t{mtime}"
 
     def has(self, key: str) -> bool:
         """True if ``key`` is present as an exact line in the ledger file.

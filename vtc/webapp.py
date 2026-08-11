@@ -313,6 +313,11 @@ def build_config(src: Path, a: dict) -> RunConfig:
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
+    # Files the user ticked for the slow encoder. Sent as resolved paths, so the
+    # engine can match them without re-deriving anything.
+    picked = a.get("softwareFiles")
+    if isinstance(picked, list):
+        cfg.software_files = frozenset(str(p) for p in picked if p)
     # Subtitle policy from Advanced settings: language and kind are independent
     # filters (see RunConfig.sub_langs / sub_kinds).
     langs = adv.get("subLangs")
@@ -557,7 +562,8 @@ _BRIDGE_JS = r"""
     acc.length = 0;
     pgStart(0, 0);               // show the working screen IMMEDIATELY — scanning a big
                                  // library can take a moment, and a blank pause looks broken
-    api.run(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers));
+    api.run(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||'',
+                           softwareFiles: window.__softwareFiles||[]}, answers));
   };
   // "New folder" destination: let the user pick where outputs go. Returns the dir
   // (or '' if cancelled — build_config then falls back to <src>/converted).
@@ -885,6 +891,41 @@ class Api:
             "measured": self._probed_for == self._src,          # True once the full scan finishes
         }
 
+    # -- the software picker: which files are even worth choosing ---------------
+    def reencode_candidates(self, answers: dict):
+        """The files this run would actually RE-ENCODE, biggest saving first.
+
+        Only shrink/transcode files are offered: ticking something that is going
+        to be skipped as already-efficient would do nothing, and on a real library
+        the skips outnumber the work by an order of magnitude. Requires the probe
+        pass, so it reports `measured` and lets the UI say when it is still
+        counting rather than showing a half-empty list as if it were the answer.
+        """
+        if self._src is None:
+            return {"error": "no folder"}
+        try:
+            config = build_config(self._src, answers)
+        except ValueError as e:
+            return {"error": str(e)}
+        rows = []
+        for info, size in self._probes:
+            mode, _outcome, target = pipeline.decide(config, info)
+            if mode not in (Mode.SHRINK, Mode.TRANSCODE):
+                continue
+            src_kbps = info.effective_bps / 1000.0
+            saving = max(0.0, 1.0 - target / src_kbps) if src_kbps > 0 else 0.0
+            rows.append({
+                "path": str(info.path.resolve()),
+                "name": info.path.name,
+                "bytes": size,
+                "res": f"{info.width}x{info.height}" if info.width else "",
+                "dur": info.duration or 0.0,
+                "saving": round(saving * 100),
+            })
+        rows.sort(key=lambda r: r["bytes"], reverse=True)
+        return {"files": rows, "measured": self._probed_for == self._src,
+                "total": len(rows)}
+
     # -- the run: stream each file's result back, then a summary ----------------
     def hw_capabilities(self):
         """What hardware encoding is actually available — probed on demand at load
@@ -1035,7 +1076,13 @@ class Api:
         # old 8.0 under-priced every encode by about a third. 6.0 starts slightly
         # pessimistic, which is the right way for a clock to be wrong, and corr
         # below pulls it to whatever this run's content and codec really do.
-        enc_speed = 6.0 if hw else 0.18            # encode ×realtime (hardware vs software)
+        # Two speeds, because a run can now be MIXED: files picked out for software
+        # cost roughly 30x what the same file costs in hardware, so a single global
+        # constant would make the clock nonsense the moment one film is ticked.
+        # (Measured here: hardware ~5x realtime, software ~0.6x on 1080p. SW_SPEED
+        # stays pessimistic on purpose — corr below pulls both toward reality.)
+        HW_SPEED, SW_SPEED = 6.0, 0.18            # encode ×realtime
+        enc_speed = HW_SPEED if hw else SW_SPEED
         REMUX_S, SKIP_S = 10.0, 0.10
         probe_by_path = {info.path: info for info, _ in self._probes}
 
@@ -1059,7 +1106,10 @@ class Api:
             """Predicted wall-seconds for one PROBED file (a skip is ~free)."""
             mode = pipeline.decide(config, info)[0]
             if mode in (Mode.SHRINK, Mode.TRANSCODE):
-                return (info.duration / enc_speed) if info.duration else (30 * 60 / enc_speed)
+                # This file's OWN speed: a ticked file is software even on a
+                # hardware run, and it dominates the clock when it is.
+                spd = SW_SPEED if config.forces_software(info.path) else enc_speed
+                return (info.duration / spd) if info.duration else (30 * 60 / spd)
             return REMUX_S if mode is Mode.REMUX else SKIP_S
 
         # Average over the PROBED MIX — skips included. An un-probed file is assumed

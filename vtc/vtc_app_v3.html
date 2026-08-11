@@ -474,6 +474,35 @@ body{
 .adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:var(--r);
   padding:1px 6px;margin-left:8px;pointer-events:auto}
+/* ── Per-file software picker ─────────────────────────────────────────────── */
+.sw-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  margin-top:14px;padding:11px 13px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel)}
+.sw-entry-t b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
+.sw-entry-t span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.sw-lead{font-size:13px;color:var(--ink-2);margin:0 0 12px;line-height:1.5}
+.sw-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.sw-tools .adv-mini{margin-bottom:0}
+/* The list is the only scrolling region, so the tools and the count stay put
+   while a 400-row library goes past. */
+.sw-list{max-height:46vh;overflow-y:auto;border:1px solid var(--rule);border-radius:var(--r)}
+.sw-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;
+  gap:12px;padding:8px 12px;border-bottom:1px solid rgba(182,179,168,.4);cursor:pointer;
+  font-size:13px;color:var(--ink)}
+.sw-row:last-child{border-bottom:0}
+.sw-row:hover{background:var(--panel)}
+.sw-row.on{background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.sw-box{width:16px;height:16px;border:1.5px solid var(--rule);border-radius:4px;flex:0 0 auto;
+  position:relative;background:var(--bg)}
+.sw-row.on .sw-box{background:var(--accent);border-color:var(--accent)}
+.sw-row.on .sw-box::after{content:"";position:absolute;left:4.5px;top:1px;width:4px;height:9px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.sw-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sw-meta{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.sw-size{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;white-space:nowrap}
+.sw-foot{margin-right:auto;font-size:12px;color:var(--ink-3)}
+.sw-foot b{color:var(--ink)}
+.sw-empty{padding:22px 14px;text-align:center;color:var(--ink-3);font-size:13px}
 /* up-front non-MP4 policy sheet: selectable option cards over ADV.format */
 .compat-lead{font-size:15px;color:var(--ink);font-weight:600;margin:0}
 .compat-opts{display:flex;flex-direction:column;gap:10px;margin-top:16px}
@@ -1083,11 +1112,47 @@ body{
         <div><span class="mono">Projected</span><b id="c-proj">—</b></div>
         <div><span class="mono">Originals</span><b id="c-dest">—</b></div>
       </div>
+      <!-- Per-file encoder choice. Only shown on a HARDWARE run (on a software
+           run every file already gets the slow encoder), and only in the app —
+           the standalone mock has no file list to offer. -->
+      <div class="sw-entry" id="sw-entry" hidden>
+        <div class="sw-entry-t"><b>Encode some files in software</b>
+          <span id="sw-entry-n">Slower, but better per bit — worth it for the few files you care most about.</span></div>
+        <button class="adv-mini" id="sw-open" style="margin-bottom:0">Choose files…</button>
+      </div>
       <p class="sheet-w" id="c-warn"></p>
     </div>
     <div class="sheet-f">
       <button class="btn-ghost" id="c-back">Go back</button>
       <button class="btn-run" id="c-go" style="width:auto;margin:0;padding:11px 26px">Yes, start</button>
+    </div>
+  </div>
+</div>
+
+<!-- Per-file software picker. Lists ONLY the files this run would actually
+     re-encode — ticking a file that is going to be skipped as already-efficient
+     would do nothing, and on a real library the skips outnumber the work many
+     times over. Sorted biggest-first, because size is how people recognise the
+     handful of titles worth the extra hours. -->
+<div class="sheet" id="sw-sheet">
+  <div class="sheet-c wide">
+    <div class="sheet-h">
+      <div class="sheet-e mono">Software encoding · slower, better per bit</div>
+      <h2 class="sheet-t">Which files deserve the slow encoder?</h2>
+    </div>
+    <div class="sheet-b">
+      <p class="sw-lead" id="sw-lead">—</p>
+      <div class="sw-tools">
+        <button class="adv-mini" data-pick="all">Tick all</button>
+        <button class="adv-mini" data-pick="none">Tick none</button>
+        <button class="adv-mini" data-pick="big">Everything over</button>
+        <div class="adv-ctrl"><input type="number" id="sw-big" min="0.1" max="200" step="0.5" value="4"><span class="adv-unit">GB</span></div>
+      </div>
+      <div class="sw-list" id="sw-list"></div>
+    </div>
+    <div class="sheet-f">
+      <div class="sw-foot mono" id="sw-foot"></div>
+      <button class="btn-ghost" id="sw-done">Done</button>
     </div>
   </div>
 </div>
@@ -2417,6 +2482,103 @@ $('#adv-done').onclick=advClose;
 $('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) advClose(); };
 $('#adv-reset').onclick=()=>{ Object.assign(ADV, advDefaults()); advToForm(); advPush(); };
 
+// ═══ Per-file software picker ════════════════════════════
+// Choosing the encoder is a ONE-SHOT decision per file — the original is
+// archived or replaced, and you cannot re-encode your way back to quality —
+// so the few titles worth the extra hours deserve to be picked deliberately.
+// SW.picked holds resolved paths; SW.rows is whatever the engine last offered.
+const SW = { rows: [], picked: new Set(), measured: false };
+window.__softwareFiles = [];
+const swSync = ()=>{ window.__softwareFiles = [...SW.picked]; };
+const gb = b => b/1e9;
+const swSize = b => b>=1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(0)+' MB';
+// Rough clock for the footer. Same constants the engine's ETA starts from
+// (hardware ~6x realtime, software ~0.18x); both self-correct during the run,
+// so this is an order-of-magnitude answer, deliberately labelled "about".
+const HW_SPEED = 6.0, SW_SPEED = 0.18;
+function swHuman(sec){
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
+  return h ? `${h}h${String(m).padStart(2,'0')}m` : `${m}m`;
+}
+function swRender(){
+  const list = $('#sw-list'); if(!list) return;
+  if(!SW.rows.length){
+    list.innerHTML = `<div class="sw-empty">${SW.measured
+      ? 'Nothing here would be re-encoded — every file is already at or under your tier.'
+      : 'Still measuring your library…'}</div>`;
+  } else {
+    list.innerHTML = SW.rows.map((r,i)=>{
+      const on = SW.picked.has(r.path);
+      return `<div class="sw-row${on?' on':''}" data-i="${i}">`
+           + `<span class="sw-box"></span>`
+           + `<span class="sw-name" title="${r.name.replace(/"/g,'&quot;')}">${r.name}</span>`
+           + `<span class="sw-meta">${r.res}${r.saving?' · −'+r.saving+'%':''}</span>`
+           + `<span class="sw-size">${swSize(r.bytes)}</span></div>`;
+    }).join('');
+    list.querySelectorAll('.sw-row').forEach(el=>{
+      el.onclick = ()=>{
+        const r = SW.rows[+el.dataset.i];
+        if(SW.picked.has(r.path)) SW.picked.delete(r.path); else SW.picked.add(r.path);
+        el.classList.toggle('on', SW.picked.has(r.path));
+        swSync(); swFoot();
+      };
+    });
+  }
+  swFoot();
+}
+function swFoot(){
+  const foot = $('#sw-foot'); if(!foot) return;
+  const picked = SW.rows.filter(r=>SW.picked.has(r.path));
+  const rest = SW.rows.filter(r=>!SW.picked.has(r.path));
+  const secs = a => a.reduce((s,r)=>s + (r.dur||0), 0);
+  const hw = secs(rest)/HW_SPEED, sw = secs(picked)/SW_SPEED;
+  foot.innerHTML = `<b>${picked.length}</b> of ${SW.rows.length} to software`
+    + (SW.rows.length ? ` · about ${swHuman(hw+sw)} in total`
+        + (picked.length ? ` (${swHuman(sw)} of it software)` : '') : '');
+  const n = $('#sw-entry-n');
+  if(n) n.textContent = picked.length
+    ? `${picked.length} file${picked.length===1?'':'s'} picked · about ${swHuman(sw)} of slow encoding`
+    : 'Slower, but better per bit — worth it for the few files you care most about.';
+}
+function swOpen(){
+  openSheet('#sw-sheet');
+  $('#sw-lead').textContent = 'Measuring…';
+  swRender();
+  if(!(window.pywebview && window.pywebview.api.reencode_candidates)) return;
+  Promise.resolve(window.pywebview.api.reencode_candidates(
+      Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)))
+    .then(r=>{
+      if(!r || r.error) return;
+      SW.rows = r.files || []; SW.measured = !!r.measured;
+      // Drop any pick that is no longer a candidate (settings changed under it),
+      // so a stale tick can't quietly force software on a file we won't touch.
+      const live = new Set(SW.rows.map(x=>x.path));
+      [...SW.picked].forEach(p=>{ if(!live.has(p)) SW.picked.delete(p); });
+      swSync();
+      $('#sw-lead').textContent = SW.measured
+        ? `${SW.rows.length.toLocaleString()} file${SW.rows.length===1?'':'s'} would be re-encoded. `
+          + 'Tick the ones worth the extra time — everything else stays on the fast hardware encoder.'
+        : 'Still measuring your library, so this list may grow. Tick what you can see; you can come back.';
+      swRender();
+    }).catch(()=>{});
+}
+$('#sw-open') && ($('#sw-open').onclick = swOpen);
+$('#sw-done') && ($('#sw-done').onclick = ()=>{ shutSheet('#sw-sheet'); swFoot(); });
+$('#sw-sheet') && ($('#sw-sheet').onclick = e=>{ if(e.target===$('#sw-sheet')) shutSheet('#sw-sheet'); });
+$('#sw-sheet') && $('#sw-sheet').querySelectorAll('[data-pick]').forEach(b=>{
+  b.onclick = ()=>{
+    const how = b.dataset.pick;
+    if(how==='all')  SW.rows.forEach(r=>SW.picked.add(r.path));
+    if(how==='none') SW.picked.clear();
+    if(how==='big'){
+      const min = parseFloat($('#sw-big').value);
+      if(isFinite(min)) SW.rows.forEach(r=>{ if(gb(r.bytes) >= min) SW.picked.add(r.path); });
+    }
+    swSync(); swRender();
+  };
+});
+
 // The non-MP4 policy has two surfaces — the Advanced modal and the up-front sheet
 // below — over one value (ADV.format). setFormat keeps both in step.
 function setFormat(v){
@@ -2693,6 +2855,15 @@ function openConfirm(){
          + `<span class="rv">${o.recap||o.k}</span>`
          + `<span class="redit">${pencil}change</span></button>`;
   }).join('');
+  // Offer the per-file picker only where it means something: a HARDWARE run
+  // inside the app (on a software run every file already gets the slow encoder,
+  // and the standalone mock has no library to list).
+  const swE = $('#sw-entry');
+  if(swE){
+    const real = !!(window.pywebview && window.pywebview.api.reencode_candidates);
+    swE.hidden = !(real && answers.encoder === 0);
+    if(!swE.hidden) swFoot();
+  }
   $('#recap').querySelectorAll('.recap-row').forEach(b=>{
     b.onclick=()=>{
       const s=+b.dataset.step;

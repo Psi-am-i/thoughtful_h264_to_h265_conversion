@@ -92,6 +92,12 @@ class RunConfig:
     # Execution
     encoder: Encoder = Encoder.AUTO
     jobs: int = 1
+    # Files the user picked out for the slow, better encoder, whatever `encoder`
+    # says for the run as a whole. Resolved absolute paths as strings — a set, so
+    # a 20,000-file library costs one hash lookup per file. Choosing the encoder
+    # is a ONE-SHOT decision per file (the original is replaced), which is why it
+    # is worth spending attention on the handful that deserve it.
+    software_files: frozenset[str] = frozenset()
 
     # Destination
     output_mode: OutputMode = OutputMode.INPLACE
@@ -142,6 +148,19 @@ class RunConfig:
         except (TypeError, ValueError):
             return t.bpp
         return v if v > 0 else t.bpp
+
+    def forces_software(self, path: Path) -> bool:
+        """True if this particular file was picked out for the software encoder.
+
+        Matched on the resolved path so a relative/symlinked scan can't miss it.
+        Never raises — an unresolvable path simply isn't a match.
+        """
+        if not self.software_files:
+            return False
+        try:
+            return str(path.resolve()) in self.software_files
+        except OSError:
+            return str(path) in self.software_files
 
     def hevc_factors(self) -> tuple[float, float, float]:
         """The (HD, 4K, 8K+) H.265 efficiency factors this run should use."""

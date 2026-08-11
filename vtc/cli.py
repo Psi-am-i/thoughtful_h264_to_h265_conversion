@@ -80,6 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--encoder", choices=["auto", "hardware", "software"], default="auto",
                    help="encoder backend (default: auto)")
     e.add_argument("--jobs", type=int, default=1, help="parallel encode jobs (default: 1)")
+    e.add_argument("--software-file", action="append", default=[], metavar="PATH",
+                   help="encode just this file in software, even on a hardware run; "
+                        "repeatable (the GUI offers this as a tick-list)")
     d = p.add_argument_group("destination")
     d.add_argument("--output", metavar="DIR", default=None,
                    help="write outputs to DIR (mirroring the tree); default is in-place")
@@ -116,6 +119,7 @@ def config_from_args(a: argparse.Namespace) -> RunConfig:
         keep_image_subs=not a.drop_image_subs,
         encoder=Encoder(a.encoder),
         jobs=a.jobs,
+        software_files=frozenset(str(Path(p).expanduser().resolve()) for p in a.software_file),
         output_mode=OutputMode.SEPARATE if a.output else OutputMode.INPLACE,
         output_dir=Path(a.output) if a.output else None,
         output_flat=a.flat,
@@ -251,6 +255,8 @@ def _print_header(cfg: RunConfig, dry: bool = False) -> None:
         f"TIER:      {tier.label} — {ref_mbps:.1f} Mbps H.264 @1080p30{h265}, "
         f"scales with resolution & fps{tuned}",
         *_ignore_line(cfg),
+        *([f"SOFTWARE:  {len(cfg.software_files)} file(s) picked out for the software encoder"]
+          if cfg.software_files else []),
         f"ENCODER:   {cfg.encoder.value}",
         f"REMUX:     {'yes' if cfg.remux_to_mp4 else 'no'}    TRANSCODE: {'yes' if cfg.compat_transcode else 'no'}",
         f"OUTPUT:    {out}    ORIGINALS: {cfg.source_action.value}    JOBS: {cfg.jobs}",
