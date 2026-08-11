@@ -478,9 +478,14 @@ body{
 .est-delta{color:var(--ink-3);font-weight:400}
 
 /* ── Per-file software picker ─────────────────────────────────────────────── */
+/* Subtly lifted rather than shouted: the encoder choice is one-shot per file, so
+   this is worth noticing on the way past — but it is an offer, not a warning. */
 .sw-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;
-  margin-top:14px;padding:11px 13px;border:1px solid var(--rule);border-radius:var(--r);
-  background:var(--panel)}
+  margin-top:14px;padding:11px 13px;border-radius:var(--r);
+  border:1px solid color-mix(in srgb, var(--accent) 30%, var(--rule));
+  border-left:3px solid var(--accent);
+  background:color-mix(in srgb, var(--accent) 5%, var(--panel))}
+.sw-entry-t b{color:var(--ink)}
 .sw-entry-t b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
 .sw-entry-t span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
 .sw-lead{font-size:13px;color:var(--ink-2);margin:0 0 12px;line-height:1.5}
@@ -1241,8 +1246,8 @@ body{
            run every file already gets the slow encoder), and only in the app —
            the standalone mock has no file list to offer. -->
       <div class="sw-entry" id="sw-entry" hidden>
-        <div class="sw-entry-t"><b>Encode some files in software</b>
-          <span id="sw-entry-n">Slower, but better per bit — worth it for the few files you care most about.</span></div>
+        <div class="sw-entry-t"><b>Are some files really important?</b>
+          <span id="sw-entry-n">Choose the ones worth the higher-quality, slower software encoder.</span></div>
         <button class="adv-mini" id="sw-open" style="margin-bottom:0">Choose files…</button>
       </div>
       <div class="c-work" id="c-work" hidden></div>
@@ -2703,7 +2708,7 @@ function swFoot(){
   const n = $('#sw-entry-n');
   if(n) n.textContent = picked.length
     ? `${picked.length} file${picked.length===1?'':'s'} picked · about ${swHuman(sw)} of slow encoding`
-    : 'Slower, but better per bit — worth it for the few files you care most about.';
+    : 'Choose the ones worth the higher-quality, slower software encoder.';
 }
 function swOpen(){
   openSheet('#sw-sheet');
@@ -2896,7 +2901,11 @@ function pgFile(name, frac, stats){
   $('#pg-cur-n').textContent = n > 1
     ? `Encoding ${n} files · slowest ${Math.round(slowest*100)}%`
     : (frac!=null ? `Encoding · ${Math.round(f*100)}%` : 'Working…');
-  $('#pg-stats').textContent = bits.join('  ·  ');
+  // These stats belong to whichever worker just reported. With one file in flight
+  // that is unambiguous; with several it silently flips between them, so say whose
+  // they are rather than letting two encodes look like one set of numbers.
+  const who = (n > 1 && name) ? (name.length > 30 ? name.slice(0,29)+'…' : name) + '  ·  ' : '';
+  $('#pg-stats').textContent = who + bits.join('  ·  ');
   // NB: do NOT re-anchor the ETA here — pgTick counts it down and re-anchors on a
   // timer. Re-anchoring every progress frame is what made the clock bounce.
 }
@@ -2953,8 +2962,14 @@ function pgRenderList(){
     if(i<0) i = q.indexOf(n);                  // wrapped or out of order: full scan
     return i;
   };
+  // Resolve each in-flight NAME to a single queue INDEX. Filenames are not
+  // unique — a library holds the same name in two places the moment there is a
+  // `converted/` folder beside the originals — so testing `inflight.has(name)`
+  // per row lit up EVERY copy and one encoding file appeared to be several.
+  const curIdx = new Set();
   if(q.length && inflight.size){
-    for(const n of inflight){ const i = place(n); if(i>=0 && (idx<0 || i<idx)) idx = i; }
+    for(const n of inflight){ const i = place(n); if(i>=0) curIdx.add(i); }
+    for(const i of curIdx) if(idx<0 || i<idx) idx = i;
     if(idx>=0) PG.lastIdx = idx;
   } else if(q.length && cur){
     idx = place(cur);
@@ -2985,11 +3000,11 @@ function pgRenderList(){
   // file can already have finished while an earlier one is still encoding. A file
   // with a result is done wherever it sits.
   for(let i=topEnd;i>idx;i--)
-    parts.push(pgRowHTML(q[i], inflight.has(q[i]) ? 'cur' : (PG.tags[q[i]] ? 'done' : 'up')));
+    parts.push(pgRowHTML(q[i], curIdx.has(i) ? 'cur' : (PG.tags[q[i]] ? 'done' : 'up')));
   parts.push(pgRowHTML(q[idx],'cur'));                           // the earliest in flight, pinned
   const botStart=Math.max(0, idx-DOWN);
   for(let i=idx-1;i>=botStart;i--)
-    parts.push(pgRowHTML(q[i], inflight.has(q[i]) ? 'cur' : 'done'));   // processed, newest first
+    parts.push(pgRowHTML(q[i], curIdx.has(i) ? 'cur' : 'done'));   // processed, newest first
   if(botStart>0) parts.push(`<div class="pg-more">+${botStart.toLocaleString()} more done</div>`);
   box.innerHTML=parts.join('');
   if(!PG.userScroll) pgCenterCurrent();

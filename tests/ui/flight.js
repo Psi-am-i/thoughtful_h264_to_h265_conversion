@@ -29,5 +29,14 @@ setTimeout(()=>{
   ck('a finished file leaves the flight', proc2.sort(), ['a.mkv','c.mkv']);
   ck('...and is marked done', /done/.test(rows2.find(r=>/b\.mkv/.test(r.textContent)).textContent), true);
   ck('progress counts the work cohort', $('#pg-done').textContent+' of '+$('#pg-total').textContent, '1 of 4');
+
+  // Reported from a real run: a `converted/` folder beside the originals puts the
+  // SAME filename in the queue twice. Keying in-flight by name lit up every copy,
+  // so one encoding file showed as two rows both saying "processing".
+  const dup=['a.mkv','dup.mkv','b.mkv','dup.mkv','c.mkv'];
+  w.pgStart(dup.length, 600, dup);
+  w.pgFile('dup.mkv', 0.2, {});
+  const procRows=[...d.querySelectorAll('#pg-recent .pg-r')].filter(r=>/processing/.test(r.textContent));
+  ck('a duplicated filename shows ONE processing row', procRows.length, 1);
   process.stdout.write(JSON.stringify(out)); process.exit(0);
 }, 1200);
