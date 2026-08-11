@@ -90,11 +90,14 @@ def test_step_navigation_does_not_strand_you():
 
 
 def _run_all():
-    fns = [v for k, v in sorted(globals().items())
-           if k.startswith("test_") and callable(v) and not getattr(v, "__skip__", False)]
-    if not fns:
+    # Ask the question directly. When pytest IS installed the decorator is
+    # pytest's own and leaves no attribute behind, so relying on the marker ran
+    # the harness on a machine with no jsdom and failed the build.
+    if not _have_jsdom():
         print("  (node/jsdom not installed — UI harness skipped)")
         return
+    fns = [v for k, v in sorted(globals().items())
+           if k.startswith("test_") and callable(v)]
     for fn in fns:
         fn()
         print(f"  ok  {fn.__name__}")

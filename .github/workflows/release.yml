@@ -38,6 +38,12 @@ jobs:
       - name: Install test tooling
         run: python -m pip install --quiet pytest
 
+      - name: Install jsdom (drives the real UI in a DOM)
+        # Without this the UI harness silently skips, which is how a broken
+        # interface could pass CI while every engine test stayed green.
+        working-directory: tests/ui
+        run: npm install --no-audit --no-fund jsdom
+
       - name: Engine tests (real ffmpeg encodes + decisions)
         # pytest is the gate: it collects every test, including any that need a
         # fixture. The standalone loop below then proves the files still run on
