@@ -90,6 +90,25 @@ same settings picks up where it left off instead of re-examining everything.
 Change any setting and the whole library is re-evaluated.
 
 
+** WHAT'S NEW IN 1.2 **
+
+  - A tier is now a QUALITY NUMBER (Excellent 109, Stellar 129) rather than a
+    bits-per-pixel figure. The same quality costs different bits in different
+    codecs, so one bpp was only ever true for H.264 — the number is now
+    codec-independent and the app shows what it costs in the codec you picked.
+  - The tool signs its own output and refuses, by default, to re-encode
+    something it made earlier: a second lossy generation is unrecoverable. It
+    is one click if you actually want it (H.264 -> H.265, say).
+  - A scan no longer walks into its own output folder, which is how a second
+    run used to re-encode the first run's results.
+  - Source bitrate is measured properly for MKV, TS and WebM. Those containers
+    do not report a per-stream video bitrate, and using the container total
+    charged the video for the audio — over-stating a Blu-ray MKV by a third and
+    re-encoding files that did not need it.
+  - Pick individual files for the slower, better software encoder.
+  - The interface is rebuilt: one progress strip along the top, one large
+    preview deck, and a full-screen comparison at true 1:1 with no letterboxing.
+
 ** WHAT'S NEW IN 1.0 **
 
   - Quality tiers anchored to bits-per-pixel-per-frame, so "GOOD" means the same
