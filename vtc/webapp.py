@@ -30,7 +30,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import encode, netmove, pipeline
+from . import __version__, encode, netmove, pipeline
 from .config import AudioPolicy, Container, Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
 from .model import OutCodec, Tier, target_kbps
@@ -447,6 +447,13 @@ _BRIDGE_JS = r"""
     const famMap = {videotoolbox:'VideoToolbox', nvenc:'NVENC', qsv:'QuickSync', amf:'AMF'};
     let fam = ''; for(const k in famMap){ if(enc && enc.indexOf(k)>=0){ fam = famMap[k]; break; } }
     const hwCodecs = [cap&&cap.h264&&'H.264', cap&&cap.h265&&'H.265'].filter(Boolean).join(' ');
+    // The version is written into the HTML for the standalone mock; in the app it
+    // comes from the package, so the two can never disagree.
+    if(cap && cap.app_version){
+      const pv = document.querySelector('.pv-ver'); if(pv) pv.textContent = 'v'+cap.app_version;
+      const av = document.querySelector('.about-ver');
+      if(av) av.textContent = av.textContent.replace(/Version [\d.]+/, 'Version '+cap.app_version);
+    }
     const rv = document.getElementById('rig-v');
     if(rv) rv.innerHTML = (cap && cap.available)
       ? `Soft <b>ffmpeg ${cap.ffmpeg_version||'?'}</b> · Hard <b>${fam||'hardware'}</b> ${hwCodecs}`
@@ -1083,6 +1090,7 @@ class Api:
         rep = dict(encode.hardware_report(FFMPEG))
         rep["preview_codec"] = _PREVIEW_CODEC.value   # 'h265' on mac, 'h264' where HEVC won't play
         rep["ffmpeg_version"] = _ffmpeg_version()      # for the toolbar readout
+        rep["app_version"] = __version__               # so the UI cannot drift from the package
         log.info("hw_capabilities: %s", rep)
         return rep
 

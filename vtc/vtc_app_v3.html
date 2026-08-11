@@ -180,29 +180,65 @@ body{
   animation:breathe 1.4s ease-in-out infinite}
 @keyframes breathe{50%{opacity:.42}}
 
-/* ── comb ───────────────────────────────────────────────── */
-.comb{display:flex;padding:0 24px;background:#e7e4db;border-bottom:1px solid var(--rule);flex:0 0 auto}
-.tooth{flex:1;padding:10px 4px 9px;text-align:left;position:relative;border:0;background:none;
+/* ── comb: the five steps ARE the progress bar ───────────── */
+/* Each step is a block. Unanswered it is bare plate; answered it fills with the
+   tiling — so the strip is read as a bar that completes, and the same glance that
+   says "three of five" also says what those three were. That is why the rail's
+   copy of this list could go: it was the same information, twice, and only one of
+   the two could also be the progress indicator.
+   Fixed height, not padding-derived: the canvas underneath is a 16px tiling and
+   wants a whole number of rows (64 = 4 rows exactly). */
+.comb{position:relative;display:flex;background:#e7e4db;flex:0 0 auto;height:64px;
+  border-bottom:1px solid var(--rule);overflow:hidden}
+#corpse{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0}
+.comb-steps{position:absolute;inset:0;display:flex;z-index:1}
+.tooth{flex:1;min-width:0;padding:9px 14px;text-align:left;position:relative;border:0;background:none;
+  display:flex;flex-direction:column;justify-content:center;gap:1px;
   font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.15em;text-transform:uppercase;
   color:var(--ink-3);font-weight:600;cursor:pointer;transition:color .25s}
-.tooth::after{content:"";position:absolute;left:0;bottom:-1px;height:2px;width:100%;background:transparent;transition:background .3s}
-.tooth:disabled{cursor:default;opacity:.45}
-.tooth.done{color:var(--ink-2)} .tooth.done::after{background:var(--rule)}
-.tooth.now{color:var(--ink)} .tooth.now::after{background:var(--accent)}
-.tooth .n{display:block;font-size:11px;opacity:.6;margin-bottom:2px}
+/* A chiselled seam between blocks — dark on one side, light on the other — so the
+   bar reads as five slots being filled rather than one continuous wash. */
+.tooth + .tooth{box-shadow:inset 1px 0 0 rgba(38,36,31,.28), inset 2px 0 0 rgba(255,255,255,.5)}
+/* an unfilled slot is milled out of the plate: it should look like it is waiting */
+.tooth:not(.done){background:linear-gradient(180deg,#e2dfd6,#eae7de);
+  box-shadow:inset 0 2px 4px -2px rgba(38,36,31,.3)}
+.tooth:not(.done) + .tooth:not(.done){box-shadow:inset 0 2px 4px -2px rgba(38,36,31,.3),
+  inset 1px 0 0 rgba(38,36,31,.22)}
+/* the accent underline still marks WHERE YOU ARE; the fill marks what is done */
+.tooth::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:100%;background:transparent;transition:background .3s}
+.tooth:disabled{cursor:default;opacity:.5}
+.tooth.now::after{background:var(--accent)}
+.tooth .n{font-size:10.5px;opacity:.55;letter-spacing:.2em}
+.tooth .k{font-size:12.5px}
+/* the answer, engraved into the tiling the same way the rail's labels were: a
+   shadow above the stroke and a highlight below, so it sits IN the plate */
+/* overflow:hidden here is for the horizontal ellipsis on a long answer — but with
+   no line-height the box came out SHORTER than the 13px glyphs and clipped their
+   bottoms, so every answer looked sliced in half. Give the line room. */
+.tooth .v{font-size:13px;line-height:1.3;letter-spacing:.01em;text-transform:none;color:#45413a;
+  font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.tooth.done{color:#3a372f}
+.tooth.done .n{opacity:.7}
+.tooth.done .n,.tooth.done .k,.tooth.done .v{
+  text-shadow:0 -1px 0 rgba(0,0,0,.30), 0 1px 0 rgba(255,255,255,.9)}
+.tooth.now:not(.done){color:var(--ink)}
+/* hovering a settled step offers the edit, in the accent, over its own block */
+.tooth.done:hover::before{content:"EDIT";position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;background:rgba(232,84,31,.88);color:#fff;
+  font-size:12.5px;letter-spacing:.2em;text-shadow:none}
 
 /* ── main ───────────────────────────────────────────────── */
 /* The rail was pinned at 292px, so widening the canvas gave every extra pixel to
    the stage. 400px only took it from 23.5% to 28.6% — it grew, but not enough to
    read as different. The stage's longest line needs ~405px of a 950px pane, so
    the slack is all on that side. */
-.main{flex:1;display:grid;grid-template-columns:1fr 480px;min-height:0}
+.main{flex:1;display:grid;grid-template-columns:1fr 452px;min-height:0}
 /* auto, not hidden: on a short screen the well shrinks to its floor and the
    stage scrolls, so Confirm is always reachable rather than silently clipped */
 .stage{padding:24px 26px 20px;border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 
-.q-title{font-size:35px;font-weight:600;letter-spacing:-.022em;line-height:1.16}
-.q-sub{margin-top:9px;font-size:18px;color:var(--ink-2);line-height:1.5;max-width:64ch}
+.q-title{font-size:34px;font-weight:600;letter-spacing:-.022em;line-height:1.16}
+.q-sub{margin-top:9px;font-size:17px;color:var(--ink-2);line-height:1.5;max-width:60ch}
 
 .keys{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px;flex:0 0 auto}
 .key{
@@ -235,15 +271,18 @@ body{
   transition:border-left-color .4s ease;
 }
 .well.lit{border-left-color:var(--accent)}
-.well-empty{font-family:'IBM Plex Mono',monospace;font-size:14.5px;color:var(--ink-3);letter-spacing:.05em}
-.well-tag{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent);
+.well-empty{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--ink-3);letter-spacing:.05em}
+.well-tag{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--accent);
   letter-spacing:.15em;text-transform:uppercase;margin-bottom:5px}
-.well-name{font-size:22px;font-weight:600}
-.well-text{font-size:18px;color:var(--ink-2);line-height:1.6;margin-top:8px;max-width:72ch}
+.well-name{font-size:21px;font-weight:600;line-height:1.2}
+.well-text{font-size:16px;color:var(--ink-2);line-height:1.6;margin-top:8px}
 .fade{animation:fade .3s ease both}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}}
 
-.meters{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;flex:0 0 auto}
+/* the meters sit ON the floor of the stage: the question and its options are the
+   top of the column, and everything between them is deliberate air */
+.meters{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:auto;
+  padding-top:14px;flex:0 0 auto}
 .meter .ml{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--ink-3);margin-bottom:4px;display:flex;justify-content:space-between}
 .meter .ml b{color:var(--ink);font-weight:600}
@@ -259,81 +298,12 @@ body{
 .btn-commit:disabled{background:var(--rule);box-shadow:none;cursor:default;color:#eceadf}
 .hint{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-3)}
 
-/* ── settled: ONE continuous field, folded into regions ─── */
-.rail{background:#e2dfd6;padding:16px 16px 16px;display:flex;flex-direction:column;min-height:0}
-.rail-h{font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.2em;text-transform:uppercase;
-  color:var(--ink-3);padding-bottom:9px;border-bottom:1px solid var(--rule);
-  display:flex;justify-content:space-between;flex:0 0 auto}
-/* The field takes the rail: it is the one thing in this panel worth looking at,
-   and it was sitting in a box half its frame's size. */
-.field{
-  /* The field TAKES the rail's spare height instead of being pinned to a number
-     I calculated. Every fixed value I picked was wrong against the real layout —
-     too small left a bald strip under the pattern, too large overflowed. flex:1
-     lets the browser do the measuring; the painter then fits whole 16px grid
-     rows into whatever height it is handed and centres the band stack, so the
-     remainder becomes frame at top and bottom rather than a gap at the bottom. */
-  position:relative;margin-top:10px;flex:1;min-height:192px;
-  border:1px solid var(--rule);border-radius:var(--r);overflow:hidden;background:#dbd8ce;
-  box-shadow:0 1px 3px rgba(0,0,0,.1) inset;
-}
-#corpse{position:absolute;inset:0;width:100%;height:100%;display:block}
-/* One strip, folded six times. A 2x3 grid gave every region four hard edges,
-   which is a tile no matter what you paint in it — and the corpse only works if
-   each fold hands DOWN to the next. Full-width bands, creases across, nothing
-   vertical. */
-/* left/right only. inset:0 would pin bottom:0 too, and that fights the top and
-   height the painter sets — the grid stretches, the label rows stop lining up
-   with the bands underneath, and you see the seam. The painter owns the vertical. */
-.regions{position:absolute;left:0;right:0;top:0;display:grid}
-/* Centred on the band, not pinned to its left edge: the label sits ON the
-   pattern rather than beside it, so it needs the pattern behind it on both
-   sides to read as engraved into the surface. */
-/* A fixed centre line, not a centred pair. justify-content:center centred the
-   key+value TOGETHER, so the gutter between them slid left and right with the
-   length of each value and nothing lined up down the panel. A two-column grid
-   splitting at the middle pins it: keys right-align INTO the centre, values
-   left-align OUT of it, and the seam is a straight edge down the block. */
-.reg{
-  position:relative;border:0;background:none;cursor:pointer;overflow:hidden;
-  display:grid;grid-template-columns:1fr 1fr;align-items:center;
-  column-gap:12px;padding:0 12px;
-}
-.reg .reg-k{justify-self:end;text-align:right}
-.reg .reg-v{justify-self:start;text-align:left}
-.reg.blank{cursor:default}
-/* Chiselled: a shadow ABOVE the stroke and a highlight BELOW reads as a groove
-   cut into the plate, lit from above. Both label and value take the same cut and
-   the same ink — a pale key beside a black value read as two unrelated things
-   stuck on the surface rather than one line engraved into it. */
-.reg-k, .reg-v{
-  text-shadow:0 -1px 0 rgba(0,0,0,.34), 0 1px 0 rgba(255,255,255,.92);
-}
-/* the key was ghosting at .72 — it is a label, not a whisper (5.1 contrast on the
-   darkest tile now, up from 3.5) */
-.reg-k{font-family:'IBM Plex Mono',monospace;font-size:13.5px;letter-spacing:.16em;
-  text-transform:uppercase;color:#2e2b25;opacity:.92;font-weight:500}
-/* and the value was the heaviest thing on the plate: a shade off black so the
-   pattern reads through the line rather than the line being stamped over it */
-.reg-v{font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.15;color:#45413a}
-.reg.blank .reg-v{font-weight:400;color:var(--ink-3);font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-shadow:none}
-/* the mark sits in a milled recess: dark rim at the top, light at the bottom, so
-   it reads as sunk into the plate rather than stuck on top of it. The recess is a
-   wrapper, because padding on the svg itself would shrink the glyph. */
-.reg .mk{position:absolute;top:50%;right:10px;transform:translateY(-50%);
-  width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:rgba(226,223,214,.8);
-  box-shadow:inset 0 1.5px 2.5px rgba(0,0,0,.34), inset 0 -1.5px 0 rgba(255,255,255,.9),
-             0 1px 0 rgba(255,255,255,.45)}
-.reg .mk svg{width:22px;height:22px;display:block;
-  filter:drop-shadow(0 -.5px 0 rgba(0,0,0,.28)) drop-shadow(0 .5px 0 rgba(255,255,255,.75))}
-.reg:hover::after{content:"EDIT";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  background:rgba(232,84,31,.85);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.2em}
-.reg.blank:hover::after{display:none}
-/* no creases. A line between bands announces a border, and the bands are meant
-   to run into one another — the pattern changing IS the boundary. */
-.folds{display:none}
-
+/* ── rail: what this choice means, then what it costs ──── */
+/* The settled-steps panel that used to live here has moved into the progress bar
+   at the top of the window — one list, in the place that also shows progress. The
+   rail is now the consequence column: the description of whatever is armed, the
+   before/after, and the one button that starts the run. */
+.rail{background:#e2dfd6;padding:16px;display:flex;flex-direction:column;min-height:0;gap:0}
 /* ── source control in the brow ─────────────────────────── */
 .src{
   display:flex;align-items:center;gap:7px;cursor:pointer;
@@ -403,6 +373,24 @@ body{
 .sheet-w{font-size:14.5px;color:var(--ink-2);line-height:1.6;margin-top:12px;
   padding:10px 12px;background:var(--panel);border-left:3px solid var(--accent);
   border-radius:0 var(--r) var(--r) 0}
+/* ── About: a reading modal ─────────────────────────────── */
+/* Three sections of prose, so it is sectioned rather than scrolled as one long
+   page — but each section is still two columns of continuous text, not a form. */
+#about-sheet .sheet-b{display:flex;flex-direction:column;overflow:hidden;padding:0 24px 18px}
+.about-tabs{display:flex;gap:0;border-bottom:1px solid var(--rule);flex:0 0 auto;
+  margin-bottom:16px;position:sticky;top:0;background:var(--shell);padding-top:14px}
+.atab{border:0;background:none;padding:8px 16px 9px;cursor:pointer;position:relative;
+  font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:600}
+.atab::after{content:"";position:absolute;left:0;bottom:-1px;height:2px;width:100%;
+  background:transparent;transition:background .25s}
+.atab.on{color:var(--ink)} .atab.on::after{background:var(--accent)}
+.atab:hover:not(.on){color:var(--ink-2)}
+.apane{display:none;min-height:0;flex:1}
+.apane.on{display:block;animation:fade .3s ease both}
+#about-sheet .docs-two{height:100%}
+#about-sheet .prose p{font-size:14.5px}
+#about-sheet .sheet-c{height:min(760px,90vh)}
 /* ── Advanced Settings: the gear entry point + the modal's controls ─────────── */
 .gear{width:28px;height:28px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;background:none;border:0;border-radius:var(--r);
@@ -679,62 +667,78 @@ body{
 .flier .mark .gl-hot-s{stroke:var(--accent);stroke-width:2.2}
 .flier .mark .gl-ghost{stroke:rgba(242,239,230,.3)}
 .flier .mark .gl-well{fill:rgba(255,255,255,.06)}
-/* the mark, once seated, is stamped into the field */
-.reg svg .gl-cut{stroke:rgba(28,26,22,.92);stroke-width:2.4}
-.reg svg .gl-fill{fill:rgba(28,26,22,.92)}
-.reg svg .gl-hot{fill:var(--accent)} .reg svg .gl-hot-s{stroke:var(--accent);stroke-width:2.2}
-.reg.arrived .mk{animation:stamp .3s cubic-bezier(.25,.9,.3,1) both}
-@keyframes stamp{from{transform:translateY(-50%) scale(1.5);opacity:.5}}
+/* the block the mark lands in flashes once as the answer seats */
+.tooth.arrived{animation:stamp .34s cubic-bezier(.25,.9,.3,1) both}
+@keyframes stamp{from{filter:brightness(1.28)}}
 
-/* ── deck ───────────────────────────────────────────────── */
+/* ── deck: the previews, and nothing else ───────────────── */
+/* It used to be three tabbed panes sharing one fixed height, which meant the
+   videos were sized by whatever the longest prose column needed. The prose is
+   now in the About modal, so the whole deck belongs to the previews and two
+   panels fit side by side at a size you can actually judge. */
 .deck{flex:0 0 auto;border-top:1px solid var(--rule);background:#e9e6dd;display:flex;flex-direction:column}
-.deck-tabs{display:flex;align-items:center;border-bottom:1px solid var(--rule);padding:0 24px;flex:0 0 auto}
-/* pushed to the right of the same bar the tabs sit in */
-.deck-tools{margin-left:auto;display:flex;gap:8px;align-items:center}
-.deck-tools[hidden]{display:none}
-.dtab{border:0;background:none;padding:9px 15px;cursor:pointer;position:relative;
-  font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--ink-3);font-weight:600}
-.dtab::after{content:"";position:absolute;left:0;bottom:-1px;height:2px;width:100%;background:transparent;transition:background .25s}
-.dtab.on{color:var(--ink)} .dtab.on::after{background:var(--accent)}
-/* One stable height for all three panes. Sizing the deck to its content instead
-   made it lurch 133px between Reference and 'How it decides' and resized the
-   stage on every tab click — worse than the cramping it fixed.
-   So: tall enough that Reference's two tables and the previews both sit whole,
-   capped by vh so it can never starve the stage, and the prose — the only pane
-   that genuinely wants more — scrolls. Prose is the right thing to scroll. */
-/* The canvas is a fixed 1400x875, so vh units here would be measuring the
-   BROWSER window rather than the app — the deck must be a plain fixed height. */
-.deck-body{height:290px;overflow:hidden;padding:12px 24px}
-/* the docs/about panes are two columns that each scroll on their own; the pane
-   itself doesn't scroll (so the two columns stay side by side). Previews fit. */
-#p-docs.on, #p-about.on{height:100%;overflow:hidden}
+/* The canvas is a fixed size, so vh units here would be measuring the BROWSER
+   window rather than the app — the deck must be a plain fixed height. */
+.deck-body{height:436px;overflow:hidden;padding:0}
 .docs-two{display:grid;grid-template-columns:1.15fr 1fr;gap:26px;height:100%;min-height:0}
 .docs-col{overflow-y:auto;min-height:0;height:100%;padding-right:10px}
 .ref-col .ref-block{margin-bottom:16px}
 .ref-h{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;
   text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.ref-n{font-size:9.5px;color:var(--ink-3);margin-top:7px;line-height:1.5}
 .about-mark{line-height:1;margin-bottom:2px}
 .about-a{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.3em;
   text-transform:uppercase;color:var(--ink-3);font-weight:600}
 .about-b{display:block;font-size:26px;font-weight:700;letter-spacing:-.01em;margin-top:3px}
 .about-by{color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.1em;margin:3px 0 12px}
 .about-ver{color:var(--ink-3);font-size:11px;margin-top:12px}
-#p-prev .sec-s{margin-bottom:6px;font-size:14px;max-width:none;flex:0 0 auto}
 .dpane{display:none} .dpane.on{display:block;animation:fade .3s ease both}
-/* previews: a column that fits by construction. The frames flex, so whatever the
+/* previews: a control column, then the panels. The frames flex, so whatever the
    note and transport actually measure, the strip absorbs it and nothing scrolls. */
-#p-prev.on{display:flex;flex-direction:column;height:100%;min-height:0}
-#p-prev .sec-s{flex:0 0 auto}
+#p-prev.on{display:grid;grid-template-columns:262px 1fr;height:100%;min-height:0}
+.pv-main{display:flex;flex-direction:column;min-height:0;padding:12px 24px 12px 20px}
+#p-prev .sec-s{flex:0 0 auto;margin-bottom:8px;font-size:13.5px;max-width:none;color:var(--ink-3)}
 #p-prev .grid{flex:1 1 auto;min-height:0;align-items:stretch}
 #p-prev .cell{min-height:0}
 #p-prev .frame{flex:1 1 auto;min-height:0}
 #p-prev .transport, #p-prev .ticks{flex:0 0 auto}
 .sec-s{font-size:15px;color:var(--ink-2);line-height:1.55;margin-bottom:12px;max-width:76ch}
-/* Five across, always, and the whole pane has to FIT — no scrolling to reach the
-   transport. The frames are 16:10 but capped by height, so on a wide window they
-   stop growing rather than pushing the controls out of the deck. */
-.grid{display:grid;grid-template-columns:repeat(var(--pvn,6),1fr);gap:7px;align-items:start}
+
+/* ── preview control column ─────────────────────────────── */
+/* Every control that changes what the two panels show, stacked as label/control
+   rows so the column reads down rather than across. It ends at the bottom-left
+   corner of the window, which is where About lives. */
+.pv-side{display:flex;flex-direction:column;gap:9px;min-height:0;
+  padding:12px 18px 12px 24px;border-right:1px solid var(--rule);background:#e5e2d9}
+.pv-side[hidden]{display:none}
+.pv-side-h{font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--ink);font-weight:600;padding-bottom:8px;
+  border-bottom:1px solid var(--rule)}
+.pv-f{display:flex;flex-direction:column;gap:4px}
+.pv-f-l{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-3)}
+.pv-f-c{display:flex;align-items:center;gap:7px;min-width:0}
+/* The tail of the path, not the head: the brow already shows the whole thing,
+   and what identifies a folder here is its last couple of segments. Truncating a
+   path with an ellipsis hides exactly the part that tells them apart. */
+.pv-src{font-size:12px;color:var(--ink);flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.pv-acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:3px}
+.pv-acts .tp-tool:last-child{grid-column:1 / -1}
+.pv-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--rule);
+  display:flex;align-items:baseline;justify-content:space-between}
+.pv-ver{font-size:10.5px;color:var(--ink-3);letter-spacing:.08em}
+.linky{border:0;background:none;padding:0;cursor:pointer;color:var(--ink-2);
+  font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.16em;
+  text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--rule)}
+.linky:hover{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Two panels, side by side, as large as the deck allows: judging compression
+   needs area, and six thumbnails gave none of them any. Which two is the
+   Compare pair — every tier is still encoded, and All tiers shows them at once. */
+.grid{display:grid;grid-template-columns:repeat(var(--pvn,6),1fr);gap:10px;align-items:start}
+.grid.pair{grid-template-columns:1fr 1fr}
+.grid.pair .cell.off{display:none}
 .grid:not(.live){display:flex;align-items:center;justify-content:center;min-height:180px}
 .pv-empty{color:var(--ink-3);font-size:12.5px;letter-spacing:.03em;text-align:center;
   max-width:62ch;line-height:1.55;padding:24px}
@@ -743,7 +747,7 @@ body{
 /* The frame is a 1:1 WINDOW onto the encode: the <video> sits at its natural pixel
    size and is translated, so the frame shows a crop at 100% — never scaled down.
    That is the only honest way to compare quality across encodes. */
-.frame{width:100%;aspect-ratio:16/10;position:relative;overflow:hidden;
+.frame{width:100%;aspect-ratio:16/9;position:relative;overflow:hidden;
   border:1px solid var(--rule);border-radius:var(--r);background:#0f0e0c;cursor:grab;
   transition:box-shadow .2s}
 .grid.grabbing .frame{cursor:grabbing}
@@ -767,29 +771,66 @@ body{
 .cell-m .cd{color:var(--ink-2)}
 .cell-m .df{color:var(--accent)} .cell-m .df.sm{color:var(--ink-3)}
 .cell-m .sep{font-style:normal;color:var(--ink-3);opacity:.6}
-/* preview codec toggle in the deck toolbar */
+/* preview codec toggle — lives in the control column, and travels into the
+   enlarged view so a codec can be switched without leaving it */
 .pv-codec{display:inline-flex;border:1px solid var(--rule);border-radius:var(--r);overflow:hidden}
 .pv-codec button{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
-  letter-spacing:.08em;padding:4px 9px;border:0;cursor:pointer;background:#efece3;color:var(--ink-3)}
+  letter-spacing:.08em;padding:5px 12px;border:0;cursor:pointer;background:#efece3;color:var(--ink-3)}
 .pv-codec button.on{background:var(--accent);color:#fff}
-.pv-pos{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3);letter-spacing:.06em}
-.pv-pos input[type=range]{width:74px;accent-color:var(--accent);cursor:pointer}
-.pv-pos b{color:var(--ink-2);font-weight:600;min-width:44px}
+.pv-pos{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--ink-3);letter-spacing:.06em}
+.pv-pos input[type=range]{flex:1;min-width:0;accent-color:var(--accent);cursor:pointer}
+.pv-pos b{color:var(--ink-2);font-weight:600;min-width:44px;text-align:right}
 .tp-tool{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
   letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;cursor:pointer;
   background:linear-gradient(180deg,#f7f5ee,#e6e3da);border:1px solid var(--rule);
   border-radius:var(--r);color:var(--ink-2)}
 .tp-tool:hover{background:linear-gradient(180deg,#fff,#ece9e0);color:var(--ink)}
 
-/* full screen: TILE the panels to fill the space, labels OVER the video, minimal
-   chrome — every pixel goes to the crops, not to padding. */
+/* Enlarged preview. The image is the screen: no padding, no header, no gaps
+   between the frame and the edge. The only chrome is Close, floated over the
+   top-right corner, and one control bar along the bottom. */
 #big-sheet{padding:0}
-#big-sheet .sheet-c{width:100%;max-width:none;height:100%;margin:0;border-radius:0;
-  background:#0f0e0c;border:0;display:flex;flex-direction:column}
-#big-sheet .sheet-h{border-color:#241f1a;padding:8px 18px}
-#big-sheet .sheet-e{color:var(--accent)} #big-sheet .sheet-t{color:#f2efe6;font-size:19px;margin-top:2px}
-#big-sheet .sheet-b{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px;overflow:hidden}
-#big-sheet .sheet-f{border-color:#241f1a;padding:7px 18px}
+/* max-height:none matters: the base sheet caps every panel at 88vh, which left a
+   band of dimmed app above and below this one — black bars by another name. */
+#big-sheet .sheet-c{width:100%;max-width:none;height:100%;max-height:none;margin:0;
+  border-radius:0;background:#000;border:0;display:flex;flex-direction:column}
+#big-sheet .sheet-b{flex:1;min-height:0;display:flex;flex-direction:column;padding:0;
+  overflow:hidden;position:relative}
+#big-sheet .sheet-f{border:0;padding:0;display:block;background:#141210}
+/* Close sits on the image, not in a bar of its own: a header strip would cost
+   30-odd rows of pixels that the whole screen exists to show. */
+.big-x{position:absolute;top:14px;right:16px;z-index:6;background:rgba(20,18,16,.72);
+  border-color:rgba(242,239,230,.28);color:#f2efe6;backdrop-filter:none}
+.big-x:hover{background:rgba(232,84,31,.92);border-color:var(--accent);color:#fff}
+/* the bottom bar: which two, then the clock, then everything that changes them */
+.big-bar{display:flex;flex-direction:column;gap:7px;padding:9px 18px 11px;
+  border-top:1px solid #2a2520}
+.big-row{display:flex;align-items:center;gap:14px}
+.big-row-sides{justify-content:space-between}
+.big-row-tools{justify-content:center;gap:18px}
+#big-sheet .sheet-e{color:var(--accent);text-align:center;flex:1;min-width:0;
+  font-size:11.5px;letter-spacing:.16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.big-side{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+/* the all-tiers grid has no left and right side to choose — the pickers belong
+   to the wipe, so they go away rather than sit there empty */
+#big-sheet.tiles .big-side{display:none}
+.big-side-l{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:#8b857a;font-weight:600}
+.big-file{display:flex;align-items:center;gap:8px;font-size:12px;color:#c9c4ba;min-width:0}
+.big-file-l{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:#8b857a}
+.big-file b{color:#f2efe6;font-weight:600;max-width:260px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+#big-sheet .tp-tool{background:#26221d;border-color:#3a352d;color:#c9c4ba}
+#big-sheet .tp-tool:hover{background:#332d26;color:#fff}
+#big-sheet .pv-codec{border-color:#3a352d}
+#big-sheet .pv-codec button{background:#26221d;color:#a09a8f}
+#big-sheet .pv-codec button.on{background:var(--accent);color:#fff}
+#big-sheet .rates button{background:#26221d;color:#a09a8f;border-left-color:#3a352d}
+#big-sheet .rates{border-color:#3a352d}
+#big-sheet .rates button.on{background:#f2efe6;color:#1a1813}
+#big-sheet .tp-play,#big-sheet .tp-step{background:#26221d;border-color:#3a352d;box-shadow:none}
+#big-sheet .tp-play:hover,#big-sheet .tp-step:hover{background:#3a352d}
+#big-sheet .tp-play svg,#big-sheet .tp-step svg{fill:#e8e5dc}
 /* the grid fills the body: 3 columns, rows split the height evenly */
 #big-grid{flex:1;min-height:0;display:block}
 #big-grid > #grid{width:100%;height:100%;grid-template-columns:repeat(3,1fr);
@@ -805,12 +846,12 @@ body{
   text-shadow:0 1px 4px rgba(0,0,0,.9)}
 #big-grid .cell-m b{color:#fff} #big-grid .cell-m .cd{color:#d8d4cb}
 #big-grid .cell-m .df{color:#ff8a5c} #big-grid .cell-m .df.sm{color:#c9c4ba} #big-grid .cell-m .sep{color:#8b857a}
-/* transport: a slim bar */
-#big-tp{padding:0}
-#big-sheet .transport{border-color:#241f1a;margin-top:0;padding-top:7px}
-#big-sheet .ticks{color:#6b6459}
+/* transport: a slim bar, no rule above it — the bar already has one */
+#big-tp{padding:0;flex:1;min-width:0}
+#big-sheet .transport{border:0;margin:0;padding:0;width:100%}
+#big-sheet .ticks{display:none}
 #big-sheet .tp-t{color:#8b857a} #big-sheet .tp-t b{color:#f2efe6}
-#big-sheet .scrub{background:#3a352d} #big-sheet .scrub-f{background:#5a5347}
+#big-sheet .scrub{background:#3a352d;height:5px} #big-sheet .scrub-f{background:#5a5347}
 /* split/wipe compare: two encodes stacked; a draggable divider reveals each side */
 #big-compare{flex:1;min-height:0;display:flex}
 /* CRITICAL: #big-grid/#big-compare set an explicit display, which defeats the
@@ -828,17 +869,17 @@ body{
   border-radius:50%;background:rgba(120,120,120,.92);box-shadow:0 2px 10px rgba(0,0,0,.6);cursor:ew-resize;
   display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700;letter-spacing:1px}
 .cmp-handle::before{content:"⟺"}
-.cmp-tag{position:absolute;bottom:12px;z-index:2;font-family:'IBM Plex Mono',monospace;font-size:14px;
-  font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);padding:3px 9px;background:rgba(0,0,0,.45);border-radius:3px}
-.cmp-tag-a{left:12px} .cmp-tag-b{right:12px}
-/* in-view A/B pickers: change what's compared without leaving fullscreen */
-.cmp-tagsel{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#fff;
-  background:transparent;border:0;cursor:pointer;padding:0;-webkit-appearance:none;appearance:none}
+/* The A/B pickers moved off the image and into the bottom bar: over the video
+   they sat exactly where you want to look, and they had to be dark-on-dark to
+   survive there. In the bar they can be plain controls. */
+.cmp-tagsel{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;color:#f2efe6;
+  background:#26221d;border:1px solid #3a352d;border-radius:var(--r);cursor:pointer;padding:4px 7px}
 .cmp-tagsel option{color:#111;font-weight:600}
-/* the compare picker in the previews toolbar */
-.pv-cmp{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3);letter-spacing:.05em}
-.pv-cmp select{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 4px;border:1px solid var(--rule);
-  border-radius:var(--r);background:#efece3;color:var(--ink);cursor:pointer;max-width:92px}
+/* the compare picker in the previews control column */
+.pv-cmp{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3);letter-spacing:.05em}
+.pv-cmp .vs{flex:0 0 auto;font-family:'IBM Plex Mono',monospace}
+.pv-cmp select{font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:4px 5px;border:1px solid var(--rule);
+  border-radius:var(--r);background:#efece3;color:var(--ink);cursor:pointer;flex:1;min-width:0}
 
 /* one clock for all five */
 .transport{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:10px;
@@ -943,14 +984,21 @@ body{
       </div>
     </div>
 
-    <nav class="comb" id="comb"></nav>
+    <!-- The five steps are the progress bar. Each block fills with the pattern the
+         moment its question is answered, so "how far through am I" and "what did I
+         choose" are the same object — which is why the rail no longer repeats the
+         list. The canvas underneath is the same tiling that used to sit in the rail;
+         it is painted block by block instead of band by band. -->
+    <nav class="comb" id="comb">
+      <canvas id="corpse"></canvas>
+      <div class="comb-steps" id="comb-steps"></div>
+    </nav>
 
     <div class="main">
       <section class="stage">
         <h1 class="q-title" id="title"></h1>
         <p class="q-sub" id="sub"></p>
         <div class="keys" id="keys"></div>
-        <div class="well" id="well"><div class="well-empty mono">Hover a key to read what it does.</div></div>
         <div class="meters" id="meters"></div>
         <div class="commit">
           <button class="btn-commit" id="commit" disabled>Confirm</button>
@@ -959,12 +1007,9 @@ body{
       </section>
 
       <aside class="rail">
-        <div class="rail-h"><span>Settled</span><span id="settled-n">0 / 6</span></div>
-        <div class="field">
-          <canvas id="corpse"></canvas>
-          <div class="folds" id="folds"></div>
-          <div class="regions" id="regions"></div>
-        </div>
+        <!-- what the armed choice actually means, then what it costs: the read
+             and the number sit in one column, next to the buttons that set them -->
+        <div class="well" id="well"><div class="well-empty mono">Hover a choice to read what it does.</div></div>
         <div class="estimate">
           <!-- the scan's numbers live here, next to what they become: the whole
                claim of the app is this one comparison -->
@@ -987,33 +1032,56 @@ body{
       </aside>
     </div>
 
+    <!-- The deck is now one thing: the previews. Its old sibling tabs (the model
+         explainer and the credits) are reading, not doing, so they moved into the
+         About modal and gave their height to the video. -->
     <div class="deck">
-      <div class="deck-tabs">
-        <button class="dtab on" data-p="prev">Previews</button>
-        <button class="dtab" data-p="docs">How it decides</button>
-        <button class="dtab" data-p="about">About</button>
-        <!-- section controls live in the section's own toolbar, and only while
-             that section is showing: they do nothing for the other two panes -->
-        <div class="deck-tools" id="deck-tools">
-          <label class="pv-pos mono" title="Where in the first file the 5s sample is taken from">
-            sample&nbsp;<input type="range" id="pv-pos" min="0" max="100" value="50"><b id="pv-pos-v">middle</b>
-          </label>
-          <div class="pv-codec" id="pv-codec" title="Preview codec — regenerates the samples">
-            <button data-c="h265" class="on">H.265</button>
-            <button data-c="h264">H.264</button>
-          </div>
-          <div class="pv-cmp" id="pv-cmp" title="Compare two encodes side by side with a wipe">
-            <select id="cmp-a-sel"></select><span>vs</span><select id="cmp-b-sel"></select>
-            <button class="tp-tool" id="cmp-go">Compare ▸</button>
-          </div>
-          <button class="tp-tool" id="load">Use my video…</button>
-          <button class="tp-tool" id="big">Full screen</button>
-          <input type="file" id="file" accept="video/*" hidden>
-        </div>
-      </div>
       <div class="deck-body">
         <div class="dpane on" id="p-prev">
-          <p class="sec-s" id="prev-note">Same five seconds, same frame, five encodes, one clock.</p>
+          <!-- every control that shapes what the two panels show, in one column,
+               ending at the bottom-left corner of the app -->
+          <div class="pv-side" id="deck-tools">
+            <div class="pv-side-h">Preview</div>
+            <label class="pv-f">
+              <span class="pv-f-l">Sample from</span>
+              <span class="pv-f-c"><b class="pv-src mono" id="pv-src">—</b>
+                <button class="tp-tool" id="pv-pick">Select</button></span>
+            </label>
+            <label class="pv-f" title="Where in the first file the 5s sample is taken from">
+              <span class="pv-f-l">Position</span>
+              <span class="pv-f-c pv-pos mono">
+                <input type="range" id="pv-pos" min="0" max="100" value="50"><b id="pv-pos-v">middle</b>
+              </span>
+            </label>
+            <div class="pv-f">
+              <span class="pv-f-l">Codec</span>
+              <span class="pv-f-c" id="pv-side-codec">
+                <div class="pv-codec" id="pv-codec" title="Preview codec — regenerates the samples">
+                  <button data-c="h265" class="on">H.265</button>
+                  <button data-c="h264">H.264</button>
+                </div>
+              </span>
+            </div>
+            <div class="pv-f">
+              <span class="pv-f-l">Compare</span>
+              <span class="pv-f-c pv-cmp" id="pv-cmp" title="Which encode each panel shows">
+                <select id="cmp-a-sel" aria-label="Left panel"></select><span class="vs">vs</span
+                ><select id="cmp-b-sel" aria-label="Right panel"></select>
+              </span>
+            </div>
+            <div class="pv-acts">
+              <button class="tp-tool" id="load">Refresh</button>
+              <button class="tp-tool" id="cmp-go">All tiers</button>
+              <button class="tp-tool" id="big">Full screen</button>
+            </div>
+            <div class="pv-foot">
+              <button class="linky" id="about-open">About</button>
+              <span class="mono pv-ver">v1.1</span>
+            </div>
+            <input type="file" id="file" accept="video/*" hidden>
+          </div>
+          <div class="pv-main">
+          <p class="sec-s" id="prev-note">The same five seconds, the same frame, on one clock.</p>
           <div class="grid" id="grid"></div>
           <div class="transport" id="transport">
             <button class="tp-play" id="play" aria-label="Play all">
@@ -1036,16 +1104,37 @@ body{
           </div>
           <div class="ticks" id="ticks"></div>
           <span id="big-tp-home" hidden></span>
+          </div>
         </div>
-        <div class="dpane" id="p-docs">
-         <div class="docs-two">
+      </div>
+    </div>
+  <div id="flight"></div>
+  </div>
+</div>
+
+<!-- ═══ About: how this works, licenses, Picnic Labs ═══════════════════════════
+     Reading material, not a control surface — so it is a modal you open, read and
+     dismiss, rather than a tab competing with the previews for the deck. -->
+<div class="sheet" id="about-sheet">
+  <div class="sheet-c wide">
+    <div class="sheet-h">
+      <div class="sheet-e mono">Picnic Labs</div>
+      <h2 class="sheet-t">Very Thoughtful Compression</h2>
+    </div>
+    <div class="sheet-b">
+      <div class="about-tabs" id="about-tabs">
+        <button class="atab on" data-a="how">How this works</button>
+        <button class="atab" data-a="codecs">Codecs &amp; containers</button>
+        <button class="atab" data-a="credits">Licenses &amp; credits</button>
+      </div>
+      <div class="apane on" id="a-how">
+        <div class="docs-two">
           <div class="docs-col prose">
             <p>Batch tools apply one setting to every file. A library isn't uniform — some files were encoded with generous headroom, others were squeezed dry years ago. Re-encoding the second kind buys almost nothing and costs a generation of quality.</p>
             <p>So each file is measured first: <b>bits per pixel per frame</b>, derived from its real bitrate, resolution and frame rate. Your tier is a bpp too — a density, not a bitrate — so the target for <em>this</em> file is simply <b>tier bpp × its pixels × its frame rate × the codec factor</b>. A 4K file gets about four times a 1080p one, a 60fps file twice a 30fps one, with no per-resolution rules anywhere.</p>
             <p>The target is <b>absolute</b>: a function of the tier and the file's own pixels and fps, never a fraction of what the file currently weighs. That distinction is the whole design. Compute a target as "70% of the current bitrate" and every re-run re-anchors to the file it just shrank — 3.5 GB, then 2.2, then 1.2 — grinding the same file down forever. An absolute target converges: one encode lands at the tier, and every run after that sees a file already at tier and leaves it alone.</p>
             <p>So a file is only re-encoded if it is <b>more than 10% over</b> its target. At or under, it is left exactly as it is — judged by density, not by how big the file looks. H.265, AV1 and VP9 sources are never transcoded at all; re-encoding them only spends a generation of quality. Targets are floored at 1500 kbps and never set above the source, so a file is only ever shrunk, never inflated.</p>
             <p>Before encoding, the expected output is modelled: if it won't clear your saving threshold, the encode never starts. Afterwards the source is replaced only if the new file exists, is non-empty, and actually beat that threshold. Otherwise the original stays and says so in the run report.</p>
-            <div class="myth"><b>Myth: MKV is smaller than MP4.</b> It isn't. The same H.264 video is the same size in either container. MKV files are often big because they're used for high-bitrate rips — not because of the wrapper. The container decides compatibility. The codec decides size.</div>
             <p><b>Subtitles are never silently destroyed.</b> Text tracks (SRT, ASS/SSA, WebVTT) are embedded into the MP4 as <b>mov_text</b>, all of them. If embedding fails they are extracted to sidecar <b>.srt</b> files beside the output, which Plex, VLC and Infuse pick up automatically. Image-based tracks — PGS from Blu-ray, DVD bitmaps — cannot exist in an MP4 and cannot become .srt without OCR, so they have to be dropped. When that happens <b>the original is archived instead of deleted, even if you chose delete</b>. Nothing is irrecoverable, and every case is named in the run report.</p>
             <p><b>A stopped run picks up where it left off.</b> Every file that reaches a decision is recorded in a resume ledger at the scan root, tagged with a signature of the settings that produced it. Re-run with the same settings and those files are skipped without re-probing. Change any setting and the signature changes, so everything is re-evaluated. Correctness never depends on it — the absolute target already prevents re-cutting — so the ledger is only ever a speed optimisation.</p>
             <p><b>Honesty note.</b> Quality assumes typical film and TV at 24–30 fps; very grainy or 50/60 fps material may want a tier up. Software (libx264/libx265) uses quality-targeted capped-CRF and is slightly better per bit than hardware VideoToolbox at the same target — hardware is simply much faster. Streaming services hit their numbers with per-shot encoders you don't have, so these anchors sit above theirs on purpose.</p>
@@ -1063,8 +1152,24 @@ body{
                   <tr><td>Insane</td><td class="num">0.145</td><td class="num">9.0</td><td class="num">5.4</td><td>Near-transparent for WEB-DL</td></tr>
                 </tbody>
               </table>
-              <div class="mono" style="font-size:8px;color:var(--ink-3);margin-top:7px">Mbps are H.264 at 1080p30. Every file re-derives its own target from its real pixels and frame rate — 4K ~4×, 60fps ~2×. Floor 1500 kbps; never above the source.</div>
+              <div class="mono ref-n">Mbps are H.264 at 1080p30. Every file re-derives its own target from its real pixels and frame rate — 4K ~4×, 60fps ~2×. Floor 1500 kbps; never above the source.</div>
             </div>
+            <div class="myth"><b>The number to watch is your source's own BPP</b>, shown under each preview panel. A file already at or below a tier's density is already efficient — it will barely shrink, and that is the tool working, not failing.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="apane" id="a-codecs">
+        <div class="docs-two">
+          <div class="docs-col prose">
+            <p><b>A codec is not a container.</b> The container is the wrapper — .mp4, .mkv, .mov — and it decides what will play your file. The codec is the compression inside it, and it decides how big the file is. The same H.264 video is exactly the same size in an MP4 as it is in an MKV; MKV files are often large because they are used for high-bitrate rips, not because of the wrapper.</p>
+            <div class="ref-h mono" style="margin-top:14px">H.265 / HEVC</div>
+            <p>A modern codec with wide — not universal — support. Can usually get the same quality as H.264 using only 40-55% of the space - and this advantage grows with resolution: you'll save ~60% at 4K and above. Plays on most devices since 2015 — Apple, recent TVs, Plex, VLC, Infuse. The big exceptions are some SmartTVs and Firefox Browser. Unless you need the widest compatibility, choose this.</p>
+            <div class="ref-h mono" style="margin-top:14px">H.264 / AVC</div>
+            <p>The universal baseline — it direct-plays on virtually anything made since 2003 — but about twice the size for the same quality, and increasingly wasteful above 1080p. Choose it when something in your house has to play the file and you are not sure what.</p>
+            <p><b>Sources already in a modern codec are left alone.</b> H.265, AV1 and VP9 files are never transcoded: re-encoding them spends a generation of quality to save very little.</p>
+          </div>
+          <div class="docs-col ref-col">
             <div class="ref-block">
               <div class="ref-h mono">Codecs at the same quality</div>
               <table class="tbl">
@@ -1078,33 +1183,36 @@ body{
                   <tr><td>MPEG-2</td><td class="num">2</td><td class="num">6.5</td><td class="num">3</td><td class="num">9</td></tr>
                 </tbody>
               </table>
-              <div class="mono" style="font-size:8px;color:var(--ink-3);margin-top:7px">1–10, higher is better. ★ = near-max with a hardware encoder. Space is a property of the codec — identical in any container.</div>
+              <div class="mono ref-n">1–10, higher is better. ★ = near-max with a hardware encoder. Space is a property of the codec — identical in any container.</div>
             </div>
+            <div class="myth"><b>Myth: MKV is smaller than MP4.</b> It isn't. The container decides compatibility. The codec decides size.</div>
           </div>
-         </div>
         </div>
-        <div class="dpane" id="p-about">
-          <div class="docs-two">
-            <div class="docs-col prose">
-              <div class="about-mark"><span class="about-a">Very Thoughtful</span><span class="about-b">Compression</span></div>
-              <p class="about-by mono">by Picnic Labs</p>
-              <p>A codec-aware re-encoder for large video libraries. It measures every file first — bits per pixel per frame — and only re-encodes the ones actually over your chosen quality tier, so already-lean files are left untouched and repeated runs converge instead of grinding files smaller. Modern codecs are never needlessly re-encoded; MP4-incompatible legacy formats are rescued at full fidelity; subtitles are never silently destroyed.</p>
-              <p>Everything runs on your machine. Nothing is uploaded, and nothing is written until you press Start.</p>
-              <p class="mono about-ver">Version 0.1.0 · Apple Silicon</p>
-            </div>
-            <div class="docs-col prose">
-              <div class="ref-h mono">Licenses &amp; credits</div>
-              <p><b>FFmpeg.</b> This app bundles FFmpeg (ffmpeg + ffprobe) to do the actual decoding and encoding, licensed under the <b>GNU GPL v3</b>. FFmpeg is a separate program invoked as a subprocess; this app's own code is not a derivative work of it. The bundled binaries are unmodified static builds. Corresponding source is available from
-                <span class="mono">ffmpeg.org/releases</span> and <span class="mono">github.com/FFmpeg/FFmpeg</span>. The full GPL v3 text and an attribution NOTICE ship in the <span class="mono">licenses/</span> folder beside the app.</p>
-              <p><b>Hardware encoding.</b> On Apple Silicon, encoding uses Apple <b>VideoToolbox</b>; on Windows, whichever of NVIDIA NVENC / Intel QSV / AMD AMF the machine actually has, verified at launch, falling back to software.</p>
-              <p><b>Your files.</b> Originals are handled exactly the way you choose — archived, deleted only after the new file verifies, or kept — and every outcome is named in the run report. There is no telemetry.</p>
-              <div class="myth" style="margin-top:10px"><b>Feedback?</b> The whole interface text can be exported as a Markdown template and edited — ask for the copy deck.</div>
-            </div>
+      </div>
+
+      <div class="apane" id="a-credits">
+        <div class="docs-two">
+          <div class="docs-col prose">
+            <div class="about-mark"><span class="about-a">Very Thoughtful</span><span class="about-b">Compression</span></div>
+            <p class="about-by mono">by Picnic Labs</p>
+            <p>A codec-aware re-encoder for large video libraries. It measures every file first — bits per pixel per frame — and only re-encodes the ones actually over your chosen quality tier, so already-lean files are left untouched and repeated runs converge instead of grinding files smaller. Modern codecs are never needlessly re-encoded; MP4-incompatible legacy formats are rescued at full fidelity; subtitles are never silently destroyed.</p>
+            <p>Picnic Labs builds small, self-contained desktop tools that do one job properly and explain themselves while they do it. Everything here runs on your machine. Nothing is uploaded, and nothing is written until you press Start.</p>
+            <p class="mono about-ver">Version 1.1 · Apple Silicon</p>
+          </div>
+          <div class="docs-col prose">
+            <div class="ref-h mono">Licenses &amp; credits</div>
+            <p><b>FFmpeg.</b> This app bundles FFmpeg (ffmpeg + ffprobe) to do the actual decoding and encoding, licensed under the <b>GNU GPL v3</b>. FFmpeg is a separate program invoked as a subprocess; this app's own code is not a derivative work of it. The bundled binaries are unmodified static builds. Corresponding source is available from
+              <span class="mono">ffmpeg.org/releases</span> and <span class="mono">github.com/FFmpeg/FFmpeg</span>. The full GPL v3 text and an attribution NOTICE ship in the <span class="mono">licenses/</span> folder beside the app.</p>
+            <p><b>Typefaces.</b> Archivo and IBM Plex Mono, both under the SIL Open Font License 1.1, bundled with the app — it makes no network requests of any kind.</p>
+            <p><b>Hardware encoding.</b> On Apple Silicon, encoding uses Apple <b>VideoToolbox</b>; on Windows, whichever of NVIDIA NVENC / Intel QSV / AMD AMF the machine actually has, verified at launch, falling back to software.</p>
+            <p><b>Your files.</b> Originals are handled exactly the way you choose — archived, deleted only after the new file verifies, or kept — and every outcome is named in the run report. There is no telemetry.</p>
           </div>
         </div>
       </div>
     </div>
-  <div id="flight"></div>
+    <div class="sheet-f">
+      <button class="btn-ghost" id="about-close">Close</button>
+    </div>
   </div>
 </div>
 
@@ -1427,27 +1535,41 @@ body{
   </div>
 </div>
 
-<!-- the five panels, large, still on the one clock -->
+<!-- Enlarged preview. This screen exists to judge COMPRESSION, not composition, so
+     the image is never fitted to the frame: a 1:1 crop is blown across the whole
+     screen and the parts that don't fit are cut off. No letterbox, no black. Every
+     control that changes what you are looking at came down here with it, so nobody
+     has to close this to switch a codec or a tier. -->
 <div class="sheet" id="big-sheet">
   <div class="sheet-c">
-    <div class="sheet-h">
-      <div class="sheet-e mono" id="big-e">Drag a panel to pan · scrub to compare a moment · every panel is the same 1:1 crop</div>
-    </div>
     <div class="sheet-b">
       <div id="big-grid"></div>
       <div id="big-compare" hidden>
         <div class="cmp-stage" id="cmp-stage">
           <video id="cmp-b" muted playsinline preload="auto"></video>
           <div class="cmp-top" id="cmp-top"><video id="cmp-a" muted playsinline preload="auto"></video></div>
-          <div class="cmp-tag cmp-tag-a"><select id="cmp-ta-sel" class="cmp-tagsel" title="Left side"></select></div>
-          <div class="cmp-tag cmp-tag-b"><select id="cmp-tb-sel" class="cmp-tagsel" title="Right side"></select></div>
           <div class="cmp-divider" id="cmp-divider"><span class="cmp-handle"></span></div>
         </div>
       </div>
-      <div id="big-tp"></div>
+      <button class="btn-ghost big-x" id="big-close">Close</button>
     </div>
     <div class="sheet-f">
-      <button class="btn-ghost" id="big-close">Close</button>
+      <div class="big-bar">
+        <div class="big-row big-row-sides">
+          <span class="big-side"><span class="big-side-l">Left</span>
+            <select id="cmp-ta-sel" class="cmp-tagsel" title="What the left of the wipe shows"></select></span>
+          <div class="sheet-e mono" id="big-e">Drag the handle to wipe between the two · drag elsewhere to pan · scrub to move both together</div>
+          <span class="big-side"><select id="cmp-tb-sel" class="cmp-tagsel" title="What the right of the wipe shows"></select>
+            <span class="big-side-l">Right</span></span>
+        </div>
+        <div class="big-row" id="big-tp"></div>
+        <div class="big-row big-row-tools" id="big-tools">
+          <span id="big-codec-home" hidden></span>
+          <span class="big-file mono"><span class="big-file-l">Sample</span>
+            <b id="big-src">—</b>
+            <button class="tp-tool" id="big-pick">Select</button></span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1963,66 +2085,51 @@ function paintRegion(x, box, p, seed, prev){
   return p;                      // what this band settles at, for the next to grow from
 }
 
+// Paint the progress bar. Each answered step gets its own block of the tiling,
+// laid on the same 16px lattice as its neighbours so the squares line up straight
+// across the strip; an unanswered step is left as bare plate, which is what makes
+// the bar read as filling up. Blocks are painted whole rather than graded into one
+// another — the hand-down that made the old stacked field an exquisite corpse
+// needs bands ABOVE bands, and along a row it would only look like a smear.
 function paintCorpse(){
   // offsetWidth/Height, not a client rect: the unit is scaled, and sizing the
   // canvas from visual px would shrink the tiling's pixel budget with the window
-  const cv=$('#corpse'), W0=cv.offsetWidth, H0=cv.offsetHeight;
-  if(!W0) return;
-  const box={width:W0, height:H0};
-  const dpr=2; cv.width=box.width*dpr; cv.height=box.height*dpr;
+  const cv=$('#corpse'); if(!cv) return;
+  const W=cv.offsetWidth, H=cv.offsetHeight;
+  if(!W) return;
+  const dpr=2; cv.width=W*dpr; cv.height=H*dpr;
   const x=cv.getContext('2d'); x.scale(dpr,dpr);
-  const W=box.width, H=box.height;
 
-  x.fillStyle='#d8d5cb'; x.fillRect(0,0,W,H);
-  const g=x.createLinearGradient(0,0,W,H);
-  g.addColorStop(0,'rgba(255,255,255,.34)'); g.addColorStop(1,'rgba(0,0,0,.05)');
-  x.fillStyle=g; x.fillRect(0,0,W,H);
+  x.fillStyle='#e7e4db'; x.fillRect(0,0,W,H);
 
-  // One strip, six bands. Each band starts as whatever the band above settled at
-  // and grades into its own recipe — same squares throughout, so the change is a
-  // change of RULE, not a change of drawing. No creases: a line between bands
-  // would announce a border, and the whole point is that there isn't one.
-  //
-  // The field is a fixed 288px = 3 grid rows x 16px x 6 bands, so this divides
-  // exactly and no snapping is needed. It used to measure, discover a fractional
-  // row count, rewrite the field's height and repaint itself recursively — all
-  // of which existed only because the height was fluid. A tiling wants an
-  // integer; give it one at design time and the machinery disappears.
-  // Fill the field. A tiling can't be stretched — every band needs a whole number
-  // of 16px rows — but the bands do NOT have to be equal. So take the whole rows
-  // the field can hold and hand the remainder out one row at a time. A band one
-  // row taller than its neighbour is invisible; a bald strip is not. Centring a
-  // short stack left 50px of empty frame; this leaves at most a few px.
-  const rows=M.length;
-  const totalRows=Math.floor(H/GRID);
-  const base=Math.max(2, Math.floor(totalRows/rows));
-  const extra=Math.max(0, totalRows-base*rows);
-  const bandH=Array.from({length:rows},(_,i)=>(base+(i<extra?1:0))*GRID);
-  $('#regions').style.gridTemplateRows=bandH.map(v=>v+'px').join(' ');
-  $('#regions').style.height=bandH.reduce((a,b)=>a+b,0)+'px';
-  let prev=null;
-  let y=0;
+  // The blocks are the step buttons' own widths, measured rather than assumed, so
+  // the paint can never drift from the labels sitting on top of it.
+  const steps=[...document.querySelectorAll('#comb-steps .tooth')];
   M.forEach((q,i)=>{
-    const a=answers[q.id], ch=bandH[i];
-    if(a===undefined){ prev=null; y+=ch; return; }
-    prev = paintRegion(x, {l:0,t:y,w:W,h:ch}, TEX[q.id](a), i+1, prev);
-    y+=ch;
+    const a=answers[q.id]; if(a===undefined) return;
+    const el=steps[i];
+    const l=el?el.offsetLeft:Math.round(i*W/M.length);
+    const w=el?el.offsetWidth:Math.round(W/M.length);
+    paintRegion(x, {l, t:0, w, h:H}, barTex(TEX[q.id](a)), i+1, null);
   });
-  $('#folds').innerHTML='';
+}
+// Same nine pieces, same three greys — but a block has to look FULL, and a recipe
+// weighted 60% to the palest tone (the software/hardware band, for one) came out
+// so faint you couldn't see where it ended. In a stacked field that reads as a
+// quiet passage; in a progress bar it reads as an empty slot. So the bar shifts
+// some of the palest tone's weight into the other two. Motif bands fix their own
+// tones and are unaffected: they were never the ones that disappeared.
+function barTex(p){
+  const [a,b,c]=p.mix;
+  const keep=a*0.42;
+  return Object.assign({}, p, {mix:[keep, b+a*0.32, c+a*0.26]});
 }
 
+// The steps are both the progress bar and the record of what was chosen, so this
+// draws them and paints the canvas behind them in one pass. It keeps its old name
+// because the flow (and the pywebview bridge) calls it whenever an answer lands.
 function drawRegions(justSeated){
-  const n=M.filter(q=>answers[q.id]!==undefined).length;
-  $('#settled-n').textContent=`${n} / ${M.length}`;
-  $('#regions').innerHTML=M.map((q,i)=>{
-    const a=answers[q.id];
-    if(a===undefined) return `<div class="reg blank"><div class="reg-k">${q.short}</div><div class="reg-v">unset</div></div>`;
-    return `<button class="reg ${justSeated===q.id?'arrived':''}" data-r="${i}" title="Click to change ${q.short.toLowerCase()}">
-      <div class="reg-k">${q.short}</div><div class="reg-v">${q.opts[a].k}</div></button>`;
-  }).join('');
-  $('#regions').querySelectorAll('[data-r]').forEach(b=>{
-    b.onclick=()=>{ step=+b.dataset.r; armed=answers[M[step].id]; render(); };
-  });
+  drawComb(justSeated);
   paintCorpse();
 }
 
@@ -2030,7 +2137,10 @@ function drawRegions(justSeated){
 function fly(keyEl, qid, oi, done){
   if(matchMedia('(prefers-reduced-motion: reduce)').matches){ done(); return; }
   const a=keyEl.getBoundingClientRect();
-  const slot=[...$('#regions').children][M.findIndex(q=>q.id===qid)];
+  // the answer flies UP into its block on the progress bar — which is where it
+  // now lives, and where the block is about to fill in behind it
+  const slot=[...$('#comb-steps').children][M.findIndex(q=>q.id===qid)];
+  if(!slot){ done(); return; }
   const b=slot.getBoundingClientRect();
   const f=document.createElement('div');
   f.className='flier';
@@ -2048,8 +2158,8 @@ function fly(keyEl, qid, oi, done){
     f.querySelector('.lbl').style.opacity=0;
     f.querySelector('.mark').style.opacity=1;
   });
-  // the mark now sits in a recess centred on the band, not in its corner
-  const tx=b.left+b.width-10-32, ty=b.top+b.height/2-16;
+  // land centred on the block it belongs to
+  const tx=b.left+b.width/2-16, ty=b.top+b.height/2-16;
 
   // 2 · arc across, still large
   setTimeout(()=>{
@@ -2068,13 +2178,20 @@ function fly(keyEl, qid, oi, done){
 }
 
 // ═══ stage ═══════════════════════════════════════════════
-function drawComb(){
-  $('#comb').innerHTML=M.map((q,i)=>{
-    const done=answers[q.id]!==undefined;
-    return `<button class="tooth ${i===step?'now':done?'done':''}" data-i="${i}" ${done||i===step?'':'disabled'}${done?` title="Click to revisit ${q.short.toLowerCase()}"`:''}>
-      <span class="n">${String(i+1).padStart(2,'0')}</span>${q.short}</button>`;
+// The progress bar. A step shows its number, its name, and — once it is settled —
+// the answer, because this strip is now the only place the five decisions are
+// listed. `justSeated` flashes the block an answer has just landed in.
+function drawComb(justSeated){
+  const wrap=$('#comb-steps');
+  wrap.innerHTML=M.map((q,i)=>{
+    const a=answers[q.id], done=a!==undefined;
+    const cls=['tooth', done?'done':'', i===step?'now':'', justSeated===q.id?'arrived':''];
+    return `<button class="${cls.filter(Boolean).join(' ')}" data-i="${i}" ${done||i===step?'':'disabled'}${done?` title="Click to revisit ${q.short.toLowerCase()}"`:''}>
+      <span class="n">${String(i+1).padStart(2,'0')}</span>
+      <span class="k">${q.short}</span>
+      ${done?`<span class="v">${q.opts[a].k}</span>`:''}</button>`;
   }).join('');
-  $('#comb').querySelectorAll('.tooth').forEach(t=>{
+  wrap.querySelectorAll('.tooth').forEach(t=>{
     t.onclick=()=>{ step=+t.dataset.i; armed=answers[M[step].id]??null; render(); };
   });
 }
@@ -2104,7 +2221,7 @@ function render(){
   $('#commit').textContent=answers[q.id]!==undefined?'Update':'Confirm';
   $('#hint').textContent=armed===null?'Nothing armed':`Armed: ${q.opts[armed].k}`;
   if(armed!==null) show(armed); else clearWell();
-  drawComb(); drawRegions(); drawEstimate();
+  drawRegions(); drawEstimate();
 }
 function show(i){
   const o=M[step].opts[i];
@@ -3197,7 +3314,7 @@ $('#r-log').onclick=()=>{
 };
 addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
-  shutSheet('#confirm-sheet'); shutSheet('#report-sheet'); shutSheet('#big-sheet'); shutSheet('#adv-sheet'); shutSheet('#compat-sheet');
+  shutSheet('#confirm-sheet'); shutSheet('#report-sheet'); shutSheet('#big-sheet'); shutSheet('#adv-sheet'); shutSheet('#compat-sheet'); shutSheet('#about-sheet');
 });
 
 // ═══ gate ════════════════════════════════════════════════
@@ -3225,14 +3342,19 @@ $('#picks').querySelectorAll('.pick').forEach(b=>{
   b.onclick=()=>pickFolder(+b.dataset.f);
 });
 
-// ═══ deck ════════════════════════════════════════════════
-document.querySelectorAll('.dtab').forEach(t=>{
+// ═══ About ═══════════════════════════════════════════════
+// The explainer and the credits used to be tabs in the deck, competing with the
+// previews for height they didn't need continuously. They are reading, so they
+// are a modal now: opened from the bottom of the page, dismissed by clicking off.
+function openAbout(){ openSheet('#about-sheet'); }
+$('#about-open').onclick=openAbout;
+$('#about-close').onclick=()=>shutSheet('#about-sheet');
+$('#about-sheet').onclick=e=>{ if(e.target===$('#about-sheet')) shutSheet('#about-sheet'); };
+document.querySelectorAll('.atab').forEach(t=>{
   t.onclick=()=>{
-    document.querySelectorAll('.dtab').forEach(x=>x.classList.remove('on'));
-    document.querySelectorAll('.dpane').forEach(x=>x.classList.remove('on'));
-    t.classList.add('on'); $('#p-'+t.dataset.p).classList.add('on');
-    // the tools act on the previews; on the other panes they would be furniture
-    $('#deck-tools').hidden = t.dataset.p!=='prev';
+    document.querySelectorAll('.atab').forEach(x=>x.classList.remove('on'));
+    document.querySelectorAll('.apane').forEach(x=>x.classList.remove('on'));
+    t.classList.add('on'); $('#a-'+t.dataset.a).classList.add('on');
   };
 });
 
@@ -3283,9 +3405,9 @@ const human2 = b => { b=Math.max(0,b); return b>=1e9 ? (b/1e9).toFixed(2)+' GB'
 
 function pvPlaceholder(msg){
   PV.started=false; PV.ready.clear(); PV.playing=false; PV.pos=PV_ANCHOR;
-  $('#grid').classList.remove('live');
+  $('#grid').classList.remove('live','pair');
   $('#grid').innerHTML = `<div class="pv-empty mono">${msg||'Choose a folder — your footage previews here at each quality tier.'}</div>`;
-  $('#prev-note').textContent = 'The same five seconds at each tier, compared 1:1 on a cropped region — so you can actually see the quality, not a shrunk thumbnail.';
+  $('#prev-note').textContent = 'The same five seconds of your own footage, encoded at every tier and compared 1:1 on a cropped region — you cannot see quality in a shrunk thumbnail.';
   setEncodingUI(true);
 }
 function buildPreviewGrid(n){
@@ -3301,10 +3423,27 @@ function buildPreviewGrid(n){
      </div>`).join('');
   setEncodingUI(true);
   $('#ticks').innerHTML=[0,1,2,3,4,5].map(x=>`<span>${x}s</span>`).join('');
+  pvShowPair();
+}
+// ── which two panels the deck shows ─────────────────────────────────────────
+// The engine still encodes every tier — All tiers and the enlarged view reach all
+// of them. The deck shows the two you asked to compare, because two panels at a
+// size worth looking at beat six you cannot judge anything from.
+function pvShowPair(){
+  const g=$('#grid'); if(!g || !g.classList.contains('live')) return;
+  const a=$('#cmp-a-sel'), b=$('#cmp-b-sel');
+  const pair=[a&&a.value, b&&b.value].filter(v=>v!=='' && v!=null);
+  g.classList.toggle('pair', pair.length===2);
+  g.querySelectorAll('.cell').forEach(c=>{
+    c.classList.toggle('off', pair.length===2 && !pair.includes(c.dataset.i));
+  });
+  requestAnimationFrame(pvApply);
 }
 function pvFrameSize(){
   if(PV.compare){ const s=$('#cmp-stage'); return s ? [s.clientWidth, s.clientHeight] : [640,360]; }
-  const fr=$('#grid').querySelector('.frame');
+  // a hidden cell measures 0, which would clamp the pan to nothing — measure a
+  // frame that is actually on screen
+  const fr=[...$('#grid').querySelectorAll('.frame')].find(f=>f.clientWidth>0);
   return fr ? [fr.clientWidth, fr.clientHeight] : [160,90];
 }
 function pvClamp(){
@@ -3320,15 +3459,23 @@ function pvApply(){                 // place every video so the frame is a 1:1 c
     v.style.transform=`translate(${-PV.cropX}px,${-PV.cropY}px)`;
   });
 }
-// side-by-side wipe: fill the whole stage with video (cover), both halves scaled
-// and offset identically so the divider wipes a pixel-aligned frame. Panning moves
-// within whatever the cover crops off the edges.
+// Side-by-side wipe, filling the screen. This view exists to judge COMPRESSION,
+// so the source aspect ratio is not respected and nothing is ever fitted: a
+// portion of the frame is shown at 1:1 and whatever falls outside the screen is
+// cropped off. Downscaling would average away the exact artefacts you came here
+// to look at, and letterboxing would spend the screen on black.
+//
+// The one exception is a source SMALLER than the screen, where 1:1 cannot reach
+// the edges: then, and only then, the scale rises to whichever factor covers the
+// screen. It is always an upscale, so no detail is thrown away — and "no black
+// bars, ever" holds. Both halves take the identical scale and offset, so the
+// divider wipes between two pixel-aligned frames.
 function pvApplyCompare(){
   const stage=$('#cmp-stage'); if(!stage) return;
   const W=stage.clientWidth||1, H=stage.clientHeight||1;
-  const ar=(PV.sw>0&&PV.sh>0)?PV.sw/PV.sh:16/9;
-  let dw=W, dh=Math.round(W/ar);
-  if(dh<H){ dh=H; dw=Math.round(H*ar); }                        // cover: never smaller than the stage
+  const vw=PV.sw||1920, vh=PV.sh||1080;
+  const scale=Math.max(1, W/vw, H/vh);
+  const dw=Math.ceil(vw*scale), dh=Math.ceil(vh*scale);
   const slackX=Math.max(0,dw-W), slackY=Math.max(0,dh-H);
   if(PV.cmpFresh){ PV.cropX=slackX/2; PV.cropY=slackY/2; PV.cmpFresh=false; }  // start centred
   PV.cropX=Math.max(0,Math.min(slackX,PV.cropX));
@@ -3365,6 +3512,7 @@ function pvRenderMeta(){
 }
 window.__vtcPreviewStart = (info)=>{
   PV.sw=info.w||1920; PV.sh=info.h||1080; PV.meta={}; PV.codec=info.codec||'';
+  PV.pairPicked=false;                         // a new set of panels re-derives the pair
   PV.pos=PV_ANCHOR;                            // a fresh set of previews starts at the top
   PV.cropX=Math.max(0,(PV.sw-320)/2); PV.cropY=Math.max(0,(PV.sh-180)/2);   // center-ish
   buildPreviewGrid(info.n||6);
@@ -3390,7 +3538,7 @@ window.__vtcPreviewPanel = (p)=>{
   v.src=p.url; v.load();
 };
 window.__vtcPreviewDone = ()=>{ setEncodingUI(false);
-  $('#prev-note').textContent='Your footage at each tier — drag any panel to pan the crop, scrub to compare a moment, full screen for more pixels.'; };
+  $('#prev-note').textContent='Pick the two to compare on the left · drag a panel to pan the crop · scrub to move both together · full screen wipes between them.'; };
 window.__vtcPreviewError = (msg)=> pvPlaceholder(msg ? ('Previews unavailable - '+msg) : null);
 
 // ── transport: one clock for every panel ─────────────────────────────────────
@@ -3452,24 +3600,46 @@ $('#scrub').onpointerdown=e=>{
   });
 })();
 
-// ── fullscreen: same panels + clock, more pixels (bigger 1:1 crop) ───────────
-function bigMoveTransport(){ $('#big-tp').appendChild($('#transport')); $('#big-tp').appendChild($('#ticks')); }
+// ── enlarged view: the same panels and the same clock, filling the screen ─────
+// The clock and the codec toggle are MOVED here rather than duplicated: two
+// copies of a control are two things to keep in step, and the deck is not visible
+// while this is open anyway. They travel back on close.
+// Going fullscreen is a nicety, not a requirement: some hosts refuse it outright
+// (and one of them throws rather than rejecting). Never let that failure take the
+// layout pass down with it — without pvApply the videos are left unplaced and the
+// screen stays black.
+function goFullscreen(){
+  const el=$('#big-sheet');
+  try { const r = el.requestFullscreen && el.requestFullscreen(); if(r && r.catch) r.catch(()=>{}); }
+  catch(e){}
+}
+function bigMoveTransport(){
+  $('#big-tp').appendChild($('#transport'));
+  $('#big-tp').appendChild($('#ticks'));
+  $('#big-tools').insertBefore($('#pv-codec'), $('#big-codec-home'));
+  $('#big-src').textContent = $('#pv-src').textContent;
+}
 function restorePreviews(){
-  const pane=$('#p-prev');
+  const pane=$('.pv-main');
   pane.insertBefore($('#grid'), $('#big-tp-home'));
   pane.insertBefore($('#transport'), $('#big-tp-home'));
   pane.insertBefore($('#ticks'), $('#big-tp-home'));
+  const codecHome=$('#pv-side-codec'); if(codecHome) codecHome.appendChild($('#pv-codec'));
   $('#big-sheet').classList.remove('on');
   $('#big-grid').hidden=false; $('#big-compare').hidden=true;
   if(PV.compare){ ['cmp-a','cmp-b'].forEach(id=>{ const v=document.getElementById(id); if(v){ v.pause(); v.removeAttribute('src'); v.load(); } }); PV.compare=null; PV.playing=false; }
+  pvShowPair();
   requestAnimationFrame(pvApply);
 }
 const bigOn=()=>{                                    // grid fullscreen (all tiers)
   PV.compare=null; $('#big-compare').hidden=true; $('#big-grid').hidden=false;
+  $('#big-sheet').classList.add('tiles');            // no left/right side to pick
+  $('#grid').classList.remove('pair');
+  $('#grid').querySelectorAll('.cell').forEach(c=>c.classList.remove('off'));
   $('#big-grid').appendChild($('#grid')); bigMoveTransport();
   $('#big-e').textContent='Drag a panel to pan · scrub to compare a moment · every panel is the same 1:1 crop';
   $('#big-sheet').classList.add('on');
-  const el=$('#big-sheet'); if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  goFullscreen();
   requestAnimationFrame(pvApply);
 };
 const bigOff=()=>{ if(document.fullscreenElement){ document.exitFullscreen(); } else { restorePreviews(); } };
@@ -3478,9 +3648,17 @@ document.addEventListener('fullscreenchange', ()=>{
   if(document.fullscreenElement && PV.compare) PV.cmpFresh=true;   // re-centre cover at the real size
   requestAnimationFrame(pvApply);
 });
-$('#big').onclick=bigOn;
+// Full screen opens the wipe on whichever two the deck is comparing — the same
+// pair, the same frame, more pixels. All tiers is the six-up.
+$('#big').onclick=()=>{
+  if(!Object.keys(PV.meta).length) return;
+  openCompare($('#cmp-a-sel').value, $('#cmp-b-sel').value);
+};
+$('#cmp-go').onclick=bigOn;
 $('#big-close').onclick=bigOff;
 $('#big-sheet').onclick=e=>{ if(e.target===$('#big-sheet')) bigOff(); };
+// the sample control in the enlarged bar is the same folder pick as everywhere else
+$('#big-pick').onclick=()=>{ bigOff(); setTimeout(()=>$('#src').click(), 60); };
 
 // ── split/wipe compare: pick two encodes, wipe a divider to reveal each half ──
 function pvFillCompare(){
@@ -3490,8 +3668,14 @@ function pvFillCompare(){
   if(!a||!b) return;
   const av=a.value, bv=b.value;
   a.innerHTML=opts; b.innerHTML=opts;
-  a.value = av || '0';                               // default A = Source
-  b.value = bv || (PV.meta['3'] ? '3' : (b.options[b.options.length-1]||{}).value); // default B = Excellent
+  // Panels stream in one at a time, so "keep what's selected" used to freeze the
+  // right-hand pick on Source — the only option that existed when the first panel
+  // landed. Until the user picks for themselves, keep re-deriving the default, so
+  // it lands on Excellent as soon as Excellent exists.
+  a.value = (PV.pairPicked && av) || '0';                     // default A = Source
+  b.value = (PV.pairPicked && bv) || (PV.meta['3'] ? '3'
+             : (b.options[b.options.length-1]||{}).value);    // default B = Excellent
+  pvShowPair();                                      // the deck shows exactly this pair
 }
 function cmpSetSplit(pct){
   pct=Math.max(2,Math.min(98,pct));
@@ -3521,6 +3705,7 @@ function openCompare(ai, bi){
   const A=PV.meta[ai], B=PV.meta[bi];
   if(!A||!B||!A.url||!B.url) return;
   PV.compare={a:ai,b:bi}; PV.playing=false; PV.cmpFresh=true;
+  $('#big-sheet').classList.remove('tiles');
   const va=$('#cmp-a'), vb=$('#cmp-b');
   cmpFillTagSels(ai, bi);
   bigMoveTransport();
@@ -3535,12 +3720,16 @@ function openCompare(ai, bi){
   va._pvNudged=false; vb._pvNudged=false;      // fresh sources: both must re-seek to agree
   va.src=A.url; vb.src=B.url; va.load(); vb.load();
   $('#big-sheet').classList.add('on');
-  const el=$('#big-sheet'); if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  goFullscreen();
   requestAnimationFrame(pvApply);
 }
-$('#cmp-go').onclick=()=>{ if(Object.keys(PV.meta).length) openCompare($('#cmp-a-sel').value, $('#cmp-b-sel').value); };
-$('#cmp-ta-sel').onchange=e=>cmpSwap('a', e.target.value);   // in-view A/B change
-$('#cmp-tb-sel').onchange=e=>cmpSwap('b', e.target.value);
+// the deck's pair pickers act at once: change one and that panel changes
+$('#cmp-a-sel').onchange=()=>{ PV.pairPicked=true; pvShowPair(); };
+$('#cmp-b-sel').onchange=()=>{ PV.pairPicked=true; pvShowPair(); };
+// and the enlarged view's LEFT/RIGHT pickers swap a side of the wipe in place,
+// keeping the deck's pair in step so closing lands on what you were just looking at
+$('#cmp-ta-sel').onchange=e=>{ PV.pairPicked=true; cmpSwap('a', e.target.value); $('#cmp-a-sel').value=e.target.value; };
+$('#cmp-tb-sel').onchange=e=>{ PV.pairPicked=true; cmpSwap('b', e.target.value); $('#cmp-b-sel').value=e.target.value; };
 // drag the divider (reveal each side); drag elsewhere on the stage pans the crop
 $('#cmp-divider').addEventListener('pointerdown', e=>{
   e.stopPropagation();
@@ -3568,9 +3757,24 @@ $('#src').onclick=()=>{
   $('#gate').classList.add('picking');
   $('#unit').classList.remove('on');
 };
-// "Refresh previews" re-runs the sample encodes from the current source (e.g.
-// after changing codec). The engine regenerates; standalone there is nothing to do.
-$('#load').textContent='Refresh previews';
+// The sample is cut from the first video in the source folder, so "which sample"
+// is really "which folder" — the control under the previews is the same pick as
+// the brow's, put where the thing it changes is being looked at.
+$('#pv-pick').onclick=()=>$('#src').click();
+// Keep the preview column's readout on the current source. It reads #src-v rather
+// than SRC because the pywebview bridge writes the real path straight into that
+// element, and there is no second place for it to drift from.
+(function(){
+  const src=$('#src-v'), out=$('#pv-src'); if(!src||!out) return;
+  // the last two segments name the folder; the full path stays in the tooltip
+  const tail=v=>{ const p=String(v).replace(/[\\/]+$/,'').split(/[\\/]/).filter(Boolean);
+    return p.length>2 ? p.slice(-2).join('/') : (p.join('/') || v); };
+  const sync=()=>{ const v=src.textContent||'—';
+    out.textContent=tail(v); out.title=v;
+    const b=$('#big-src'); if(b){ b.textContent=tail(v); b.title=v; } };
+  sync();
+  new MutationObserver(sync).observe(src, {childList:true, characterData:true, subtree:true});
+})();
 let pvCodec='h265', pvPos=0.5;
 $('#load').onclick=()=>{ if(window.__vtcRegenPreviews) window.__vtcRegenPreviews(pvCodec, pvPos); };
 // choose where in the first file the 5s sample comes from, then regenerate
