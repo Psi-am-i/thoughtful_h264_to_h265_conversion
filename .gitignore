@@ -4,6 +4,8 @@
 
 # local Claude settings
 .claude/settings.local.json
+# throwaway git worktrees used by background agents
+.claude/worktrees/
 
 # resume ledger (written into the scan directory)
 .vtc_processed.log

@@ -1,4 +1,22 @@
-# Very Thoughtful Compression 1.0 — by Picnic Labs
+# Very Thoughtful Compression 1.2 — by Picnic Labs
+
+WINDOWS: EXPERIMENTAL
+---------------------
+The macOS (Apple Silicon) build is the supported one. The Windows build is
+produced by CI but is NOT yet verified end to end — treat it as buggy and
+testers are very welcome.
+
+What is most likely to be wrong on Windows: the quality previews (WebView2 has
+no HEVC decoder, so they fall back to H.264, and the full-screen comparison has
+never been seen there), and hardware encoding via NVENC / QuickSync / AMF, which
+is implemented and probed at runtime but untested on real hardware — if the
+probe fails it falls back to software, so expect slow rather than wrong.
+
+The safety model is the same on every platform: a source is only replaced after
+the new file verifies, and originals are archived by default.
+
+Log file:  %LOCALAPPDATA%\VeryThoughtfulCompression\VeryThoughtfulCompression.log
+
 
 A codec-aware video re-encoder for large libraries. It measures every file first
 (bits per pixel per frame) and only re-encodes the ones that are actually over

@@ -164,6 +164,30 @@ two front-ends:
 
 ## The desktop app
 
+> ### ⚠️ Windows is experimental — testers welcome
+>
+> **macOS (Apple Silicon) is the supported build.** It is the platform this is
+> developed and tested on, and every release is run against a real library there.
+>
+> The Windows build compiles and CI produces it, but it is **not yet verified end
+> to end** and should be treated as buggy. Known and suspected gaps:
+>
+> - The interface was rebuilt recently and has only been looked at in WKWebView
+>   and Chrome. **WebView2 has no HEVC decoder**, so the quality previews fall
+>   back to H.264 there — and the full-screen 1:1 comparison has never been seen
+>   on Windows at all.
+> - Hardware encoding via **NVENC / QuickSync / AMF** is implemented and probed
+>   at runtime, but has not been exercised on real hardware. It falls back to
+>   software if the probe fails, so the worst case should be *slow*, not *wrong*.
+> - Long-path, permission and network-share behaviour differ from macOS. The
+>   engine writes to local scratch and moves the finished file once, which is the
+>   safe shape, but it has not been proven against a Windows network volume.
+>
+> **Nothing about the safety model is platform-specific**: a source is only ever
+> replaced after the new file verifies, and originals are archived by default. So
+> testing is welcome and low-risk — please open an issue with the log from
+> `%LOCALAPPDATA%\VeryThoughtfulCompression\VeryThoughtfulCompression.log`.
+
 Grab `VeryThoughtfulCompression-macos.zip` / `-windows.zip` from the project's
 Releases, or build them yourself — see [`packaging/BUILD.md`](packaging/BUILD.md)
 (macOS builds locally with `packaging/build_gui_app.sh`; both are also produced by
