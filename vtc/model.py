@@ -96,18 +96,24 @@ def classify_codec(codec_name: str | None) -> CodecCategory:
     return CodecCategory.OTHER
 
 
-def hevc_factor(pixels: int) -> float:
-    """H.265 efficiency factor for an output frame of `pixels` (w*h)."""
+def hevc_factor(pixels: int, factors: tuple[float, float, float] | None = None) -> float:
+    """H.265 efficiency factor for an output frame of `pixels` (w*h).
+
+    `factors` overrides the (HD, 4K, 8K+) defaults — how the Advanced settings'
+    three HEVC-factor boxes reach the arithmetic.
+    """
+    hd, uhd4k, uhd8k = factors or (HEVC_FACTOR_HD, HEVC_FACTOR_4K, HEVC_FACTOR_8K)
     if pixels <= _PIXELS_1080P:
-        return HEVC_FACTOR_HD
+        return hd
     if pixels <= _PIXELS_4K:
-        return HEVC_FACTOR_4K
-    return HEVC_FACTOR_8K
+        return uhd4k
+    return uhd8k
 
 
-def codec_factor(out_codec: OutCodec, pixels: int) -> float:
+def codec_factor(out_codec: OutCodec, pixels: int,
+                 hevc: tuple[float, float, float] | None = None) -> float:
     """Multiplier applied to the H.264 target for the chosen output codec."""
-    return hevc_factor(pixels) if out_codec == OutCodec.H265 else 1.0
+    return hevc_factor(pixels, hevc) if out_codec == OutCodec.H265 else 1.0
 
 
 def source_bpp(src_bps: float, pixels: int, fps: float) -> float:
@@ -124,14 +130,20 @@ def target_kbps(
     out_codec: OutCodec,
     src_kbps: float | None = None,
     floor_kbps: int = BITRATE_FLOOR_KBPS,
+    bpp: float | None = None,
+    hevc: tuple[float, float, float] | None = None,
 ) -> int:
     """Absolute target bitrate (kbps) for a file at this resolution/fps/codec.
 
     target = tier_bpp * pixels * fps * codec_factor, clamped to the floor and
     never above the source (we don't inflate). Returns an integer kbps.
+
+    `bpp` overrides the tier's own density — that is how a user-edited tier (see
+    RunConfig.tier_bpp) reaches the arithmetic without mutating the shared enum.
     """
     fps = fps if fps > 0 else float(_REF_FPS)
-    raw = tier.bpp * pixels * fps * codec_factor(out_codec, pixels) / 1000.0
+    density = tier.bpp if bpp is None else bpp
+    raw = density * pixels * fps * codec_factor(out_codec, pixels, hevc) / 1000.0
     target = max(float(floor_kbps), raw)
     if src_kbps is not None and src_kbps > 0:
         target = min(target, src_kbps)

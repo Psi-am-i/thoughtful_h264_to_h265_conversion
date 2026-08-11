@@ -28,6 +28,10 @@ class Ledger:
 
     def __init__(self, config: RunConfig) -> None:
         self._signature: str = config.settings_signature()
+        # Per-FILE encoder choices can't live in the run-wide signature, so they
+        # ride on the individual key instead: a file done in hardware must not
+        # count as done once it has been picked out for software.
+        self._config = config
         path = config.resolved_ledger_file()
         self._path: Path | None = None
         if path is not None:
@@ -61,7 +65,10 @@ class Ledger:
         except OSError:
             size = 0
             mtime = 0
-        return f"{self._signature}\t{abspath}\t{size}\t{mtime}"
+        sig = self._signature
+        if self._config.forces_software(path):
+            sig += "|sw"
+        return f"{sig}\t{abspath}\t{size}\t{mtime}"
 
     def has(self, key: str) -> bool:
         """True if ``key`` is present as an exact line in the ledger file.
@@ -78,6 +85,37 @@ class Ledger:
         except OSError:
             return False
         return False
+
+    @property
+    def path(self) -> Path | None:
+        """The ledger file in use, or None when disabled."""
+        return self._path
+
+    def count(self) -> int:
+        """How many files the history holds, at ANY settings signature.
+
+        Deliberately signature-blind: the "clear history" button in the UI wipes
+        the whole file, so the number beside it must count the whole file too.
+        """
+        if self._path is None:
+            return 0
+        try:
+            with open(self._path, "r", encoding="utf-8") as fh:
+                return sum(1 for line in fh if line.strip())
+        except OSError:
+            return 0
+
+    def clear(self) -> int:
+        """Empty the history. Returns how many entries were removed (0 on failure)."""
+        n = self.count()
+        if self._path is None:
+            return 0
+        try:
+            with open(self._path, "w", encoding="utf-8"):
+                pass
+        except OSError:
+            return 0
+        return n
 
     def add(self, key: str) -> None:
         """Append ``key`` (plus a newline) to the ledger file.

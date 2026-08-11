@@ -235,3 +235,24 @@ def test_select_subs_track_can_be_two_kinds():
 def test_select_subs_empty_kinds_means_all_not_none():
     """An empty kind list must never be read as 'drop every subtitle'."""
     assert _keep(sub_kinds=()) == [0, 1, 2, 3, 4, 5]
+
+
+def test_videotoolbox_uses_b_frames():
+    """B-frames must stay ON for both VideoToolbox encoders.
+
+    The engine shipped '-bf 0' inherited from the bash script, which cost real
+    quality on the path that can least afford it: hardware has no CRF, so the
+    tier bitrate IS the quality knob and coding efficiency converts directly
+    into picture quality. Measured on a 5-minute 1080p high-motion segment,
+    +0.55 dB XPSNR at 950 kbps and +0.41 dB at the EXCELLENT target, for
+    slightly SMALLER files (noise floor 0.16 dB).
+    """
+    from vtc.encode import VT_B_FRAMES
+    info = MediaInfo(path=Path("x.mp4"), ok=True, vcodec="h264", pix_fmt="yuv420p")
+    for enc in ("hevc_videotoolbox", "h264_videotoolbox"):
+        args = build_video_args(
+            _cfg(out_codec=OutCodec.H265 if "hevc" in enc else OutCodec.H264),
+            info, Mode.SHRINK, 4080, enc)
+        assert "-bf" in args, f"{enc}: no -bf at all"
+        assert args[args.index("-bf") + 1] == str(VT_B_FRAMES) != "0", \
+            f"{enc}: B-frames disabled"

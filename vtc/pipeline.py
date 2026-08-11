@@ -18,7 +18,7 @@ from typing import Callable
 from dataclasses import dataclass
 
 from . import encode, netmove
-from .config import Container, OutputMode, RunConfig, SourceAction
+from .config import AudioPolicy, Container, OutputMode, RunConfig, SourceAction
 from .ffprobe import MediaInfo, probe
 from .ledger import Ledger
 from .model import OutCodec, classify_codec, over_target, target_kbps
@@ -66,16 +66,43 @@ ResultCB = Callable[[FileResult], None]
 
 
 # ── Scanning ──────────────────────────────────────────────────────────────────
-def iter_video_files(config: RunConfig):
-    """Yield video files under config.src, pruning archive/system dirs."""
+def iter_scan_entries(config: RunConfig):
+    """Yield (path, ignore_reason) for every video file under config.src.
+
+    `ignore_reason` is None for a file that should be processed, otherwise the
+    human-readable rule that excluded it. Callers that only want the work use
+    :func:`iter_video_files`; the GUI uses this one so it can also say how many
+    files the user's own rules removed.
+    """
     exts = {"." + e.lower() for e in config.video_exts}
+    rules = config.has_ignore_rules
+    need_size = config.needs_size_to_ignore
     for root, dirs, files in os.walk(config.src):
         dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS]
         for name in files:
             if name.startswith("._"):
                 continue
-            if Path(name).suffix.lower() in exts:
-                yield Path(root) / name
+            if Path(name).suffix.lower() not in exts:
+                continue
+            path = Path(root) / name
+            if not rules:
+                yield path, None
+                continue
+            size = None
+            if need_size:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    size = None          # unreadable: let the size rules abstain
+            yield path, config.ignore_reason(name, size)
+
+
+def iter_video_files(config: RunConfig):
+    """Yield the video files under config.src that the run should actually touch
+    (archive/system dirs pruned, the user's ignore rules applied)."""
+    for path, reason in iter_scan_entries(config):
+        if reason is None:
+            yield path
 
 
 def _rel(config: RunConfig, path: Path) -> Path:
@@ -112,6 +139,8 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
             config.tier, info.pixels, info.fps, config.out_codec,
             src_kbps=src_kbps if clamp else None,
             floor_kbps=config.bitrate_floor_kbps,
+            bpp=config.bpp_for(),
+            hevc=config.hevc_factors(),
         )
 
     if category is CodecCategory.H264:
@@ -231,6 +260,45 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
 
 
 # ── Dry-run planning (decide without encoding) ────────────────────────────────
+def predict_output_bytes(config: RunConfig, info: MediaInfo, size: int,
+                         mode: Mode | None, target_kbps_: int) -> int:
+    """Predicted output size in bytes for a file that has already been decided.
+
+    The obvious model — scale the whole file by target/source bitrate — is wrong,
+    because the target is a VIDEO bitrate while the size includes audio and
+    subtitles. On a Blu-ray rip with lossless audio that is a big fraction, and
+    the error flips direction depending on whether the audio is copied or
+    re-encoded. So model the two parts separately:
+
+        video out  = target x duration
+        other out  = whatever is not video today (audio + subs + overhead),
+                     re-priced if the audio policy is going to re-encode it
+
+    `other` is measured from THIS file rather than assumed: the video stream's
+    own bitrate gives its share, and the remainder of the file is everything
+    else. When ffprobe reports no per-stream video bitrate there is nothing to
+    subtract, so fall back to the old ratio — honest, and no worse than before.
+    """
+    if mode is None or mode is Mode.REMUX:
+        return size                       # a remux is a stream copy: same bytes
+    dur = info.duration or 0.0
+    src_kbps = info.effective_bps / 1000.0
+    if dur <= 0 or target_kbps_ <= 0 or src_kbps <= 0:
+        return size
+    video_out = target_kbps_ * 1000.0 / 8.0 * dur
+    if info.bit_rate:                     # per-stream video bitrate known
+        other = max(0.0, size - info.bit_rate / 8.0 * dur)
+    else:                                 # cannot split the file: old model
+        return int(min(size, size * min(1.0, target_kbps_ / src_kbps)))
+    # A forced audio codec re-prices the audio; passthrough (and lossless FLAC,
+    # whose size we cannot usefully predict) keeps whatever is there today.
+    if config.audio_policy in (AudioPolicy.AAC, AudioPolicy.AC3) and info.audio:
+        per = (config.audio_bitrate_multichannel if info.max_audio_channels > 2
+               else config.audio_bitrate_stereo)
+        other = per * 1000.0 / 8.0 * dur * len(info.audio)
+    return int(min(float(size), video_out + other))
+
+
 @dataclass
 class PlanRow:
     path: Path
@@ -243,12 +311,35 @@ class PlanRow:
     def src_kbps(self) -> float:
         return self.info.effective_bps / 1000.0
 
-    def projected_saving(self) -> float | None:
-        """Estimated size saving fraction for a shrink/transcode; None otherwise."""
-        if self.mode in (Mode.SHRINK, Mode.TRANSCODE) and self.src_kbps > 0:
-            return max(0.0, 1.0 - self.target_kbps / self.src_kbps)
+    def predicted_bytes(self, config: RunConfig) -> int | None:
+        """Predicted output size, or None if the file is left alone."""
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return None
+        return predict_output_bytes(config, self.info, size, self.mode, self.target_kbps)
+
+    def projected_saving(self, config: RunConfig | None = None) -> float | None:
+        """Estimated size saving fraction for a shrink/transcode; None otherwise.
+
+        With a config, this is the real two-part prediction (video + everything
+        else). Without one it falls back to the bitrate ratio, which ignores
+        audio — kept only so old callers do not break.
+        """
         if self.mode is Mode.REMUX:
             return 0.0
+        if self.mode not in (Mode.SHRINK, Mode.TRANSCODE):
+            return None
+        if config is not None:
+            try:
+                size = self.path.stat().st_size
+            except OSError:
+                size = 0
+            if size > 0:
+                out = predict_output_bytes(config, self.info, size, self.mode, self.target_kbps)
+                return max(0.0, 1.0 - out / size)
+        if self.src_kbps > 0:
+            return max(0.0, 1.0 - self.target_kbps / self.src_kbps)
         return None
 
 
@@ -428,7 +519,10 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
     def work(f: Path) -> FileResult | None:
         if stop_requested():
             return None
-        return process_file(config, ledger, hw_encoder, f, progress, notify=notify)
+        # A file the user picked out goes to software even on a hardware run:
+        # passing no hardware encoder IS the software path (see build_video_args).
+        hw = None if config.forces_software(f) else hw_encoder
+        return process_file(config, ledger, hw, f, progress, notify=notify)
 
     with ThreadPoolExecutor(max_workers=max(1, config.jobs)) as pool:
         futures = [pool.submit(work, f) for f in files]

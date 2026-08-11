@@ -187,14 +187,21 @@ vtc [SRC] [options]     # or, from source: python -m vtc.cli [SRC]
 interactive prompts. Everything the app asks is a flag:
 
 **Quality** — `--codec {h265,h264}` · `--tier {ok,good,excellent,stellar,insane}` ·
-`--min-saving 0.25` (fraction a shrink must save to be kept).
+`--min-saving 0.25` (fraction a shrink must save to be kept) · `--bpp 0.12`
+(retune the chosen tier's density — see [the quality model](docs/quality-model.md)).
+**Ignore rules** — `--ignore-under MB` · `--ignore-over MB` · `--ignore-ext .avi` ·
+`--ignore-name sample` (both repeatable). An ignored file is left out of the scan
+entirely: it is never probed, counted, estimated or reported.
 **Compatibility** — `--no-remux` · `--no-transcode` · `--container {auto,mp4,mkv}` ·
 `--audio {passthrough,aac,ac3,flac}` · `--drop-image-subs`.
-**Execution** — `--encoder {auto,hardware,software}` · `--jobs N`.
+**Execution** — `--encoder {auto,hardware,software}` · `--jobs N` ·
+`--software-file PATH` (repeatable: encode just these files in software even on a
+hardware run — the GUI offers this as a tick-list after the scan).
 **Destination** — `--output DIR` (mirror the tree) · `--flat` ·
 `--originals {archive,delete,keep}` · `--archive-dir DIR`.
 **Other** — `--dry-run` (decide + report, encode nothing) · `--no-ledger` /
-`--ledger-file` · `--ffmpeg` / `--ffprobe` (override the binaries) · `--version`.
+`--ledger-file` · `--clear-history` (empty the resume ledger first) ·
+`--ffmpeg` / `--ffprobe` (override the binaries) · `--version`.
 
 Run `vtc --help` for the full list and defaults.
 

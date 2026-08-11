@@ -97,7 +97,9 @@ Every file that reaches a terminal (non-error) decision is recorded in
 <settings-signature>\t<abspath>\t<size>\t<mtime>
 ```
 
-The signature is `TIER|CODEC|rmx?|xc?|outputmode`. On a re-run:
+The signature is `TIER|CODEC|rmx?|xc?|outputmode`, with `|bppN` appended when the
+tier has been retuned (only then, so history written before per-tier bpp existed
+still matches). On a re-run:
 
 - **Same settings** → recorded files are skipped without re-probing (fast resume,
   e.g. after `touch /tmp/hevc_stop` stops a run mid-way).
@@ -115,8 +117,10 @@ Model constants live in `vtc/model.py` and per-run settings in `vtc/config.py`
 
 | Constant / setting | Default | Meaning | CLI |
 |---|---|---|---|
+| `tier_bpp` | the tier's own anchor | per-tier density override (Advanced settings → Quality tiers) | `--bpp` |
 | `TIER_OVER_TOLERANCE` | 1.10 | re-encode only if source is >10% over target | — |
 | `BITRATE_FLOOR_KBPS` | 1500 | never target below this (kbps) | — |
 | `HEVC_FACTOR_HD/4K/8K` | 0.60 / 0.50 / 0.45 | H.265 bitrate vs H.264 at same quality | — |
+| ignore rules | none | size / extension / filename rules that remove files from the scan | `--ignore-under/-over/-ext/-name` |
 | ledger enabled / file | on / `<scan>/.vtc_processed.log` | resume ledger toggle / path | `--no-ledger` / `--ledger-file` |
 | encoder backend | auto | hardware (VideoToolbox) vs software | `--encoder {auto,hardware,software}` |

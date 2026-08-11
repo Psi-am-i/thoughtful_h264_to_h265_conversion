@@ -412,9 +412,12 @@ body{
    set smaller than an icon drawn with padding or it overpowers the brow. */
 .gear svg{width:19px;height:19px;fill:currentColor;stroke:none}
 .adv-sec{margin:0 0 20px}
-.adv-sec > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;
-  text-transform:uppercase;color:var(--accent);margin:0 0 10px;padding-bottom:6px;
-  border-bottom:1px solid var(--rule)}
+/* Matches a bare heading AND one wrapped in .adv-sec-h beside its own action
+   button — a direct-child selector silently dropped the styling from the
+   wrapped ones, which reads as two different kinds of section. */
+.adv-sec > h3, .adv-sec-h > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin:0 0 10px;
+  padding-bottom:6px;border-bottom:1px solid var(--rule)}
 .adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px}
 .adv-grid.one{grid-template-columns:1fr}
 .adv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;
@@ -455,11 +458,57 @@ body{
 /* Plain-English readback of what the two filters combine to. */
 .adv-subs-summary{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding-top:2px}
 .adv-subs-summary.warn{color:var(--accent);font-weight:600}
+/* A section heading that carries its own small action (e.g. "Reset tiers"),
+   so a per-section reset doesn't have to travel to the footer's global one. */
+.adv-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.adv-sec-h > h3{flex:1}
+.adv-mini{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;padding:3px 9px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel);color:var(--ink-2);cursor:pointer;transition:all .12s;
+  margin-bottom:10px;white-space:nowrap}
+.adv-mini:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.adv-mini:disabled{opacity:.45;cursor:default}
+/* Wider free-text boxes (extension / filename rules) sit next to the number
+   boxes, so they get the same skin at a length that fits a list. */
+.adv-ctrl input[type=text]{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  padding:5px 7px;border:1px solid var(--rule);border-radius:var(--r);background:var(--panel);
+  color:var(--ink);width:170px}
+/* An input whose rule is off reads as off rather than as an empty mystery. */
+.adv-ctrl input.off{color:var(--ink-3)}
 /* a section that's not wired yet: visible so the shape is real, but inert */
 .adv-soon{opacity:.6;pointer-events:none}
 .adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:var(--r);
   padding:1px 6px;margin-left:8px;pointer-events:auto}
+/* ── Per-file software picker ─────────────────────────────────────────────── */
+.sw-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  margin-top:14px;padding:11px 13px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel)}
+.sw-entry-t b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
+.sw-entry-t span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.sw-lead{font-size:13px;color:var(--ink-2);margin:0 0 12px;line-height:1.5}
+.sw-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.sw-tools .adv-mini{margin-bottom:0}
+/* The list is the only scrolling region, so the tools and the count stay put
+   while a 400-row library goes past. */
+.sw-list{max-height:46vh;overflow-y:auto;border:1px solid var(--rule);border-radius:var(--r)}
+.sw-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;
+  gap:12px;padding:8px 12px;border-bottom:1px solid rgba(182,179,168,.4);cursor:pointer;
+  font-size:13px;color:var(--ink)}
+.sw-row:last-child{border-bottom:0}
+.sw-row:hover{background:var(--panel)}
+.sw-row.on{background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.sw-box{width:16px;height:16px;border:1.5px solid var(--rule);border-radius:4px;flex:0 0 auto;
+  position:relative;background:var(--bg)}
+.sw-row.on .sw-box{background:var(--accent);border-color:var(--accent)}
+.sw-row.on .sw-box::after{content:"";position:absolute;left:4.5px;top:1px;width:4px;height:9px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.sw-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sw-meta{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.sw-size{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;white-space:nowrap}
+.sw-foot{margin-right:auto;font-size:12px;color:var(--ink-3)}
+.sw-foot b{color:var(--ink)}
+.sw-empty{padding:22px 14px;text-align:center;color:var(--ink-3);font-size:13px}
 /* up-front non-MP4 policy sheet: selectable option cards over ADV.format */
 .compat-lead{font-size:15px;color:var(--ink);font-weight:600;margin:0}
 .compat-opts{display:flex;flex-direction:column;gap:10px;margin-top:16px}
@@ -1069,11 +1118,48 @@ body{
         <div><span class="mono">Projected</span><b id="c-proj">—</b></div>
         <div><span class="mono">Originals</span><b id="c-dest">—</b></div>
       </div>
+      <!-- Per-file encoder choice. Only shown on a HARDWARE run (on a software
+           run every file already gets the slow encoder), and only in the app —
+           the standalone mock has no file list to offer. -->
+      <div class="sw-entry" id="sw-entry" hidden>
+        <div class="sw-entry-t"><b>Encode some files in software</b>
+          <span id="sw-entry-n">Slower, but better per bit — worth it for the few files you care most about.</span></div>
+        <button class="adv-mini" id="sw-open" style="margin-bottom:0">Choose files…</button>
+      </div>
+      <div class="c-work" id="c-work" hidden></div>
       <p class="sheet-w" id="c-warn"></p>
     </div>
     <div class="sheet-f">
       <button class="btn-ghost" id="c-back">Go back</button>
       <button class="btn-run" id="c-go" style="width:auto;margin:0;padding:11px 26px">Yes, start</button>
+    </div>
+  </div>
+</div>
+
+<!-- Per-file software picker. Lists ONLY the files this run would actually
+     re-encode — ticking a file that is going to be skipped as already-efficient
+     would do nothing, and on a real library the skips outnumber the work many
+     times over. Sorted biggest-first, because size is how people recognise the
+     handful of titles worth the extra hours. -->
+<div class="sheet" id="sw-sheet">
+  <div class="sheet-c wide">
+    <div class="sheet-h">
+      <div class="sheet-e mono">Software encoding · slower, better per bit</div>
+      <h2 class="sheet-t">Which files deserve the slow encoder?</h2>
+    </div>
+    <div class="sheet-b">
+      <p class="sw-lead" id="sw-lead">—</p>
+      <div class="sw-tools">
+        <button class="adv-mini" data-pick="all">Tick all</button>
+        <button class="adv-mini" data-pick="none">Tick none</button>
+        <button class="adv-mini" data-pick="big">Everything over</button>
+        <div class="adv-ctrl"><input type="number" id="sw-big" min="0.1" max="200" step="0.5" value="4"><span class="adv-unit">GB</span></div>
+      </div>
+      <div class="sw-list" id="sw-list"></div>
+    </div>
+    <div class="sheet-f">
+      <div class="sw-foot mono" id="sw-foot"></div>
+      <button class="btn-ghost" id="sw-done">Done</button>
     </div>
   </div>
 </div>
@@ -1163,6 +1249,90 @@ body{
         </div>
       </div>
 
+      <!-- Quality tiers: the density behind each tier, editable. These are the
+           numbers the whole model hangs off — a tier IS its bpp — so the boxes
+           are deliberately here rather than in the guided flow, and each one
+           says what it means in Mbps at 1080p30 as you type. -->
+      <div class="adv-sec">
+        <div class="adv-sec-h">
+          <h3>Quality tiers · bits per pixel per frame</h3>
+          <button class="adv-mini" id="adv-bpp-reset">Reset tiers</button>
+        </div>
+        <div class="adv-grid" id="adv-bpp-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>OK</b><span data-bpp-note="OK"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-OK" data-bpp="OK"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Good</b><span data-bpp-note="GOOD"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-GOOD" data-bpp="GOOD"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Excellent</b><span data-bpp-note="EXCELLENT"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-EXCELLENT" data-bpp="EXCELLENT"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Stellar</b><span data-bpp-note="STELLAR"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-STELLAR" data-bpp="STELLAR"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Insane</b><span data-bpp-note="INSANE"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-INSANE" data-bpp="INSANE"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab adv-subs-summary" id="adv-bpp-summary"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ignore rules: files the scan pretends it never saw. Everything here
+           REMOVES work — nothing is skipped-then-reported, it simply isn't part
+           of the library, so the count, the estimate and the report all agree. -->
+      <div class="adv-sec">
+        <div class="adv-sec-h">
+          <h3>Ignore files</h3>
+          <button class="adv-mini" id="adv-ign-reset">Clear rules</button>
+        </div>
+        <div class="adv-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Smaller than</b><span>Leave tiny files alone. Empty = no limit.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ign-under" min="0" max="1000000"
+              step="10" placeholder="off"><span class="adv-unit">MB</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Larger than</b><span>Leave the giants for another day. Empty = no limit.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ign-over" min="0" max="1000000"
+              step="100" placeholder="off"><span class="adv-unit">MB</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Extensions</b><span>Comma-separated, e.g. .avi, .wmv.</span></div>
+            <div class="adv-ctrl"><input type="text" id="adv-ign-exts" placeholder="none"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Filename contains</b><span>Comma-separated. Case-insensitive, e.g. sample, trailer.</span></div>
+            <div class="adv-ctrl"><input type="text" id="adv-ign-names" placeholder="none"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Already in processing history</b>
+              <span>Skip files finished at these settings on an earlier run.</span></div>
+            <button class="adv-tog" id="adv-ledger" role="switch"></button>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Processing history</b><span id="adv-hist-n">—</span></div>
+            <div class="adv-ctrl"><button class="adv-mini" id="adv-hist-clear"
+              style="margin-bottom:0">Clear history</button></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab adv-subs-summary" id="adv-ign-summary"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="adv-sec">
         <h3>Video tuning</h3>
         <div class="adv-grid">
@@ -1235,10 +1405,8 @@ body{
             <div class="adv-lab"><b>Parallel jobs</b><span>Files encoded at once. Hardware encoders rarely benefit past 1–2.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-jobs" min="1" max="16" step="1"></div>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Resume ledger</b><span>Skip files already processed at these settings on a re-run.</span></div>
-            <button class="adv-tog" id="adv-ledger" role="switch"></button>
-          </div>
+          <!-- The resume ledger moved up into "Ignore files": it is an ignore
+               rule, and it belongs beside the button that empties it. -->
         </div>
       </div>
 
@@ -1957,7 +2125,6 @@ function clearWell(){
 }
 $('#commit').onclick=()=>{
   const q=M[step], oi=armed;
-  const wasComplete = SRC && M.every(x=>answers[x.id]!==undefined);
   const keyEl=$('#keys').querySelector(`.key[data-i="${oi}"]`);
   fly(keyEl,q.id,oi,()=>{
     answers[q.id]=oi;
@@ -1968,10 +2135,13 @@ $('#commit').onclick=()=>{
     step=next===-1?step:next;
     armed=answers[M[step].id]??null;
     render(); drawRegions(q.id);
-    // The moment the last decision lands — or a change made from the modal is
-    // re-committed — bring the finished config to the centre, instead of making
-    // them cross to the right rail and hunt for Start.
-    if(nowComplete && (!wasComplete || reconfirm)){ reconfirm=false; setTimeout(openConfirm, 540); }
+    // Only come back to the modal when the user CAME from it — they changed one
+    // answer from the recap and re-committed it, so returning is finishing what
+    // they started. Completing the last question does NOT open it: the last
+    // question is the destination, and landing in a modal the instant you pick
+    // one traps someone who only wanted to set that and then go back and adjust
+    // something else. Start is right there and lights up; let them press it.
+    if(nowComplete && reconfirm){ reconfirm=false; setTimeout(openConfirm, 540); }
   });
 };
 
@@ -1994,8 +2164,9 @@ function drawEstimate(){
   // — absolute, never a fraction of what the file currently weighs. Modelled
   // here over a mixed library rather than per file, but on the same arithmetic:
   // the ratio a fat 1080p30 source lands at is target_bpp / its own bpp.
-  const TIER_BPP=[0.0643,0.0804,0.1093,0.1286,0.1447];
-  const bpp = TIER_BPP[answers.quality ?? 2];
+  // Read the densities from ADV, not a frozen copy: a retuned tier must move
+  // this prediction too, or the mock estimate contradicts the run.
+  const bpp = ADV.bpp[TIER_ORDER[answers.quality ?? 2]];
   // codec factor: H.265 x0.60 at <=1080p (the bulk of a library), H.264 x1.0,
   // AV1 roughly a further third below H.265
   const codecF=[0.60,1.0,0.42][answers.codec];
@@ -2047,12 +2218,41 @@ const shutSheet=id=>{
 // ticked is "keep everything", which is the default. The two are independent,
 // so "eng + forced only" is now expressible; the old single `subs` dropdown
 // could not say that.
+// TIER_ORDER is the model's own order (vtc/model.py) and the order the quality
+// question shows — the estimate below indexes into it, so the two must not drift.
+const TIER_ORDER = ['OK','GOOD','EXCELLENT','STELLAR','INSANE'];
+const TIER_LABEL = { OK:'OK', GOOD:'Good', EXCELLENT:'Excellent', STELLAR:'Stellar', INSANE:'Insane' };
+// The shipped densities, derived from the H.264 @1080p30 anchors (4.0 / 5.0 /
+// 6.8 / 8.0 / 9.0 Mbps). "Reset tiers" restores exactly these.
+const BPP_DEFAULTS = { OK:0.0643, GOOD:0.0804, EXCELLENT:0.1093, STELLAR:0.1286, INSANE:0.1447 };
 const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], subLangs:[],
   floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
-  imageSubs:true, mkvTracks:0, jobs:1, ledger:true };
-const ADV = Object.assign({}, ADV_DEFAULTS);
+  imageSubs:true, mkvTracks:0, jobs:1, ledger:true,
+  bpp:Object.assign({}, BPP_DEFAULTS),
+  // Ignore rules. '' means the rule is off (not 0 — zero is a real size).
+  ignUnderMb:'', ignOverMb:'', ignExts:[], ignNames:[] };
+// A plain Object.assign would share the one bpp object between ADV and the
+// defaults, so editing a tier would quietly rewrite what "Reset" restores.
+const advDefaults = ()=> Object.assign({}, ADV_DEFAULTS, {
+  bpp:Object.assign({}, BPP_DEFAULTS),
+  subKinds:ADV_DEFAULTS.subKinds.slice(), subLangs:[], ignExts:[], ignNames:[] });
+const ADV = advDefaults();
 window.ADV = ADV;
+// Push the settings to the engine whenever they change: the ignore rules decide
+// what a scan even counts, and the tier bpp decides what the preview panels
+// encode, so neither can wait until Start. A no-op in the standalone mock.
+function advPush(){
+  try {
+    if(!(window.pywebview && window.pywebview.api.set_adv)) return;
+    Promise.resolve(window.pywebview.api.set_adv(JSON.parse(JSON.stringify(ADV)))).then(r=>{
+      // A rules change re-walks the folder, so the totals on screen are stale
+      // until it lands: show the scanning state rather than a number we know is wrong.
+      if(r && r.rescanned && SRC){ SRC.scanning = true; drawEstimate(); }
+    }).catch(()=>{});
+  } catch(e){}
+}
+window.advPush = advPush;
 // Two independent filters are easy to combine into something you didn't mean —
 // most importantly ticking nothing, which silently discards every subtitle. Say
 // out loud what the current pair actually does.
@@ -2075,6 +2275,101 @@ function advSubsSummary(){
   el.textContent = `Keeping ${kindTxt}${langTxt}.`;
 }
 
+// ── Quality tiers ────────────────────────────────────────
+// A tier is a density, and the density is the whole model — so an edited tier
+// has to be visible everywhere the tier is named, not just in this modal. That
+// means the per-row Mbps note, the summary, and the QUALITY question's own tags.
+// Trim trailing zeros so a hand-typed 0.15 reads as "0.15", not "0.1500".
+const fmtBpp = b => (+b.toFixed(4)).toString();
+// The Advanced editor is the one place the FULL implication belongs: this density,
+// for the codec you picked, is this many Mbps at 1080p30 and this many at 4K —
+// and frame rate multiplies it. Everywhere else says BPP alone, because a bitrate
+// quoted without its resolution and frame rate is the misleading half of the story.
+function advBppImplication(v){
+  const h265 = (answers.codec ?? 1) === 1;          // default output codec is H.265
+  const f1080 = h265 ? (ADV.hevcHd || 0.60) : 1;
+  const f4k   = h265 ? (ADV.hevc4k || 0.50) : 1;
+  const m1080 = v * 1920*1080 * 30 / 1e6 * f1080;
+  const m4k   = v * 3840*2160 * 30 / 1e6 * f4k;
+  return `${h265 ? 'H.265' : 'H.264'} · ${m1080.toFixed(1)} Mbps at 1080p30`
+       + ` · ${m4k.toFixed(1)} at 4K30 · double at 60fps`;
+}
+function advBppNotes(){
+  TIER_ORDER.forEach(k=>{
+    const el = document.querySelector(`[data-bpp-note="${k}"]`); if(!el) return;
+    const v = ADV.bpp[k], def = BPP_DEFAULTS[k];
+    const changed = Math.abs(v-def) > 1e-9;
+    el.textContent = advBppImplication(v)
+      + (changed ? ` · default ${fmtBpp(def)}` : '');
+    el.style.color = changed ? 'var(--accent)' : '';
+  });
+  const out = $('#adv-bpp-summary');
+  if(out){
+    // Out-of-order tiers aren't refused — they're your numbers — but a "Good"
+    // that is denser than "Excellent" is almost certainly a typo, so say so.
+    const bad = TIER_ORDER.filter((k,i)=> i>0 && ADV.bpp[k] <= ADV.bpp[TIER_ORDER[i-1]]);
+    out.classList.toggle('warn', bad.length>0);
+    out.textContent = bad.length
+      ? `${bad.map(k=>TIER_LABEL[k]).join(' and ')} now sit at or below the tier beneath — they will give you less, not more.`
+      : 'Higher BPP = more information per frame = bigger files. Every target scales from here with the file’s own pixels and frame rate.';
+  }
+  applyTierTags();
+}
+// Rewrite the QUALITY question's tags/recaps from the current densities, so the
+// flow can't advertise 0.109 bpp while the engine is using something else.
+function applyTierTags(){
+  const q = (typeof M!=='undefined') && M.find(x=>x.id==='quality');
+  if(!q) return;
+  q.opts.forEach((o,i)=>{
+    const k = TIER_ORDER[i]; if(!k) return;
+    const b = ADV.bpp[k], dflt = (k==='EXCELLENT') ? ' · default' : '';
+    // BPP only. The bitrate this implies falls out of it, modified by the codec —
+    // so naming a bitrate here is superfluous at best and misleading at worst
+    // (it is only true at one resolution and frame rate). The Advanced tier
+    // editor spells the implications out; the flow states the density.
+    o.tag = `${fmtBpp(b)} BPP${dflt}`;
+    o.recap = `${TIER_LABEL[k]} · ${fmtBpp(b)} BPP`;
+  });
+  // Repaint only if the user is standing on that question; the confirm recap
+  // rebuilds itself from M every time it opens, so it needs no nudge here.
+  if(typeof step!=='undefined' && typeof render==='function' && M[step] && M[step].id==='quality') render();
+}
+
+// ── Ignore rules ─────────────────────────────────────────
+function advIgnSummary(){
+  const el = $('#adv-ign-summary'); if(!el) return;
+  const bits = [];
+  if(ADV.ignUnderMb!=='') bits.push(`under ${ADV.ignUnderMb} MB`);
+  if(ADV.ignOverMb!=='')  bits.push(`over ${ADV.ignOverMb} MB`);
+  if((ADV.ignExts||[]).length)  bits.push((ADV.ignExts||[]).map(e=>'.'+e).join(', '));
+  if((ADV.ignNames||[]).length) bits.push('named like ' + (ADV.ignNames||[]).join(', '));
+  el.classList.remove('warn');
+  if(!bits.length){ el.textContent = 'No ignore rules — every video file in the folder is considered.'; return; }
+  // Contradictory bounds ignore the entire library, which is worth saying out
+  // loud before someone starts a run that finds nothing.
+  const u = parseFloat(ADV.ignUnderMb), o = parseFloat(ADV.ignOverMb);
+  if(isFinite(u) && isFinite(o) && o <= u){
+    el.classList.add('warn');
+    el.textContent = `"under ${u} MB" and "over ${o} MB" between them cover every file — nothing would be processed.`;
+    return;
+  }
+  el.textContent = 'Ignoring files ' + bits.join(' · ') + '. They are left out of the count, the estimate and the report.';
+}
+// Entry count beside "Clear history" — real in the app, quiet in the mock.
+function advHistoryInfo(){
+  const n = $('#adv-hist-n'), btn = $('#adv-hist-clear');
+  if(!n || !btn) return;
+  if(!(window.pywebview && window.pywebview.api.history_info)){
+    n.textContent = 'Files finished on earlier runs are remembered here.'; btn.disabled = true; return;
+  }
+  Promise.resolve(window.pywebview.api.history_info()).then(r=>{
+    const c = (r && r.entries) || 0;
+    n.textContent = c ? `${c.toLocaleString()} file${c===1?'':'s'} remembered as done.`
+                      : 'Nothing remembered yet.';
+    btn.disabled = !c;
+  }).catch(()=>{});
+}
+
 function advToForm(){                                  // ADV -> controls
   [['#adv-floor','floor'],['#adv-tol','tol'],['#adv-hevc-hd','hevcHd'],
    ['#adv-hevc-4k','hevc4k'],['#adv-hevc-8k','hevc8k'],['#adv-ab-stereo','abStereo'],
@@ -2088,6 +2383,15 @@ function advToForm(){                                  // ADV -> controls
     b.setAttribute('aria-checked', on ? 'true' : 'false');
   });
   advSubsSummary();
+  TIER_ORDER.forEach(k=>{ const el=$('#adv-bpp-'+k); if(el) el.value = ADV.bpp[k]; });
+  advBppNotes();
+  [['#adv-ign-under','ignUnderMb'],['#adv-ign-over','ignOverMb']].forEach(([id,key])=>{
+    const el=$(id); if(el){ el.value = ADV[key]; el.classList.toggle('off', ADV[key]===''); }
+  });
+  $('#adv-ign-exts').value  = (ADV.ignExts ||[]).map(e=>'.'+e).join(', ');
+  $('#adv-ign-names').value = (ADV.ignNames||[]).join(', ');
+  advIgnSummary();
+  advHistoryInfo();
   $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
@@ -2131,13 +2435,178 @@ function advBind(){                                    // controls -> ADV
     $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
   $('#adv-image-subs').onclick=()=>{ ADV.imageSubs=!ADV.imageSubs; $('#adv-image-subs').classList.toggle('on',ADV.imageSubs); };
   $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); };
+
+  // Tier densities. Typing is left alone until it parses (so "0." isn't
+  // rewritten mid-keystroke); a box left unreadable snaps back on blur.
+  TIER_ORDER.forEach(k=>{
+    const el=$('#adv-bpp-'+k); if(!el) return;
+    el.oninput=()=>{ const v=parseFloat(el.value);
+      if(!isFinite(v) || v<=0) return;
+      ADV.bpp[k]=Math.max(0.005, Math.min(1, v)); advBppNotes(); };
+    el.onblur=()=>{ const v=parseFloat(el.value);
+      if(!isFinite(v) || v<=0){ el.value=ADV.bpp[k]; return; }
+      el.value=ADV.bpp[k]; advPush(); };        // push once the number has settled
+  });
+  $('#adv-bpp-reset').onclick=()=>{
+    ADV.bpp=Object.assign({}, BPP_DEFAULTS);
+    TIER_ORDER.forEach(k=>{ const el=$('#adv-bpp-'+k); if(el) el.value=ADV.bpp[k]; });
+    advBppNotes(); advPush();
+  };
+
+  // Ignore rules. An empty box means the rule is OFF — kept as '' rather than 0,
+  // because 0 MB is a real (if useless) threshold and the two must not blur.
+  [['#adv-ign-under','ignUnderMb'],['#adv-ign-over','ignOverMb']].forEach(([id,key])=>{
+    const el=$(id); if(!el) return;
+    el.oninput=()=>{
+      const raw=el.value.trim();
+      const v=parseFloat(raw);
+      ADV[key] = (raw==='' || !isFinite(v) || v<0) ? '' : Math.min(1000000, v);
+      el.classList.toggle('off', ADV[key]===''); advIgnSummary();
+    };
+    el.onblur=()=>{ el.value = ADV[key]; advPush(); };   // '' clears a half-typed number
+  });
+  const list=(id,key,strip)=>{ const el=$(id); if(!el) return;
+    el.oninput=()=>{ ADV[key]=el.value.split(',').map(s=>{ s=s.trim();
+        return strip ? s.replace(/^\.+/,'').toLowerCase() : s; }).filter(Boolean);
+      advIgnSummary(); };
+    el.onblur=()=>advPush();
+  };
+  list('#adv-ign-exts','ignExts', true);
+  list('#adv-ign-names','ignNames', false);
+  $('#adv-ign-reset').onclick=()=>{
+    ADV.ignUnderMb=''; ADV.ignOverMb=''; ADV.ignExts=[]; ADV.ignNames=[];
+    advToForm(); advPush();
+  };
+  // Clearing the history is a real, irreversible edit to what the next run does,
+  // so it confirms in place (turning the button into its own "Yes, clear")
+  // rather than behind a dialog the webview would have to block on.
+  let armClear=null;
+  $('#adv-hist-clear').onclick=()=>{
+    const btn=$('#adv-hist-clear');
+    if(!armClear){
+      btn.textContent='Yes, clear it';
+      armClear=setTimeout(()=>{ armClear=null; btn.textContent='Clear history'; }, 4000);
+      return;
+    }
+    clearTimeout(armClear); armClear=null; btn.textContent='Clear history';
+    try {
+      Promise.resolve(window.pywebview.api.clear_history()).then(()=>advHistoryInfo()).catch(()=>{});
+    } catch(e){}
+  };
 }
 advBind();
+applyTierTags();                       // the flow's tier tags start from ADV too
 function openAdv(){ advToForm(); openSheet('#adv-sheet'); }
 $('#gear').onclick=openAdv;
-$('#adv-done').onclick=()=>shutSheet('#adv-sheet');
-$('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) shutSheet('#adv-sheet'); };
-$('#adv-reset').onclick=()=>{ Object.assign(ADV, ADV_DEFAULTS); advToForm(); };
+// Closing the modal is the moment to settle up: push everything, and redraw the
+// estimate, since ignore rules and tier densities both change what it predicts.
+function advClose(){
+  shutSheet('#adv-sheet'); advPush();
+  if(typeof drawEstimate==='function') drawEstimate();
+}
+$('#adv-done').onclick=advClose;
+$('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) advClose(); };
+$('#adv-reset').onclick=()=>{ Object.assign(ADV, advDefaults()); advToForm(); advPush(); };
+
+// ═══ Per-file software picker ════════════════════════════
+// Choosing the encoder is a ONE-SHOT decision per file — the original is
+// archived or replaced, and you cannot re-encode your way back to quality —
+// so the few titles worth the extra hours deserve to be picked deliberately.
+// SW.picked holds resolved paths; SW.rows is whatever the engine last offered.
+const SW = { rows: [], picked: new Set(), measured: false };
+window.__softwareFiles = [];
+const swSync = ()=>{ window.__softwareFiles = [...SW.picked]; };
+const gb = b => b/1e9;
+const swSize = b => b>=1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(0)+' MB';
+// Clock for the footer. The same measured constants the engine's ETA starts
+// from (webapp.py) — x realtime AT 1080p, scaled by frame size, because an
+// encoder is really a pixels-per-second machine and 4K costs about 4x 1080p.
+// This number is quoted BEFORE the run, so unlike the live ETA it never gets
+// to correct itself: it has to be honest up front, not merely pessimistic.
+const HW_SPEED = 6.0, SW_SPEED = 0.82, PX_1080P = 1920*1080;
+const swSecs = (r, speed) => (r.dur||0) / (speed * (r.px ? PX_1080P/r.px : 1));
+function swHuman(sec){
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
+  return h ? `${h}h${String(m).padStart(2,'0')}m` : `${m}m`;
+}
+function swRender(){
+  const list = $('#sw-list'); if(!list) return;
+  if(!SW.rows.length){
+    list.innerHTML = `<div class="sw-empty">${SW.measured
+      ? 'Nothing here would be re-encoded — every file is already at or under your tier.'
+      : 'Still measuring your library…'}</div>`;
+  } else {
+    list.innerHTML = SW.rows.map((r,i)=>{
+      const on = SW.picked.has(r.path);
+      return `<div class="sw-row${on?' on':''}" data-i="${i}">`
+           + `<span class="sw-box"></span>`
+           + `<span class="sw-name" title="${r.name.replace(/"/g,'&quot;')}">${r.name}</span>`
+           + `<span class="sw-meta">${r.res}${r.saving?' · −'+r.saving+'%':''}</span>`
+           + `<span class="sw-size">${swSize(r.bytes)}</span></div>`;
+    }).join('');
+    list.querySelectorAll('.sw-row').forEach(el=>{
+      el.onclick = ()=>{
+        const r = SW.rows[+el.dataset.i];
+        if(SW.picked.has(r.path)) SW.picked.delete(r.path); else SW.picked.add(r.path);
+        el.classList.toggle('on', SW.picked.has(r.path));
+        swSync(); swFoot();
+      };
+    });
+  }
+  swFoot();
+}
+function swFoot(){
+  const foot = $('#sw-foot'); if(!foot) return;
+  const picked = SW.rows.filter(r=>SW.picked.has(r.path));
+  const rest = SW.rows.filter(r=>!SW.picked.has(r.path));
+  const hw = rest.reduce((s,r)=>s + swSecs(r, HW_SPEED), 0);
+  const sw = picked.reduce((s,r)=>s + swSecs(r, SW_SPEED), 0);
+  foot.innerHTML = `<b>${picked.length}</b> of ${SW.rows.length} to software`
+    + (SW.rows.length ? ` · about ${swHuman(hw+sw)} in total`
+        + (picked.length ? ` (${swHuman(sw)} of it software)` : '') : '');
+  const n = $('#sw-entry-n');
+  if(n) n.textContent = picked.length
+    ? `${picked.length} file${picked.length===1?'':'s'} picked · about ${swHuman(sw)} of slow encoding`
+    : 'Slower, but better per bit — worth it for the few files you care most about.';
+}
+function swOpen(){
+  openSheet('#sw-sheet');
+  $('#sw-lead').textContent = 'Measuring…';
+  swRender();
+  if(!(window.pywebview && window.pywebview.api.reencode_candidates)) return;
+  Promise.resolve(window.pywebview.api.reencode_candidates(
+      Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)))
+    .then(r=>{
+      if(!r || r.error) return;
+      SW.rows = r.files || []; SW.measured = !!r.measured;
+      // Drop any pick that is no longer a candidate (settings changed under it),
+      // so a stale tick can't quietly force software on a file we won't touch.
+      const live = new Set(SW.rows.map(x=>x.path));
+      [...SW.picked].forEach(p=>{ if(!live.has(p)) SW.picked.delete(p); });
+      swSync();
+      $('#sw-lead').textContent = SW.measured
+        ? `${SW.rows.length.toLocaleString()} file${SW.rows.length===1?'':'s'} would be re-encoded. `
+          + 'Tick the ones worth the extra time — everything else stays on the fast hardware encoder.'
+        : 'Still measuring your library, so this list may grow. Tick what you can see; you can come back.';
+      swRender();
+    }).catch(()=>{});
+}
+$('#sw-open') && ($('#sw-open').onclick = swOpen);
+$('#sw-done') && ($('#sw-done').onclick = ()=>{ shutSheet('#sw-sheet'); swFoot(); });
+$('#sw-sheet') && ($('#sw-sheet').onclick = e=>{ if(e.target===$('#sw-sheet')) shutSheet('#sw-sheet'); });
+$('#sw-sheet') && $('#sw-sheet').querySelectorAll('[data-pick]').forEach(b=>{
+  b.onclick = ()=>{
+    const how = b.dataset.pick;
+    if(how==='all')  SW.rows.forEach(r=>SW.picked.add(r.path));
+    if(how==='none') SW.picked.clear();
+    if(how==='big'){
+      const min = parseFloat($('#sw-big').value);
+      if(isFinite(min)) SW.rows.forEach(r=>{ if(gb(r.bytes) >= min) SW.picked.add(r.path); });
+    }
+    swSync(); swRender();
+  };
+});
 
 // The non-MP4 policy has two surfaces — the Advanced modal and the up-front sheet
 // below — over one value (ADV.format). setFormat keeps both in step.
@@ -2180,6 +2649,14 @@ function tbParts(tb){ const b=Math.max(0,tb)*1e12;
   if(b>=1e6)  return [(b/1e6).toFixed(0),'MB'];
   return [Math.max(0,Math.round(b/1e3)).toString(),'KB']; }
 function tbStr(tb){ const p=tbParts(tb); return p[0]+' '+p[1]; }
+// The work cohort is usually GB, sometimes MB — tbParts would render it "0.01 TB".
+function bytesStr(b){
+  b = Math.max(0, b||0);
+  if(b >= 1e12) return (b/1e12).toFixed(2)+' TB';
+  if(b >= 1e9)  return (b/1e9).toFixed(2)+' GB';
+  if(b >= 1e6)  return (b/1e6).toFixed(0)+' MB';
+  return (b/1e3).toFixed(0)+' KB';
+}
 function tbHTML(tb){ const p=tbParts(tb); return p[0]+'<span>'+p[1]+'</span>'; }
 function pgSetClock(){
   if(PG.total && PG.done>=PG.total){ $('#pg-clock').textContent='finishing…'; return; }
@@ -2231,7 +2708,7 @@ function pgStart(total, est, queue){
   const preparing = !total;                    // total unknown yet -> still scanning
   PG={total:total||0, done:0, t0:Date.now(), remaining:(est||0), curFrac:0, anchored:false, timer:null, _rt:null,
       spf:0, spf0:(est&&total)?est/total:0, lastDone:Date.now(), sinceAnchor:0, etaFromEngine:false,
-      queue:queue||[], tags:{}, curName:'', lastIdx:0, userScroll:false, _scrollT:null};
+      queue:queue||[], tags:{}, curName:'', flight:{}, lastIdx:0, userScroll:false, _scrollT:null};
   $('#pg-total').textContent = preparing ? '…' : PG.total.toLocaleString();
   $('#pg-done').textContent='0'; $('#pg-pct').textContent = preparing ? '' : '0%';
   $('#pg-overall').style.width='0'; $('#pg-cur-f').style.width='0';
@@ -2254,12 +2731,24 @@ const pgStopLabel = ()=> pgJobs()>1
   ? `Stop after the ${pgJobs()} files in flight`
   : 'Stop after current file';
 function pgFile(name, frac, stats){
-  // The filename lives in the list below (bold, "processing") — don't repeat the
-  // cropped name here. This line is the current file's PROCESSING INFO instead.
-  if(name && name!==PG.curName){ PG.curName=name; pgRenderList(); }
+  // With jobs>1 there are SEVERAL files in flight at once, and each worker calls
+  // this for its own file. A single curName meant they overwrote each other:
+  // one file showed as processing and the rest silently vanished from the list,
+  // even though the Stop button was already saying "files in flight" (plural).
+  // So keep a map of everything currently being worked on.
   const f=(frac==null?0:Math.max(0,Math.min(1,frac)));
+  if(name){
+    const known = PG.flight[name] !== undefined;
+    PG.flight[name] = f;
+    if(!known) pgRenderList();               // a new file joined the flight
+    PG.curName = name;
+  }
   PG.curFrac=f;
-  $('#pg-cur-f').style.width=(f*100)+'%';
+  // The per-file bar shows the LEAST advanced file in flight: it is the one the
+  // run is actually waiting on, and it never jumps backwards as others finish.
+  const inflight = Object.values(PG.flight);
+  const slowest = inflight.length ? Math.min(...inflight) : f;
+  $('#pg-cur-f').style.width=(slowest*100)+'%';
   // overall bar + % should include the current file's progress, not just whole files
   if(PG.total){ const op=(PG.done+f)/PG.total; $('#pg-overall').style.width=(op*100)+'%'; $('#pg-pct').textContent=Math.round(op*100)+'%'; }
   let bits=[];
@@ -2268,7 +2757,10 @@ function pgFile(name, frac, stats){
     if(stats.bitrate){ const kb=parseFloat(stats.bitrate); if(kb>0) bits.push((kb/1000).toFixed(1)+' Mbps'); }
     if(stats.speed && parseFloat(stats.speed)>0) bits.push(parseFloat(stats.speed).toFixed(1)+'× realtime');
   }
-  $('#pg-cur-n').textContent = frac!=null ? `Encoding · ${Math.round(f*100)}%` : 'Working…';
+  const n = Object.keys(PG.flight).length;
+  $('#pg-cur-n').textContent = n > 1
+    ? `Encoding ${n} files · slowest ${Math.round(slowest*100)}%`
+    : (frac!=null ? `Encoding · ${Math.round(f*100)}%` : 'Working…');
   $('#pg-stats').textContent = bits.join('  ·  ');
   // NB: do NOT re-anchor the ETA here — pgTick counts it down and re-anchors on a
   // timer. Re-anchoring every progress frame is what made the clock bounce.
@@ -2277,6 +2769,7 @@ function pgDone1(row){
   // update the smoothed seconds-per-file from how long THIS file actually took
   const now=Date.now(); const dt=(now-(PG.lastDone||PG.t0))/1000; PG.lastDone=now;
   if(dt>0.05) PG.spf = PG.spf>0 ? 0.3*dt + 0.7*PG.spf : dt;     // EMA (0.3 new / 0.7 history)
+  if(row && row.f) delete PG.flight[row.f];      // it is no longer in flight
   PG.done++; PG.curFrac=0;
   $('#pg-done').textContent=PG.done.toLocaleString();
   const frac=PG.total?PG.done/PG.total:0;
@@ -2291,8 +2784,11 @@ function pgDone1(row){
 // processed files below. Windowed (so thousands stay cheap) with "+N more" caps.
 function pgRowHTML(name, kind){
   const t=PG.tags[name];
+  const fl = PG.flight ? PG.flight[name] : undefined;
   const esc=s=>(s||'').replace(/"/g,'&quot;');
-  const label = kind==='cur' ? 'processing' : kind==='up' ? 'queued'
+  const label = kind==='cur'
+      ? (fl!==undefined ? `processing · ${Math.round(fl*100)}%` : 'processing')
+      : kind==='up' ? 'queued'
     : (t ? (t.t==='ok'?'done':t.t==='skip'?'left alone':t.sev==='err'?'error':t.sev==='warn'?'warn':'note') : 'done');
   const cls = t ? (t.sev==='err'?'err':t.sev==='warn'?'warn':'') : '';
   const star = (t && t.star) ? '*' : '';
@@ -2399,6 +2895,49 @@ function runNow(){
 // last decision is made (see #commit), and by the rail's Start as a manual re-open.
 // Set true by a recap row so re-committing that one change pops the modal back up.
 let reconfirm=false;
+// The honest headline for a run: not "90 GB of library, saves 3 GB" — which
+// averages the few files that halve against the hundreds that never move and
+// makes worthwhile work look pointless — but "6 files will be processed; they
+// are 12.6 GB and should come back 6.4 GB". Until the library has actually been
+// measured this says so, rather than filling the gap with a modelled guess.
+let CONFIRM_EST = null;                       // last measured estimate, for the report
+function confirmWork(){
+  const el = $('#c-work'); if(!el) return;
+  CONFIRM_EST = null;
+  if(!(window.pywebview && window.pywebview.api.estimate)){
+    el.hidden = true; return;                 // standalone mock: no library to measure
+  }
+  el.hidden = false;
+  el.className = 'c-work evaluating';
+  el.innerHTML = '<b>Evaluating your library…</b><span>Reading every file to see which ones are worth re-encoding.</span>';
+  $('#c-go').disabled = true;                 // no starting on an unmeasured guess
+  const poll = ()=>{
+    Promise.resolve(window.pywebview.api.estimate(
+        Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)))
+      .then(e=>{
+        if(!$('#confirm-sheet').classList.contains('on')) return;   // they left
+        if(!e || e.error || !e.measured){ setTimeout(poll, 700); return; }
+        CONFIRM_EST = e;
+        $('#c-go').disabled = false;
+        el.className = 'c-work';
+        const left = Math.max(0, SRC.files - e.work_files);
+        if(!e.work_files){
+          el.innerHTML = '<b>Nothing here needs re-encoding.</b>'
+            + `<span>All ${SRC.files.toLocaleString()} files are already at or under your quality tier. `
+            + 'Starting would simply confirm that, file by file.</span>';
+          return;
+        }
+        el.innerHTML =
+            `<b>${e.work_files.toLocaleString()} of ${SRC.files.toLocaleString()} files will be re-encoded</b>`
+          + `<span>Those ${e.work_files.toLocaleString()} are <b>${bytesStr(e.work_bytes)}</b> today and should come back about `
+          + `<b>${bytesStr(e.work_out_bytes)}</b> — recovering roughly <b>${bytesStr(e.work_saved_bytes)}</b> `
+          + `(−${e.work_saved_pct}% of what is touched).<br>`
+          + `The other ${left.toLocaleString()} are left exactly as they are; the run log says why for each one.</span>`;
+      }).catch(()=>{ el.hidden = true; $('#c-go').disabled = false; });
+  };
+  poll();
+}
+
 function openConfirm(){
   if(!SRC || !M.every(q=>answers[q.id]!==undefined)) return;   // not fully decided
   $('#c-go').textContent='Yes, start'; $('#c-go').onclick=runNow;
@@ -2415,6 +2954,15 @@ function openConfirm(){
          + `<span class="rv">${o.recap||o.k}</span>`
          + `<span class="redit">${pencil}change</span></button>`;
   }).join('');
+  // Offer the per-file picker only where it means something: a HARDWARE run
+  // inside the app (on a software run every file already gets the slow encoder,
+  // and the standalone mock has no library to list).
+  const swE = $('#sw-entry');
+  if(swE){
+    const real = !!(window.pywebview && window.pywebview.api.reencode_candidates);
+    swE.hidden = !(real && answers.encoder === 0);
+    if(!swE.hidden) swFoot();
+  }
   $('#recap').querySelectorAll('.recap-row').forEach(b=>{
     b.onclick=()=>{
       const s=+b.dataset.step;
@@ -2425,6 +2973,7 @@ function openConfirm(){
   });
   $('#c-src').textContent=`${SRC.files.toLocaleString()} files · ${tbStr(SRC.tb)}`;
   $('#c-proj').textContent=$('#est').textContent;
+  confirmWork();          // measure, then report on the files that will be touched
   const destK=M.find(q=>q.id==='dest').opts[answers.dest].k;
   $('#c-dest').textContent=destK;
   // the warning is specific to what they actually chose, not a blanket disclaimer
@@ -2488,6 +3037,17 @@ function modelRun(){
   };
 }
 let rTab='ok';
+// Plain English for how close the estimate landed. Within 10% is "as estimated";
+// beyond that, say which way it went, because "we promised 3 GB and recovered 6"
+// is information about the tool, not just about this run.
+function predictedVsActual(predicted, actual){
+  if(!predicted) return '';
+  const r = actual / predicted;
+  if(r >= 0.9 && r <= 1.1) return 'as estimated';
+  return r > 1 ? `${r.toFixed(1)}x better than estimated`
+               : `${(1/r).toFixed(1)}x less than estimated`;
+}
+
 function drawReport(){
   const R=RUN;
   const hrs=Math.floor((R.mins||0)/60), m=(R.mins||0)%60;
@@ -2505,6 +3065,13 @@ function drawReport(){
   if(rec){ rec.innerHTML = orig>0
       ? `Original <b>${human2(orig)}</b> <span class="a">→</span> Final <b>${human2(fin)}</b> <span class="sep">·</span> `
         + `${net>=0?'Recovered':'Added'} <b class="rec">${human2(Math.abs(net))}</b>`
+        // How the promise held up. The estimate is the thing you decided on, so
+        // it should be answerable afterwards — and if it is habitually wrong,
+        // this is where that becomes visible instead of quietly staying wrong.
+        + (CONFIRM_EST && CONFIRM_EST.work_saved_bytes && net>0
+            ? `<span class="sep">·</span> Estimated <b>${human2(CONFIRM_EST.work_saved_bytes)}</b>`
+              + ` <span class="est-delta">(${predictedVsActual(CONFIRM_EST.work_saved_bytes, net)})</span>`
+            : '')
       : ''; }
   // Each outcome tile is also a control: clicking it shows that outcome in the
   // list below (same as the tabs), so the headline numbers are navigable too.

@@ -283,6 +283,7 @@ _TIERS = [Tier.OK, Tier.GOOD, Tier.EXCELLENT, Tier.STELLAR, Tier.INSANE]
 # carrying 20k filenames is a megabyte-plus string.
 _QUEUE_CHUNK = 2000
 _QUEUE_MAX = 50_000                     # backstop for an absurd library
+_PX_1080P = 1920 * 1080                 # the frame the encoder speeds are quoted at
 _SAVING = [0.15, 0.25, 0.40]
 _ENCODER = [Encoder.HARDWARE, Encoder.SOFTWARE]
 # non-MP4 policy: ADV.format -> the four container flags. Convert = to MP4 (remux +
@@ -322,6 +323,11 @@ def build_config(src: Path, a: dict) -> RunConfig:
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
+    # Files the user ticked for the slow encoder. Sent as resolved paths, so the
+    # engine can match them without re-deriving anything.
+    picked = a.get("softwareFiles")
+    if isinstance(picked, list):
+        cfg.software_files = frozenset(str(p) for p in picked if p)
     # Subtitle policy from Advanced settings: language and kind are independent
     # filters (see RunConfig.sub_langs / sub_kinds).
     langs = adv.get("subLangs")
@@ -395,6 +401,35 @@ def _apply_advanced(cfg: RunConfig, adv: dict) -> None:
     if "ledger" in adv:
         cfg.ledger_enabled = bool(adv["ledger"])
 
+    # Per-tier quality density. Only tiers the user actually retuned are carried
+    # across, so an untouched tier keeps its anchored default rather than being
+    # pinned to whatever the UI last rounded it to.
+    bpp = adv.get("bpp")
+    if isinstance(bpp, dict):
+        picked: dict[str, float] = {}
+        for name, raw in bpp.items():
+            try:
+                tier = Tier.from_name(str(name))
+                val = float(raw)
+            except (ValueError, TypeError):
+                continue
+            val = max(0.005, min(1.0, val))
+            if abs(val - tier.bpp) > 1e-9:
+                picked[tier.name] = val
+        cfg.tier_bpp = picked
+
+    # Ignore rules. Sizes arrive from the UI in MB; the engine works in bytes.
+    if (v := _num("ignUnderMb", float, 0.0, 1_000_000.0)) is not None:
+        cfg.ignore_under_bytes = int(v * 1e6)
+    if (v := _num("ignOverMb", float, 0.0, 1_000_000.0)) is not None:
+        cfg.ignore_over_bytes = int(v * 1e6)
+    if isinstance(adv.get("ignExts"), list):
+        cfg.ignore_exts = tuple(
+            str(x).strip().lstrip(".").lower() for x in adv["ignExts"] if str(x).strip())
+    if isinstance(adv.get("ignNames"), list):
+        cfg.ignore_name_contains = tuple(
+            str(x).strip() for x in adv["ignNames"] if str(x).strip())
+
 
 # ── the JS bridge, injected after the page loads (only takes effect in-shell) ──
 _BRIDGE_JS = r"""
@@ -456,6 +491,7 @@ _BRIDGE_JS = r"""
   window.__vtcScanDone = (info)=>{                   // library counted
     if(!SRC || SRC.k !== info.k) return;             // a newer pick superseded it
     SRC.files = info.files; SRC.tb = info.tb; SRC.nonmp4 = info.nonmp4; SRC.scanning = false;
+    SRC.ignored = info.ignored || 0;                 // removed by the user's ignore rules
     drawEstimate();
     if(window.maybeAskCompat) maybeAskCompat();       // ask the non-MP4 policy, now that we know
   };
@@ -476,7 +512,10 @@ _BRIDGE_JS = r"""
       return;
     }
     document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
-    document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`;
+    // Say when the user's own rules have taken files off the table — otherwise a
+    // count that doesn't match the folder looks like the scan missed something.
+    document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`
+      + (SRC.ignored ? ` · ${SRC.ignored.toLocaleString()} ignored by your rules` : '');
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
     api.estimate(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)).then(e=>{
       if(!e || e.error){ return baseEstimate(); }
@@ -533,7 +572,8 @@ _BRIDGE_JS = r"""
     acc.length = 0;
     pgStart(0, 0);               // show the working screen IMMEDIATELY — scanning a big
                                  // library can take a moment, and a blank pause looks broken
-    api.run(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers));
+    api.run(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||'',
+                           softwareFiles: window.__softwareFiles||[]}, answers));
   };
   // "New folder" destination: let the user pick where outputs go. Returns the dir
   // (or '' if cancelled — build_config then falls back to <src>/converted).
@@ -633,11 +673,87 @@ class Api:
         self._probed_for: Path | None = None
         self._total_files = 0
         self._total_tb = 0.0
+        self._ignored = 0                  # files the user's ignore rules removed
+        # Last Advanced-settings payload the UI pushed. Needed OUTSIDE a run,
+        # because the ignore rules change what a scan even counts and the tier
+        # bpp changes what the preview panels encode.
+        self._adv: dict = {}
+        self._scan_gen = 0
+        self._probe_gen = 0
         self._preview_gen = 0              # bumped whenever previews are (re)requested;
         self._preview_start = 0.0         # a running worker aborts if its gen is stale
         self._preview_seg = 5.0           # sample length (seconds)
+        self._preview_codec = _PREVIEW_CODEC   # codec the panels are currently in
         self._last_config: RunConfig | None = None   # last run's config (for retry)
         self._last_failed: list[Path] = []           # files that ERRORed last run
+
+    # -- Advanced settings pushed from the UI ------------------------------------
+    def _scan_config(self, src: Path) -> RunConfig:
+        """A bare config for WALKING a folder, carrying the current ignore rules."""
+        cfg = RunConfig(src=src, ffmpeg=FFMPEG, ffprobe=FFPROBE)
+        _apply_advanced(cfg, self._adv)
+        return cfg
+
+    @staticmethod
+    def _ignore_key(adv: dict) -> str:
+        """The part of Advanced settings that changes what a scan sees."""
+        return json.dumps({k: adv.get(k) for k in
+                           ("ignUnderMb", "ignOverMb", "ignExts", "ignNames")}, sort_keys=True)
+
+    def set_adv(self, adv: dict):
+        """Take the Advanced-settings object from the UI, and react to the two
+        parts of it that invalidate work already done: the ignore rules (which
+        change what the library even contains) and the tier densities (which
+        change what the preview panels are showing)."""
+        old, self._adv = self._adv, dict(adv or {})
+        if self._src is None:
+            return {"ok": True}
+        rescanned = previews = False
+        if self._ignore_key(old) != self._ignore_key(self._adv):
+            log.info("ignore rules changed -> rescanning %s", self._src)
+            self._rescan(self._src)
+            rescanned = True
+        if json.dumps(old.get("bpp") or {}, sort_keys=True) != \
+                json.dumps(self._adv.get("bpp") or {}, sort_keys=True):
+            log.info("tier bpp changed -> regenerating previews")
+            self._preview_gen += 1
+            threading.Thread(target=self._preview_worker,
+                             args=(self._src, self._preview_codec, self._preview_gen),
+                             daemon=True).start()
+            previews = True
+        return {"ok": True, "rescanned": rescanned, "previews": previews}
+
+    def _rescan(self, src: Path) -> None:
+        """Recount and re-probe `src` under the current rules. Both workers carry a
+        generation so an older one can't publish over a newer one's results."""
+        self._probes, self._probed_for = [], None
+        self._scan_gen += 1
+        self._probe_gen += 1
+        threading.Thread(target=self._scan_folder, args=(src, self._scan_gen), daemon=True).start()
+        threading.Thread(target=self._warm_probes, args=(src, self._probe_gen), daemon=True).start()
+
+    def history_info(self):
+        """Entry count + path of the processing history for the current folder.
+
+        Built with the ledger force-enabled: the history file exists on disk
+        whether or not the toggle is on, and "Clear history" must be able to see
+        and empty it either way.
+        """
+        if self._src is None:
+            return {"entries": 0, "path": ""}
+        led = pipeline.Ledger(RunConfig(src=self._src, ledger_enabled=True))
+        return {"entries": led.count(), "path": str(led.path or "")}
+
+    def clear_history(self):
+        """Empty the processing history for the current folder, so every file is
+        considered again on the next run."""
+        if self._src is None:
+            return {"error": "no folder"}
+        led = pipeline.Ledger(RunConfig(src=self._src, ledger_enabled=True))
+        n = led.clear()
+        log.info("processing history cleared: %d entr%s from %s",
+                 n, "y" if n == 1 else "ies", led.path)
+        return {"cleared": n, "entries": 0, "path": str(led.path or "")}
 
     # -- folder pick + fast scan -------------------------------------------------
     def _file_dialog(self, *args, **kwargs):
@@ -683,26 +799,32 @@ class Api:
         src = Path(picked[0])
         self._src = src
         self._probes, self._probed_for = [], None
-        self._total_files, self._total_tb = 0, 0.0
+        self._total_files, self._total_tb, self._ignored = 0, 0.0, 0
         self._preview_start = 0.0         # new folder -> sample from the middle again
         # Count files in the BACKGROUND. On a large library the walk takes seconds;
         # doing it inline froze the "Choose media folder" button with no feedback, so
         # people clicked again and reopened the dialog. Return the path immediately so
         # the UI flips to a "Scanning…" state; __vtcScanDone fills in the counts.
-        self._scan_gen = getattr(self, "_scan_gen", 0) + 1
-        threading.Thread(target=self._scan_folder, args=(src, self._scan_gen), daemon=True).start()
-        threading.Thread(target=self._warm_probes, args=(src,), daemon=True).start()
+        self._rescan(src)
         # Build the real preview encodes in the background while they configure.
         self._preview_gen += 1
         threading.Thread(target=self._preview_worker,
-                         args=(src, _PREVIEW_CODEC, self._preview_gen), daemon=True).start()
+                         args=(src, self._preview_codec, self._preview_gen), daemon=True).start()
         return {"k": str(src), "scanning": True}
 
     def _scan_folder(self, src: Path, gen: int) -> None:
         """Walk the library counting files/size/non-MP4, then hand the totals to the
-        UI. Runs off the pick_folder call so the interface never freezes on a scan."""
-        files = total = nonmp4 = 0
-        for f in pipeline.iter_video_files(RunConfig(src=src)):
+        UI. Runs off the pick_folder call so the interface never freezes on a scan.
+
+        Files removed by the user's ignore rules are counted separately and left
+        out of everything else — they are not part of this library as far as the
+        rest of the app is concerned."""
+        files = total = nonmp4 = ignored = 0
+        cfg = self._scan_config(src)
+        for f, reason in pipeline.iter_scan_entries(cfg):
+            if reason is not None:
+                ignored += 1
+                continue
             files += 1
             if f.suffix.lower() != ".mp4":
                 nonmp4 += 1
@@ -712,9 +834,10 @@ class Api:
                 pass
         if self._src != src or gen != self._scan_gen:
             return                        # a newer folder pick superseded this scan
-        self._total_files, self._total_tb = files, total / 1e12
+        self._total_files, self._total_tb, self._ignored = files, total / 1e12, ignored
         self._emit("__vtcScanDone",
-                   {"k": str(src), "files": files, "tb": total / 1e12, "nonmp4": nonmp4})
+                   {"k": str(src), "files": files, "tb": total / 1e12, "nonmp4": nonmp4,
+                    "ignored": ignored})
 
     # -- previews: extract a 5s sample, encode it at each tier, stream URLs --------
     def _emit(self, fn: str, payload) -> None:
@@ -802,11 +925,18 @@ class Api:
                            if info.pixels and info.fps else 0.0)
                 else:
                     out = pdir / f"{key}.mp4"
-                    tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, codec)
-                    # The tier's TARGET density for this file — compare against source BPP.
+                    # The panels must show the tiers AS TUNED: a retuned bpp that
+                    # only took effect at run time would make the comparison a lie.
+                    cfg2 = RunConfig(src=src, out_codec=codec, tier=tier, ffmpeg=FFMPEG)
+                    _apply_advanced(cfg2, self._adv)
+                    tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, codec,
+                                      floor_kbps=cfg2.bitrate_floor_kbps,
+                                      bpp=cfg2.bpp_for(tier), hevc=cfg2.hevc_factors())
+                    # The tier's TARGET density for this file — compare against source
+                    # BPP. Derived from the TUNED target above, so a retuned tier's
+                    # panel reports the density it was actually encoded at.
                     bpp = (tgt * 1000.0 / (sinfo.pixels * sinfo.fps)
                            if sinfo.pixels and sinfo.fps else 0.0)
-                    cfg2 = RunConfig(src=src, out_codec=codec, tier=tier, ffmpeg=FFMPEG)
                     vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
                     rr = subprocess.run(
                         [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
@@ -830,13 +960,14 @@ class Api:
             log.exception("preview worker failed")
             self._emit("__vtcPreviewError", str(e))
 
-    def _warm_probes(self, src: Path):
+    def _warm_probes(self, src: Path, gen: int = 0):
         """Probe every file, publishing partial results periodically so the
         estimate refines live (file count rising, prediction updating)."""
         probes = []
         done = 0
-        for f in pipeline.iter_video_files(RunConfig(src=src)):
-            if self._src != src:              # folder changed under us — abandon
+        stale = lambda: self._src != src or (gen and gen != self._probe_gen)
+        for f in pipeline.iter_video_files(self._scan_config(src)):
+            if stale():           # folder changed, or the rules did — abandon
                 return
             info = probe(f, FFPROBE)
             done += 1
@@ -849,7 +980,7 @@ class Api:
                 self._probes = list(probes)   # publish a measured-so-far sample
                 if self.window:
                     self.window.evaluate_js(f"window.__vtcProbeProgress && window.__vtcProbeProgress({done})")
-        if self._src == src:
+        if not stale():
             self._probes, self._probed_for = probes, src
             if self.window:
                 self.window.evaluate_js("window.__vtcProbesReady && window.__vtcProbesReady()")
@@ -867,13 +998,22 @@ class Api:
         from .result import Mode
         src_bytes = out_bytes = 0
         reencoded = skipped = 0
+        # The cohort that actually gets worked on. Reporting the saving against the
+        # WHOLE library averages a handful of files halving themselves against
+        # hundreds that never move, which makes worthwhile work look pointless:
+        # "26 files, 90 GB, saves 3 GB" when the truth was "6 files, 12.6 GB ->
+        # 6.4 GB". So these are totalled separately and it is these the UI leads on.
+        work_src = work_out = 0
         for info, size in self._probes:
             mode, _outcome, target = pipeline.decide(config, info)
-            src_kbps = info.effective_bps / 1000.0
-            if mode in (Mode.SHRINK, Mode.TRANSCODE) and src_kbps > 0:
-                out_bytes += int(size * min(1.0, target / src_kbps)); reencoded += 1
+            predicted = pipeline.predict_output_bytes(config, info, size, mode, target)
+            if mode in (Mode.SHRINK, Mode.TRANSCODE):
+                reencoded += 1
+                work_src += size
+                work_out += predicted
             else:                                             # remux (~same size) or skip
-                out_bytes += size; skipped += 1
+                skipped += 1
+            out_bytes += predicted
             src_bytes += size
         ratio = (out_bytes / src_bytes) if src_bytes else 1.0   # sample's out/in ratio
         sample = len(self._probes)
@@ -883,8 +1023,51 @@ class Api:
             "saved_pct": round((1 - ratio) * 100),
             "reencoded": round(reencoded * scale),
             "skipped": round(skipped * scale),
+            # The honest headline: the files that will be touched, and what
+            # happens to THEM. Bytes, not TB, because a cohort is often small.
+            "work_files": reencoded,
+            "work_bytes": work_src,
+            "work_out_bytes": work_out,
+            "work_saved_bytes": max(0, work_src - work_out),
+            "work_saved_pct": round((1 - work_out / work_src) * 100) if work_src else 0,
             "measured": self._probed_for == self._src,          # True once the full scan finishes
         }
+
+    # -- the software picker: which files are even worth choosing ---------------
+    def reencode_candidates(self, answers: dict):
+        """The files this run would actually RE-ENCODE, biggest saving first.
+
+        Only shrink/transcode files are offered: ticking something that is going
+        to be skipped as already-efficient would do nothing, and on a real library
+        the skips outnumber the work by an order of magnitude. Requires the probe
+        pass, so it reports `measured` and lets the UI say when it is still
+        counting rather than showing a half-empty list as if it were the answer.
+        """
+        if self._src is None:
+            return {"error": "no folder"}
+        try:
+            config = build_config(self._src, answers)
+        except ValueError as e:
+            return {"error": str(e)}
+        rows = []
+        for info, size in self._probes:
+            mode, _outcome, target = pipeline.decide(config, info)
+            if mode not in (Mode.SHRINK, Mode.TRANSCODE):
+                continue
+            src_kbps = info.effective_bps / 1000.0
+            saving = max(0.0, 1.0 - target / src_kbps) if src_kbps > 0 else 0.0
+            rows.append({
+                "path": str(info.path.resolve()),
+                "name": info.path.name,
+                "bytes": size,
+                "res": f"{info.width}x{info.height}" if info.width else "",
+                "px": info.pixels,
+                "dur": info.duration or 0.0,
+                "saving": round(saving * 100),
+            })
+        rows.sort(key=lambda r: r["bytes"], reverse=True)
+        return {"files": rows, "measured": self._probed_for == self._src,
+                "total": len(rows)}
 
     # -- the run: stream each file's result back, then a summary ----------------
     def hw_capabilities(self):
@@ -901,6 +1084,7 @@ class Api:
         (optionally) from a chosen start fraction 0..1 through the file. A fresh
         generation supersedes any worker still running, so rapid clicks can't race."""
         oc = OutCodec.H264 if str(codec).lower() == "h264" else OutCodec.H265
+        self._preview_codec = oc
         if start is not None:
             try:
                 self._preview_start = max(0.0, min(1.0, float(start)))
@@ -1087,7 +1271,20 @@ class Api:
         # old 8.0 under-priced every encode by about a third. 6.0 starts slightly
         # pessimistic, which is the right way for a clock to be wrong, and corr
         # below pulls it to whatever this run's content and codec really do.
-        enc_speed = 6.0 if hw else 0.18            # encode ×realtime (hardware vs software)
+        # Two speeds, because a run can now be MIXED: files picked out for software
+        # cost roughly 7x what the same file costs in hardware, so a single global
+        # constant would make the clock nonsense the moment one film is ticked.
+        #
+        # Both are ×realtime AT 1080p and scale with frame size, because an encoder
+        # is really a pixels-per-second machine: 4K costs ~4x what 1080p costs. A
+        # flat ×realtime figure under-priced 4K by that factor.
+        # Measured on this machine (M-series, 1080p, preset medium): hardware 6.0x
+        # — the old constant was already right — and software 0.82x, against an
+        # assumed 0.18x that was 4.5x too pessimistic. That mattered beyond the
+        # clock: the picker quotes this figure BEFORE you commit, with no chance to
+        # self-correct, so it was quoting 545 hours for a job nearer 120.
+        HW_SPEED, SW_SPEED = 6.0, 0.82            # ×realtime at 1080p
+        enc_speed = HW_SPEED if hw else SW_SPEED
         REMUX_S, SKIP_S = 10.0, 0.10
         probe_by_path = {info.path: info for info, _ in self._probes}
 
@@ -1111,7 +1308,11 @@ class Api:
             """Predicted wall-seconds for one PROBED file (a skip is ~free)."""
             mode = pipeline.decide(config, info)[0]
             if mode in (Mode.SHRINK, Mode.TRANSCODE):
-                return (info.duration / enc_speed) if info.duration else (30 * 60 / enc_speed)
+                # This file's OWN speed: a ticked file is software even on a
+                # hardware run, and it dominates the clock when it is.
+                spd = SW_SPEED if config.forces_software(info.path) else enc_speed
+                spd *= _PX_1080P / info.pixels if info.pixels else 1.0   # 4K costs ~4x
+                return (info.duration / spd) if info.duration else (30 * 60 / spd)
             return REMUX_S if mode is Mode.REMUX else SKIP_S
 
         # Average over the PROBED MIX — skips included. An un-probed file is assumed
