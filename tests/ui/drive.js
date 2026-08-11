@@ -69,9 +69,12 @@ setTimeout(() => {
   // The FLOW states density only. A bitrate there is true at exactly one
   // resolution and frame rate, so it is the misleading half of the story —
   // this guards the decision made in 1d01b9c against being undone again.
+  // A tier is a FIDELITY. Its number is the H.264 bpp x1000 — codec-independent,
+  // so it does not move when the codec does. 0.15 bpp -> quality 150.
   const tag = window.eval('M').find(q => q.id === 'quality').opts[2].tag;
-  check('...and the QUALITY question advertises the new density', /0\.15 BPP/.test(tag), true);
-  check('...as BPP alone, with no bitrate', /Mbps|kbps/i.test(tag), false);
+  check('...and the QUALITY question shows the new quality number', /Quality 150/.test(tag), true);
+  check('...with no bitrate, which is only true for one codec', /Mbps|kbps/i.test(tag), false);
+  check('...and no bpp either, which is only true for one codec', /bpp/i.test(tag), false);
   // out-of-order tiers must be called out, not silently accepted
   type($('#adv-bpp-GOOD'), '0.2');
   check('a tier above the one over it is flagged',

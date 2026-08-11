@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vtc import pipeline  # noqa: E402
-from vtc.config import Encoder, RunConfig  # noqa: E402
+from vtc.config import Encoder, OutputMode, RunConfig  # noqa: E402
 from vtc.ledger import Ledger  # noqa: E402
 from vtc.model import OutCodec, Tier, target_kbps  # noqa: E402
 from vtc.webapp import _apply_advanced  # noqa: E402
@@ -306,3 +306,32 @@ def test_ledger_key_separates_a_software_pick():
         plain.add(plain.key(f))
         assert plain.has(plain.key(f)) is True
         assert picked.has(picked.key(f)) is False     # ticking re-opens the decision
+
+
+# ── never re-encode our own output ────────────────────────────────────────────
+def test_scan_skips_this_runs_own_output_and_archive():
+    """The tool must not walk into what it just produced.
+
+    Found in a real run: the default output folder is <src>/converted, which was
+    not in the prune list, so a second run re-encoded the first run's results —
+    source -> H.264 -> H.265, a whole extra generation of loss. Matched by
+    resolved PATH, so a folder that merely shares the name is still processed.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d)
+        _touch(src / "film.mkv", 20_000_000)
+        _touch(src / "converted" / "film.mkv", 20_000_000)     # our own output
+        _touch(src / "originals" / "film.mkv", 20_000_000)     # our own archive
+        _touch(src / "keepers" / "film.mkv", 20_000_000)       # somebody else's
+
+        cfg = RunConfig(src=src, output_mode=OutputMode.SEPARATE,
+                        output_dir=src / "converted")
+        found = sorted(str(p.relative_to(src)) for p in pipeline.iter_video_files(cfg))
+        assert found == ["film.mkv", "keepers/film.mkv"], found
+
+    # A folder called "converted" that is NOT this run's output stays in scope.
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d)
+        _touch(src / "converted" / "someone-elses.mkv", 20_000_000)
+        cfg = RunConfig(src=src, output_dir=Path(d) / "elsewhere")
+        assert [p.name for p in pipeline.iter_video_files(cfg)] == ["someone-elses.mkv"]

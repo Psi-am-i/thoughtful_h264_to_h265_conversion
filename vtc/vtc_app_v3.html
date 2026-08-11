@@ -2421,6 +2421,9 @@ function advSubsSummary(){
 // means the per-row Mbps note, the summary, and the QUALITY question's own tags.
 // Trim trailing zeros so a hand-typed 0.15 reads as "0.15", not "0.1500".
 const fmtBpp = b => (+b.toFixed(4)).toString();
+// The quality number: the H.264 bpp x1000, whole. Whole numbers read better than
+// decimals (109, 129) and x1000 still separates a hand-tuned tier by one unit.
+const qNum = b => String(Math.round(b*1000));
 // The Advanced editor is the one place the FULL implication belongs: this density,
 // for the codec you picked, is this many Mbps at 1080p30 and this many at 4K —
 // and frame rate multiplies it. Everywhere else says BPP alone, because a bitrate
@@ -2431,7 +2434,11 @@ function advBppImplication(v){
   const f4k   = h265 ? (ADV.hevc4k || 0.50) : 1;
   const m1080 = v * 1920*1080 * 30 / 1e6 * f1080;
   const m4k   = v * 3840*2160 * 30 / 1e6 * f4k;
-  return `${h265 ? 'H.265' : 'H.264'} · ${m1080.toFixed(1)} Mbps at 1080p30`
+  const name  = h265 ? 'H.265' : 'H.264';
+  // quality -> this codec's bpp -> a bitrate. Both steps, so the arithmetic is
+  // visible rather than something the app does behind your back.
+  return `quality ${qNum(v)} → ${name} ${(v*f1080).toFixed(4)} bpp`
+       + ` · ${m1080.toFixed(1)} Mbps at 1080p30`
        + ` · ${m4k.toFixed(1)} at 4K30 · double at 60fps`;
 }
 function advBppNotes(){
@@ -2463,12 +2470,14 @@ function applyTierTags(){
   q.opts.forEach((o,i)=>{
     const k = TIER_ORDER[i]; if(!k) return;
     const b = ADV.bpp[k], dflt = (k==='EXCELLENT') ? ' · default' : '';
-    // BPP only. The bitrate this implies falls out of it, modified by the codec —
-    // so naming a bitrate here is superfluous at best and misleading at worst
-    // (it is only true at one resolution and frame rate). The Advanced tier
-    // editor spells the implications out; the flow states the density.
-    o.tag = `${fmtBpp(b)} BPP${dflt}`;
-    o.recap = `${TIER_LABEL[k]} · ${fmtBpp(b)} BPP`;
+    // A tier is a FIDELITY, not a bpp. The same likeness costs different bits in
+    // different codecs (H.265 spends them better), so quoting one bpp here was
+    // only ever true for H.264 — which is exactly why the flow said 0.1286 while
+    // the run report said 0.077 and both were right. The quality number is the
+    // H.264 bpp x100: codec-independent, and it does not move when anything else
+    // does. What it COSTS is shown where the codec and frame size are known.
+    o.tag = `Quality ${qNum(b)}${dflt}`;
+    o.recap = `${TIER_LABEL[k]} · quality ${qNum(b)}`;
   });
   // Repaint only if the user is standing on that question; the confirm recap
   // rebuilds itself from M every time it opens, so it needs no nudge here.

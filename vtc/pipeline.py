@@ -65,6 +65,14 @@ _PRUNE_DIRS = {
 ResultCB = Callable[[FileResult], None]
 
 
+def _resolved(p: Path) -> Path:
+    """path.resolve() that never raises — an unreadable dir is just itself."""
+    try:
+        return p.resolve()
+    except OSError:
+        return p
+
+
 # ── Scanning ──────────────────────────────────────────────────────────────────
 def iter_scan_entries(config: RunConfig):
     """Yield (path, ignore_reason) for every video file under config.src.
@@ -77,8 +85,24 @@ def iter_scan_entries(config: RunConfig):
     exts = {"." + e.lower() for e in config.video_exts}
     rules = config.has_ignore_rules
     need_size = config.needs_size_to_ignore
+    # Never walk into this run's OWN output or archive, whatever they are called.
+    # Pruning by name alone missed the default output folder ("converted"), so a
+    # second run re-encoded the first run's results: a whole extra generation of
+    # loss, on files the tool had already finished with. Matched by resolved path
+    # rather than by name, so it cannot skip a folder that merely shares a name
+    # with somebody else's media.
+    skip_paths = set()
+    for d in (config.output_dir, config.archive_dir or (config.src / "originals")):
+        if d is None:
+            continue
+        try:
+            skip_paths.add(d.resolve())
+        except OSError:
+            pass
     for root, dirs, files in os.walk(config.src):
-        dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS]
+        here = Path(root)
+        dirs[:] = [d for d in dirs
+                   if d not in _PRUNE_DIRS and _resolved(here / d) not in skip_paths]
         for name in files:
             if name.startswith("._"):
                 continue

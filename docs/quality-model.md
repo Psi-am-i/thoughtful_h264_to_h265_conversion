@@ -12,19 +12,70 @@ fat at 720p, fine at 1080p, and starved at 4K. So a tier is defined as a **densi
 normalised by resolution *and* frame rate, one tier scales to any source with no
 per-resolution rules: a 4K file gets ~4× a 1080p file, a 60fps file ~2× a 30fps file.
 
-### The four tiers
+### Why bpp is not the same number in every codec
 
-Each tier is anchored to an **H.264 bitrate at 1080p / 30fps** and converted to a bpp:
+The obvious objection: a decoded frame is a decoded frame. H.264 and H.265 both
+hand back 1920×1080 pixels, the same raw bytes. Nothing is smaller after
+decoding — so how can the same quality cost different bits?
 
-| Tier | 1080p30 H.264 | bpp anchor |
-|------|---------------|-----------|
-| OK | 4.0 Mbps | 0.0643 |
-| GOOD | 5.0 Mbps | 0.0804 |
-| EXCELLENT (default) | 6.8 Mbps | 0.1093 |
-| STELLAR | 8.0 Mbps | 0.1286 |
-| INSANE | 9.0 Mbps | 0.1447 |
+Because bpp does not measure what the frame *holds*. It measures **how many bits
+we had to spend describing it** well enough to rebuild. Both codecs produce a
+full frame; neither produces the *same* frame. Each is an approximation of the
+original, and the bits decide how close.
 
-`bpp = ref_mbps × 1e6 ÷ (1920 × 1080 × 30)`.
+> Two people describe the same painting down a phone line. Both listeners end up
+> with a canvas the same size. The better describer gets a closer likeness in
+> fewer words. **Canvas size is the resolution — fixed. Word count is the
+> bitrate. Likeness is the quality. The skill of the describer is the codec.**
+
+So 0.077 bpp of H.265 and 0.129 bpp of H.264 look the same to you: different
+bits, same likeness. H.265 spends them better — smarter prediction, variable
+block sizes, better entropy coding.
+
+This is why a tier cannot simply *be* a bpp. A tier is a **fidelity**; bpp is
+what that fidelity costs in a particular codec.
+
+### The quality number, and how it resolves
+
+Each tier is a **quality number** — the H.264 bpp × 1000. It is codec-independent
+and does not move when you change anything else; it names the likeness you want.
+
+| Tier | Quality | H.264 bpp | 1080p30 H.264 |
+|------|---------|-----------|---------------|
+| OK | 64 | 0.0643 | 4.0 Mbps |
+| GOOD | 80 | 0.0804 | 5.0 Mbps |
+| EXCELLENT (default) | 109 | 0.1093 | 6.8 Mbps |
+| STELLAR | 129 | 0.1286 | 8.0 Mbps |
+| INSANE | 145 | 0.1447 | 9.0 Mbps |
+
+From there, two steps and nothing else:
+
+```
+    codec bpp = quality ÷ 1000 × codec factor
+    bitrate   = codec bpp × pixels × fps
+```
+
+The **codec factor** is what that codec's skill is worth. H.264 is the reference,
+so its factor is 1.0. H.265 needs fewer bits for the same likeness, and its
+advantage grows with frame size — more neighbouring pixels to predict from:
+
+| Output codec | ≤1080p | ≤4K | above 4K |
+|---|---|---|---|
+| H.264 | 1.00 | 1.00 | 1.00 |
+| H.265 | 0.60 | 0.50 | 0.45 |
+
+So STELLAR (quality 129) resolves to:
+
+| | bpp | 1080p24 | 4K24 |
+|---|---|---|---|
+| H.264 | 0.1286 | 6.4 Mbps | 25.6 Mbps |
+| H.265 at ≤1080p | 0.0772 | 3.8 Mbps | — |
+| H.265 at 4K | 0.0643 | — | 12.8 Mbps |
+
+One quality number, one factor per codec and frame size, and the bitrate falls
+out. Nothing else is tuned per resolution.
+
+`H.264 bpp = ref_mbps × 1e6 ÷ (1920 × 1080 × 30)`, and `quality = bpp × 1000`.
 
 EXCELLENT is calibrated so a generic ffmpeg encoder roughly matches Netflix's top
 1080p rung (~5.8 Mbps, achieved with far more sophisticated per-shot encoding) —
