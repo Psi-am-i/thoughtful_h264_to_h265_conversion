@@ -64,6 +64,23 @@ jobs:
           FFMPEG_BINARY_PATH: ${{ github.workspace }}\ffmpeg.exe
           FFPROBE_BINARY_PATH: ${{ github.workspace }}\ffprobe.exe
         run: pyinstaller --clean --noconfirm --distpath dist-win --workpath build-win packaging/vtc-gui-win.spec
+      - name: Verify bundle contents (a hang exits zero — assert the pieces shipped)
+        shell: bash
+        run: |
+          # The Windows failure modes (missing WinForms host / pythonnet runtime)
+          # produce no crash and no log — the app just hangs. So assert the bundle
+          # instead of trusting a green build. (WINDOWS-GOTCHAS.md #8)
+          root="dist-win/VeryThoughtfulCompression"
+          toc="$(find build-win -name 'Analysis-00.toc' | head -1)"
+          fail=0
+          need_file(){ find "$root" -iname "$1" | grep -q . || { echo "MISSING file: $1"; fail=1; }; }
+          need_mod(){ grep -q "'$1'" "$toc" || { echo "MISSING module: $1"; fail=1; }; }
+          need_file "Python.Runtime.dll"      # pythonnet <-> .NET bridge (gotcha #1)
+          need_file "ffmpeg.exe"; need_file "ffprobe.exe"; need_file "vtc_app_v3.html"
+          need_mod "webview.platforms.winforms"     # the real Windows host, not just the renderer
+          need_mod "webview.platforms.edgechromium"
+          need_mod "clr_loader"
+          [ "$fail" = 0 ] && echo "bundle verification passed" || { echo "BUNDLE VERIFICATION FAILED"; exit 1; }
       - name: Add licenses + README, zip
         shell: bash
         run: |

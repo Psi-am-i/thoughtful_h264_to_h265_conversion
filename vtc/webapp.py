@@ -30,11 +30,12 @@ import subprocess
 import sys
 import tempfile
 
-from . import encode, pipeline
+from . import encode, netmove, pipeline
 from .config import AudioPolicy, Container, Encoder, OutputMode, RunConfig, SourceAction
 from .ffprobe import probe
 from .model import OutCodec, Tier, target_kbps
 from .result import Mode, Outcome
+from .winproc import NO_WINDOW, TEXT_UTF8, reconfigure_std_streams
 
 
 # ── debug log ────────────────────────────────────────────────────────────────
@@ -55,6 +56,13 @@ def _log_path() -> Path:
     except OSError:
         d = Path(tempfile.gettempdir())
     return d / "VeryThoughtfulCompression.log"
+
+
+def _session_path() -> Path:
+    """Where the in-progress run is remembered so a crash / force-quit / reboot mid-run
+    can be resumed. Sits next to the log (a persistent dir, NOT temp — it must survive
+    a reboot)."""
+    return _log_path().with_name("vtc_session.json")
 
 
 def _setup_logging() -> Path:
@@ -118,7 +126,7 @@ def _log_environment() -> None:
         ver = "?"
         try:
             ver = subprocess.run([tool, "-version"], capture_output=True, text=True,
-                                 timeout=15).stdout.splitlines()[0]
+                                 timeout=15, **TEXT_UTF8, **NO_WINDOW).stdout.splitlines()[0]
         except Exception as e:  # noqa: BLE001
             ver = f"<could not run: {e}>"
         log.info("%s -> %s  [%s]", label, tool, ver)
@@ -158,7 +166,8 @@ def _ffmpeg_version() -> str:
     """Short ffmpeg version for the toolbar readout, e.g. '8.1.2'. Best-effort."""
     try:
         out = subprocess.run([FFMPEG, "-version"], capture_output=True, text=True,
-                             stdin=subprocess.DEVNULL, timeout=5).stdout
+                             stdin=subprocess.DEVNULL, timeout=5,
+                             **TEXT_UTF8, **NO_WINDOW).stdout
         m = re.search(r"ffmpeg version (\S+)", out)
         if m:
             return m.group(1).split("-")[0]
@@ -573,6 +582,83 @@ _BRIDGE_JS = r"""
     catch(e){}
     return window.__outputDir || '';
   };
+
+  // ── Network-volume banner ───────────────────────────────────────────────────
+  // The output library is often a network share. When placing a finished file the
+  // engine tells us if that share goes missing or stalls (__vtcVolumeStuck) and when
+  // it returns (__vtcVolumeBack). Surface it loudly: a stalled move is the one thing
+  // that can make a healthy run look frozen. The run continues on its own the moment
+  // the share is back — the user just has to reconnect it.
+  function volBanner(){
+    let el = document.getElementById('vtc-volbar');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'vtc-volbar';
+      el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'font:600 14px/1.4 system-ui,-apple-system,sans-serif;padding:11px 18px;'
+        + 'text-align:center;color:#1a1200;box-shadow:0 2px 10px rgba(0,0,0,.35);'
+        + 'transition:transform .2s ease;transform:translateY(-100%)';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  window.__vtcVolumeStuck = (path)=>{
+    const el = volBanner();
+    const name = String(path||'the output volume').replace(/\/+$/,'').split('/').pop() || path;
+    el.style.background = 'linear-gradient(#ffd257,#f4b41a)';
+    el.innerHTML = '⚠️ The output volume <b>'+name+'</b> appears missing or stuck — '
+      + 'reconnect it and the run will continue on its own. '
+      + '<span style="opacity:.7">(or use Stop now to give up)</span>';
+    el.style.transform = 'translateY(0)';
+    clearTimeout(el._hideT);
+  };
+  window.__vtcVolumeBack = (path)=>{
+    const el = volBanner();
+    el.style.background = 'linear-gradient(#b8f0c0,#7fd897)';
+    el.innerHTML = '✓ Output volume reconnected — continuing…';
+    el.style.transform = 'translateY(0)';
+    clearTimeout(el._hideT);
+    el._hideT = setTimeout(()=>{ el.style.transform = 'translateY(-100%)'; }, 3200);
+  };
+
+  // ── Resume an interrupted run ────────────────────────────────────────────────
+  // If a previous run was cut off mid-flight (crash / force-quit / reboot — e.g. the
+  // only way out of a fully-hung network move), offer to continue it. The ledger makes
+  // resume cheap: it re-runs the same settings and every already-done file is skipped
+  // instantly, so only the interrupted file (and the rest of the queue) is processed.
+  function askResume(src){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:99998;display:flex;'
+      + 'align-items:center;justify-content:center;background:rgba(0,0,0,.55)';
+    const name = String(src).replace(/\/+$/,'').split('/').pop() || src;
+    wrap.innerHTML =
+      '<div style="max-width:460px;background:#1c1c22;color:#eee;border:1px solid #333;'
+      + 'border-radius:14px;padding:26px 26px 20px;font:14px/1.5 system-ui,sans-serif;'
+      + 'box-shadow:0 18px 60px rgba(0,0,0,.6)">'
+      + '<div style="font-size:17px;font-weight:700;margin-bottom:8px">Continue previous run?</div>'
+      + '<div style="opacity:.85">A run over <b>'+name+'</b> didn’t finish last time. '
+      + 'Resume it? Files already done are skipped — it picks up where it stopped.</div>'
+      + '<div style="opacity:.55;font-size:12px;margin:6px 0 18px">'+String(src)+'</div>'
+      + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+      + '<button id="vtc-res-no" style="padding:9px 16px;border-radius:9px;border:1px solid #444;'
+      + 'background:#26262d;color:#ddd;font-weight:600;cursor:pointer">Not now</button>'
+      + '<button id="vtc-res-yes" style="padding:9px 16px;border-radius:9px;border:0;'
+      + 'background:#f4b41a;color:#1a1200;font-weight:700;cursor:pointer">Resume</button>'
+      + '</div></div>';
+    document.body.appendChild(wrap);
+    wrap.querySelector('#vtc-res-no').onclick = ()=>{
+      try { api.discard_session(); } catch(e){}
+      wrap.remove();
+    };
+    wrap.querySelector('#vtc-res-yes').onclick = ()=>{
+      wrap.remove();
+      try { pgStart(0, 0); } catch(e){}          // flip to the working screen at once
+      try { api.resume_session(); } catch(e){}
+    };
+  }
+  try {
+    Promise.resolve(api.pending_session()).then(r=>{ if(r && r.src) askResume(r.src); }).catch(()=>{});
+  } catch(e){}
 })();
 """
 
@@ -670,11 +756,36 @@ class Api:
         return {"cleared": n, "entries": 0, "path": str(led.path or "")}
 
     # -- folder pick + fast scan -------------------------------------------------
+    def _file_dialog(self, *args, **kwargs):
+        """Show a native file dialog safely across platforms.
+
+        js_api methods run on pywebview's MTA worker thread (so a slow bridge call
+        can't freeze the UI), but the Windows picker is the Vista COM
+        ``IFileDialog`` and showing a COM dialog off the STA GUI thread hangs
+        outright. Marshal onto the owning form's thread — the same mechanism
+        pywebview uses internally. macOS/Linux have no such requirement, and if the
+        winforms host isn't present we just call through. (WINDOWS-GOTCHAS.md #2)"""
+        if sys.platform != "win32":
+            return self.window.create_file_dialog(*args, **kwargs)
+        try:
+            from System import Action                       # pythonnet
+            from webview.platforms.winforms import BrowserView
+        except Exception:  # noqa: BLE001 — not the winforms backend; call directly
+            return self.window.create_file_dialog(*args, **kwargs)
+        form = BrowserView.instances.get(self.window.uid)
+        if form is None:                                    # fall back rather than hang
+            return self.window.create_file_dialog(*args, **kwargs)
+        box: dict = {}
+        def _on_gui_thread():
+            box["result"] = self.window.create_file_dialog(*args, **kwargs)
+        form.Invoke(Action(_on_gui_thread))                 # blocks until the STA call returns
+        return box.get("result")
+
     def pick_output_folder(self):
         """Native folder picker for the 'New folder' destination. Returns {dir} or
         None (cancelled) — does not scan; just the path the outputs should go to."""
         import webview
-        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        picked = self._file_dialog(webview.FOLDER_DIALOG)
         if not picked:
             return None
         return {"dir": str(Path(picked[0]))}
@@ -682,7 +793,7 @@ class Api:
     def pick_folder(self):
         import webview
         log.info('pick_folder: opening native folder dialog')
-        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        picked = self._file_dialog(webview.FOLDER_DIALOG)
         if not picked:
             return None
         src = Path(picked[0])
@@ -787,7 +898,8 @@ class Api:
                 [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
                  "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
                  "-movflags", "+faststart", str(sample)],
-                stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                **TEXT_UTF8, **NO_WINDOW)
             if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
                 self._emit("__vtcPreviewError", "could not extract a sample clip"); return
             if stale():
@@ -805,6 +917,12 @@ class Api:
                 panel_codec = src_codec_label if tier is None else codec_label
                 if tier is None:
                     out = sample
+                    # The SOURCE's own density, from its real bitrate — the number that
+                    # explains the shrink. A source already at/below a tier's BPP is
+                    # already efficient and will barely move; showing it stops "only 10%
+                    # smaller?" from looking like a bug when the source was simply lean.
+                    bpp = (info.effective_bps / (info.pixels * info.fps)
+                           if info.pixels and info.fps else 0.0)
                 else:
                     out = pdir / f"{key}.mp4"
                     # The panels must show the tiers AS TUNED: a retuned bpp that
@@ -814,11 +932,17 @@ class Api:
                     tgt = target_kbps(tier, sinfo.pixels, sinfo.fps, codec,
                                       floor_kbps=cfg2.bitrate_floor_kbps,
                                       bpp=cfg2.bpp_for(tier), hevc=cfg2.hevc_factors())
+                    # The tier's TARGET density for this file — compare against source
+                    # BPP. Derived from the TUNED target above, so a retuned tier's
+                    # panel reports the density it was actually encoded at.
+                    bpp = (tgt * 1000.0 / (sinfo.pixels * sinfo.fps)
+                           if sinfo.pixels and sinfo.fps else 0.0)
                     vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
                     rr = subprocess.run(
                         [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
                          "-movflags", "+faststart", str(out)],
-                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                        stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                        **TEXT_UTF8, **NO_WINDOW)
                     if rr.returncode != 0 or not out.exists() or out.stat().st_size == 0:
                         log.error("preview %s failed: %s", key,
                                   (rr.stderr or "").strip().splitlines()[-1:])
@@ -828,6 +952,7 @@ class Api:
                 size = out.stat().st_size
                 self._emit("__vtcPreviewPanel",
                            {"i": idx, "key": key, "label": label, "codec": panel_codec, "bytes": size,
+                            "bpp": round(bpp, 3),
                             "url": f"http://127.0.0.1:{port}/{out.name}?v={size}"})
             self._emit("__vtcPreviewDone", "")
             log.info("previews: done (codec=%s)", codec.value)
@@ -991,7 +1116,7 @@ class Api:
         JS bridge FIRST, which is why "Save log…" sat there spinning."""
         import webview
         try:
-            picked = self.window.create_file_dialog(
+            picked = self._file_dialog(
                 webview.SAVE_DIALOG, save_filename=name or "report.txt")
         except Exception as e:  # noqa: BLE001
             log.error("save dialog failed: %s", e); return {"error": str(e)}
@@ -1030,8 +1155,60 @@ class Api:
             return {"error": str(e)}
         _clear_stop_flags()                          # a new run starts unstopped
         self._last_config = config
+        self._save_session(answers)                  # so a crash mid-run can be resumed
         threading.Thread(target=self._run_worker, args=(config,), daemon=True).start()
         return {"started": True}
+
+    # ── crash-resumable session ───────────────────────────────────────────────
+    # The whole run is reconstructable from the src folder + the answer dict: the
+    # ledger (on by default, <src>/.vtc_processed.log) already skips files finished
+    # under the same settings, so "resume" is just "run the same thing again" and the
+    # done files fall away instantly. We persist that intent at run start and clear it
+    # on a clean finish; if the app dies mid-run the file survives and next launch
+    # offers to continue.
+    def _save_session(self, answers: dict) -> None:
+        try:
+            _session_path().write_text(
+                json.dumps({"src": str(self._src), "answers": answers}), encoding="utf-8")
+        except OSError as e:
+            log.warning("could not save session: %s", e)
+
+    def _clear_session(self) -> None:
+        try:
+            _session_path().unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def pending_session(self):
+        """Called on launch. If a previous run was cut off mid-flight, return its src
+        so the UI can offer to continue; otherwise {}."""
+        try:
+            data = json.loads(_session_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        src = data.get("src")
+        if not src or not Path(src).is_dir():        # folder gone -> nothing to resume
+            self._clear_session()
+            return {}
+        return {"src": src}
+
+    def resume_session(self):
+        """Continue the interrupted run: re-run the saved answers; the ledger skips
+        everything already done and redoes only the file that was in flight."""
+        try:
+            data = json.loads(_session_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "no session"}
+        src, answers = data.get("src"), data.get("answers")
+        if not src or answers is None:
+            return {"error": "no session"}
+        self._src = Path(src)
+        log.info("resuming previous session: %s", src)
+        return self.run(answers)
+
+    def discard_session(self):
+        self._clear_session()
+        return {"discarded": True}
 
     def retry_failed_software(self):
         """Re-run just the files that ERRORed in the last run, in software — a quirky
@@ -1255,7 +1432,21 @@ class Api:
             _emit_eta()                             # file boundary: the honest moment
             eta_state["file_t0"] = last["eta"] = _time.monotonic()
 
-        results = pipeline.run(config, progress=prog, on_result=emit, files=files)
+        def notify(event, path):
+            """Placement told us the output volume went missing/stuck (or came back).
+            Raise a banner in the UI so the user can reconnect the share and let the
+            run continue on its own — a stalled network move is the one thing that can
+            otherwise look like a frozen app (see the S02E01 incident)."""
+            if not self.window:
+                return
+            self._volume_stuck = (event == netmove.STUCK)
+            fn = "__vtcVolumeStuck" if event == netmove.STUCK else "__vtcVolumeBack"
+            log.warning("output volume %s: %s", event, path)
+            self.window.evaluate_js(
+                f"window.{fn} && window.{fn}({json.dumps(path)})")
+
+        results = pipeline.run(config, progress=prog, on_result=emit, files=files,
+                               notify=notify)
         summary = _summary(results)
         summary["mins"] = int((_time.monotonic() - run_t0) / 60)   # real elapsed (was hardcoded 0)
         summary["stopped"] = pipeline.stop_requested()              # user hit either Stop
@@ -1263,6 +1454,10 @@ class Api:
         self._last_failed = [r.path for r in results if r.outcome is Outcome.ERROR]
         summary["failed_retryable"] = len(self._last_failed)
         log.info("run done: %s", summary)
+        # Reached the end under our own power (finished, stopped, or aborted — all
+        # user-controlled). Nothing is left dangling, so forget the resume session; it
+        # only survives to next launch when the app dies WITHOUT getting here.
+        self._clear_session()
         if self.window:
             self.window.evaluate_js(
                 f"window.__vtcOnDone && window.__vtcOnDone({json.dumps(summary)})")
@@ -1334,6 +1529,7 @@ def _summary(results: list) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    reconfigure_std_streams()   # UTF-8 stdout/stderr before anything prints a path
     log_path = _setup_logging()
     _install_crash_handlers(log_path)
     try:

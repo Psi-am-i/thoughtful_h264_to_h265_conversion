@@ -285,7 +285,7 @@ def test_picked_file_goes_to_software_on_a_hardware_run(monkeypatch):
         monkeypatch.setattr(pipeline.encode, "select_hw_encoder",
                             lambda c: "hevc_videotoolbox")
 
-        def fake_process(config, ledger, hw_encoder, f, progress=None):
+        def fake_process(config, ledger, hw_encoder, f, progress=None, notify=None):
             seen[f.name] = hw_encoder
             return None
         monkeypatch.setattr(pipeline, "process_file", fake_process)

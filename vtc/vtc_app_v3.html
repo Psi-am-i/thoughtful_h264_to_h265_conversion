@@ -377,8 +377,11 @@ body{
 .est-n{font-size:13px;color:var(--ink-2);margin-top:4px;line-height:1.4}
 
 /* ── sheets: confirm + report ───────────────────────────── */
+/* No backdrop-filter: a full-viewport blur makes WebView2 recomposite the whole
+   page continuously under software rendering ("Not Responding"). A more opaque
+   scrim reads the same over the dark shell. (WINDOWS-GOTCHAS.md #5) */
 .sheet{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;
-  background:rgba(38,36,31,.44);backdrop-filter:blur(3px);padding:24px}
+  background:rgba(38,36,31,.72);padding:24px}
 .sheet.on{display:flex;animation:sheet-in .18s ease both}
 @keyframes sheet-in{from{opacity:0}}
 .sheet-c{background:var(--shell);border:1px solid var(--rule);border-radius:8px;
@@ -1718,17 +1721,17 @@ const M = [
     ]},
   { id:'quality', short:'QUALITY',
     title:'What quality are you looking for?',
-    sub:'Quality is part objective — how much information is in each frame (bits per pixel per frame) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show. We call that quality Excellent and that is what you will get (assuming your source is that good or better). Resolution doesn\'t matter: we set the right bits per pixel per frame, which decides the bitrate for any resolution + quality automatically.',
+    sub:'Quality is part objective — how much information is in each frame, measured as Bits per Pixel, per Frame (BPP) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show. We call that quality Excellent and that is what you will get (assuming your source is that good or better). Resolution doesn\'t matter: BPP is a density, so it sets the right bitrate for any resolution + frame rate automatically. Note: a source already at or below a tier\'s BPP is already efficient, so it will barely shrink (or be left alone) — the number to watch is your source\'s own BPP, shown on the preview.',
     opts:[
-      {k:'OK', recap:'OK · 0.064 bpp', tag:'0.064 bpp · 4.0 Mbps at 1080p30', name:'OK',
+      {k:'OK', recap:'OK · 0.064 BPP', tag:'0.064 BPP', name:'OK',
        t:'Uses little space. Fine for phones, tablets and older or low-quality material. On a big 1080p TV you will see it soften.', m:[2,10,10,9], hot:0},
-      {k:'GOOD', recap:'Good · 0.080 bpp', tag:'0.080 bpp · 5.0 Mbps at 1080p30', name:'Good',
+      {k:'GOOD', recap:'Good · 0.080 BPP', tag:'0.080 BPP', name:'Good',
        t:'Solid streaming quality — what most websites deliver, and a little under Netflix and Amazon. On a laptop or smaller TV it is usually more than enough.', m:[4,10,9,8], hot:0},
-      {k:'EXCELLENT', recap:'Excellent · 0.109 bpp', tag:'0.109 bpp · 6.8 Mbps at 1080p30 · default', name:'Excellent',
+      {k:'EXCELLENT', recap:'Excellent · 0.109 BPP', tag:'0.109 BPP · default', name:'Excellent',
        t:'Matches Netflix\'s top streaming quality. They manage 5.8 Mbps with per-shot encoding you do not have, so we bump our number deliberately above theirs. For almost every library, this is the answer. For excellent sources you want to maintain — or if you use a projector — consider Stellar.', m:[6,9,9,7], hot:0},
-      {k:'STELLAR', recap:'Stellar · 0.129 bpp', tag:'0.129 bpp · 8.0 Mbps at 1080p30', name:'Stellar',
+      {k:'STELLAR', recap:'Stellar · 0.129 BPP', tag:'0.129 BPP', name:'Stellar',
        t:'If your source is great, this beats streaming from the big players — heading into Blu-ray territory. For high-quality films, grainy or high-motion footage, or a projector, choose this.', m:[8,7,6,4], hot:0},
-      {k:'INSANE', recap:'Insane · 0.145 bpp', tag:'0.145 bpp · 9.0 Mbps at 1080p30', name:'Insane',
+      {k:'INSANE', recap:'Insane · 0.145 BPP', tag:'0.145 BPP', name:'Insane',
        t:'Near-transparent from the original on most devices. Past this you may as well keep the original or use a lossless format — archival means lossless, not more bits.', m:[10,5,3,2], hot:0},
     ]},
   { id:'saving', short:'SAVING',
@@ -2219,8 +2222,6 @@ const TIER_LABEL = { OK:'OK', GOOD:'Good', EXCELLENT:'Excellent', STELLAR:'Stell
 // The shipped densities, derived from the H.264 @1080p30 anchors (4.0 / 5.0 /
 // 6.8 / 8.0 / 9.0 Mbps). "Reset tiers" restores exactly these.
 const BPP_DEFAULTS = { OK:0.0643, GOOD:0.0804, EXCELLENT:0.1093, STELLAR:0.1286, INSANE:0.1447 };
-const REF_PIXEL_FPS = 1920*1080*30;                      // the anchor, for bpp <-> Mbps
-const bppToMbps = b => b*REF_PIXEL_FPS/1e6;
 const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], subLangs:[],
   floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
@@ -2275,13 +2276,28 @@ function advSubsSummary(){
 // A tier is a density, and the density is the whole model — so an edited tier
 // has to be visible everywhere the tier is named, not just in this modal. That
 // means the per-row Mbps note, the summary, and the QUALITY question's own tags.
+// Trim trailing zeros so a hand-typed 0.15 reads as "0.15", not "0.1500".
+const fmtBpp = b => (+b.toFixed(4)).toString();
+// The Advanced editor is the one place the FULL implication belongs: this density,
+// for the codec you picked, is this many Mbps at 1080p30 and this many at 4K —
+// and frame rate multiplies it. Everywhere else says BPP alone, because a bitrate
+// quoted without its resolution and frame rate is the misleading half of the story.
+function advBppImplication(v){
+  const h265 = (answers.codec ?? 1) === 1;          // default output codec is H.265
+  const f1080 = h265 ? (ADV.hevcHd || 0.60) : 1;
+  const f4k   = h265 ? (ADV.hevc4k || 0.50) : 1;
+  const m1080 = v * 1920*1080 * 30 / 1e6 * f1080;
+  const m4k   = v * 3840*2160 * 30 / 1e6 * f4k;
+  return `${h265 ? 'H.265' : 'H.264'} · ${m1080.toFixed(1)} Mbps at 1080p30`
+       + ` · ${m4k.toFixed(1)} at 4K30 · double at 60fps`;
+}
 function advBppNotes(){
   TIER_ORDER.forEach(k=>{
     const el = document.querySelector(`[data-bpp-note="${k}"]`); if(!el) return;
     const v = ADV.bpp[k], def = BPP_DEFAULTS[k];
     const changed = Math.abs(v-def) > 1e-9;
-    el.textContent = `${bppToMbps(v).toFixed(1)} Mbps H.264 at 1080p30`
-      + (changed ? ` · default ${def.toFixed(4)}` : ' · default');
+    el.textContent = advBppImplication(v)
+      + (changed ? ` · default ${fmtBpp(def)}` : '');
     el.style.color = changed ? 'var(--accent)' : '';
   });
   const out = $('#adv-bpp-summary');
@@ -2292,7 +2308,7 @@ function advBppNotes(){
     out.classList.toggle('warn', bad.length>0);
     out.textContent = bad.length
       ? `${bad.map(k=>TIER_LABEL[k]).join(' and ')} now sit at or below the tier beneath — they will give you less, not more.`
-      : 'Higher bpp = more bits per frame = bigger files. Targets scale from here with each file’s pixels and frame rate.';
+      : 'Higher BPP = more information per frame = bigger files. Every target scales from here with the file’s own pixels and frame rate.';
   }
   applyTierTags();
 }
@@ -2304,8 +2320,12 @@ function applyTierTags(){
   q.opts.forEach((o,i)=>{
     const k = TIER_ORDER[i]; if(!k) return;
     const b = ADV.bpp[k], dflt = (k==='EXCELLENT') ? ' · default' : '';
-    o.tag = `${b.toFixed(4)} bpp · ${bppToMbps(b).toFixed(1)} Mbps at 1080p30${dflt}`;
-    o.recap = `${TIER_LABEL[k]} · ${b.toFixed(4)} bpp`;
+    // BPP only. The bitrate this implies falls out of it, modified by the codec —
+    // so naming a bitrate here is superfluous at best and misleading at worst
+    // (it is only true at one resolution and frame rate). The Advanced tier
+    // editor spells the implications out; the flow states the density.
+    o.tag = `${fmtBpp(b)} BPP${dflt}`;
+    o.recap = `${TIER_LABEL[k]} · ${fmtBpp(b)} BPP`;
   });
   // Repaint only if the user is standing on that question; the confirm recap
   // rebuilds itself from M every time it opens, so it needs no nudge here.
@@ -3199,6 +3219,9 @@ function pvRenderMeta(){
     const parts=[];
     if(m.codec) parts.push(`<span class="cd">${m.codec}</span>`);
     if(m.bytes) parts.push(`<b>${humanMB(m.bytes)}</b>`);
+    // BPP (Bits per Pixel, per Frame): the source's real density on panel 0, each
+    // tier's target density on the rest. Seeing source ≤ tier explains a small shrink.
+    if(m.bpp) parts.push(`<span class="cd">${m.bpp.toFixed(3)} BPP</span>`);
     if(m.bytes && srcB){
       if(i==='0'){ parts.push(`<span class="df sm">source</span>`); }
       else { const d=Math.round((m.bytes/srcB-1)*100);
@@ -3218,7 +3241,7 @@ window.__vtcPreviewPanel = (p)=>{
   if(!PV.started) buildPreviewGrid(6);
   const cell=$('#grid').querySelector(`.cell[data-i="${p.i}"]`); if(!cell) return;
   const te=$('#grid').querySelector(`[data-t="${p.i}"]`); if(te) te.textContent=p.label||('#'+p.i);
-  PV.meta[p.i]={label:p.label, codec:p.codec, bytes:p.bytes||0, url:p.url, error:!!p.error};
+  PV.meta[p.i]={label:p.label, codec:p.codec, bytes:p.bytes||0, bpp:p.bpp||0, url:p.url, error:!!p.error};
   pvRenderMeta(); pvFillCompare();
   if(p.error){ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent='failed'; return; }
   const v=cell.querySelector('video');

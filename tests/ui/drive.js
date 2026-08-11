@@ -60,10 +60,18 @@ setTimeout(() => {
   type($('#adv-bpp-EXCELLENT'), '0.15');
   check('typing a tier bpp updates ADV', ADV.bpp.EXCELLENT, 0.15);
   check('...and leaves the other tiers alone', ADV.bpp.OK, 0.0643);
-  check('...and the row says what it means in Mbps',
-        /9\.3 Mbps/.test(d.querySelector('[data-bpp-note="EXCELLENT"]').textContent), true);
-  check('...and the QUALITY question now advertises it',
-        /0\.1500 bpp/.test(window.eval('M').find(q => q.id === 'quality').opts[2].tag), true);
+  // The Advanced editor spells out the full implication: this density, for the
+  // chosen codec, at 1080p30 AND 4K, and what frame rate does to it.
+  const note = d.querySelector('[data-bpp-note="EXCELLENT"]').textContent;
+  check('...and the row spells out the bitrate at 1080p and 4K',
+        /Mbps at 1080p30/.test(note) && /at 4K30/.test(note) && /60fps/.test(note), true);
+  check('...naming the codec it applies to', /H\.26[45]/.test(note), true);
+  // The FLOW states density only. A bitrate there is true at exactly one
+  // resolution and frame rate, so it is the misleading half of the story —
+  // this guards the decision made in 1d01b9c against being undone again.
+  const tag = window.eval('M').find(q => q.id === 'quality').opts[2].tag;
+  check('...and the QUALITY question advertises the new density', /0\.15 BPP/.test(tag), true);
+  check('...as BPP alone, with no bitrate', /Mbps|kbps/i.test(tag), false);
   // out-of-order tiers must be called out, not silently accepted
   type($('#adv-bpp-GOOD'), '0.2');
   check('a tier above the one over it is flagged',

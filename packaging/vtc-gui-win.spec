@@ -18,6 +18,8 @@ packaging/BUILD.md and the recipient README).
 
 import os
 
+from PyInstaller.utils.hooks import collect_all
+
 repo_root = os.path.dirname(SPECPATH)
 ffmpeg = os.environ.get('FFMPEG_BINARY_PATH')
 ffprobe = os.environ.get('FFPROBE_BINARY_PATH')
@@ -30,15 +32,29 @@ html = os.path.join(repo_root, 'vtc', 'vtc_app_v3.html')
 if not os.path.exists(html):
     raise SystemExit("vtc/vtc_app_v3.html missing from the repo.")
 
+# pywebview on Windows does NOT drive EdgeChromium directly — it runs a .NET
+# WinForms host on pythonnet, with EdgeChromium only the renderer inside it. That
+# host, and clr_loader's runtime DLLs + .runtimeconfig.json (shipped as DATA, so
+# invisible to the import graph), must be collected explicitly or the app launches
+# and hangs with nothing logged. pythonnet is present at build time (pywebview
+# declares it for win32), so the build never fails — the pieces just never ship.
+# (WINDOWS-GOTCHAS.md #1)
+_pn_datas, _pn_bins, _pn_hidden = collect_all('pythonnet')
+_cl_datas, _cl_bins, _cl_hidden = collect_all('clr_loader')
+
 a = Analysis(
     [os.path.join(repo_root, 'packaging', 'vtc_app.py')],
     pathex=[repo_root],
-    binaries=[(ffmpeg, '.'), (ffprobe, '.')],
-    datas=[(html, '.')],                       # -> bundle root, next to the exe
-    hiddenimports=['webview', 'webview.platforms.edgechromium',
+    binaries=[(ffmpeg, '.'), (ffprobe, '.'), *_pn_bins, *_cl_bins],
+    datas=[(html, '.'), *_pn_datas, *_cl_datas],   # -> bundle root, next to the exe
+    hiddenimports=['webview',
+                   'webview.platforms.winforms',       # the actual Windows host
+                   'webview.platforms.edgechromium',   # the renderer it drives
+                   'clr', 'clr_loader',
+                   *_pn_hidden, *_cl_hidden,
                    'vtc', 'vtc.webapp', 'vtc.pipeline', 'vtc.encode',
                    'vtc.ffprobe', 'vtc.model', 'vtc.config', 'vtc.ledger',
-                   'vtc.report', 'vtc.result'],
+                   'vtc.report', 'vtc.result', 'vtc.winproc'],
     hookspath=[],
     runtime_hooks=[],
     excludes=['tkinter', 'PIL', 'numpy', 'pytest'],
