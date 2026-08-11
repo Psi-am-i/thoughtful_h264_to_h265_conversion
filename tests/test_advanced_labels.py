@@ -304,3 +304,53 @@ def test_we_do_not_overwrite_an_existing_comment():
     args = " ".join(encode.vtc_metadata(_cfg(), Mode.SHRINK, 4000, src))
     assert "comment=" not in args                              # theirs: leave it alone
     assert "VTC_MODE=shrink" in args                           # structured tags regardless
+
+
+# ── measuring the video bitrate, whatever the container says ─────────────────
+def test_video_bitrate_is_not_the_container_total():
+    """Only MP4/MOV/AVI report per-stream bitrate; MKV, TS and WebM say N/A.
+
+    Charging the video for the audio over-stated a Blu-ray MKV by 34% (12.1 Mbps
+    against a true 9.0) — plenty to push a lean file over the re-encode gate.
+    """
+    info = MediaInfo(path=Path("x.mkv"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, duration=100.0)
+    info.container_bit_rate = 12_100_000
+    info.audio_bps = 3_100_000
+    assert info.effective_bps == 9_000_000        # audio taken off, not charged
+    info.bit_rate = 9_017_498                     # exact figure wins outright
+    assert info.effective_bps == 9_017_498
+
+
+def test_stale_statistics_tags_are_rejected():
+    """Statistics tags survive a re-encode — ffmpeg copies them onto the NEW
+    stream, so our HEVC output claimed 2.9 GB of video inside a 1.75 GB file."""
+    from vtc.ffprobe import _sane
+    assert _sane(9_017_498, 5_374_111) == 0          # cannot out-weigh its container
+    assert _sane(3_836_000, 5_374_111) == 3_836_000  # plausible, kept
+    assert _sane(0, 5_374_111) == 0
+
+
+def test_our_outputs_do_not_inherit_the_sources_statistics():
+    from vtc import encode
+    src = MediaInfo(path=Path("x.mkv"), ok=True, vcodec="h264", duration=100.0)
+    args = encode.vtc_metadata(_cfg(), Mode.SHRINK, 4000, src)
+    joined = " ".join(args)
+    for stale in ("BPS=", "NUMBER_OF_BYTES=", "_STATISTICS_TAGS="):
+        assert f"-metadata:s:v:0 {stale}" in joined.replace("' '", " "), stale
+
+
+def test_audio_is_estimated_only_when_nothing_is_reported():
+    """The fallback of last resort — a plain ffmpeg MKV or a WebM, where neither
+    a per-stream bitrate nor a statistics tag exists. Only ever applies to
+    containers that pass audio through untouched; MP4, which is the one that
+    re-encodes audio to fit, reports its bitrates and never reaches this."""
+    info = MediaInfo(path=Path("x.mkv"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, duration=100.0,
+                     audio=[AudioTrack(1, "truehd", 6)])
+    info.container_bit_rate = 12_000_000
+    # nothing reported: subtract an estimate rather than charge the video for it
+    assert info.effective_bps == 12_000_000 - 3_000_000
+    # a real figure always wins over the estimate
+    info.audio_bps = 3_110_857
+    assert info.effective_bps == 12_000_000 - 3_110_857

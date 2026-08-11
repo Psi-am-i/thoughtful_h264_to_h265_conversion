@@ -279,6 +279,16 @@ def vtc_metadata(config: RunConfig, mode: Mode, target_kbps: int,
     out: list[str] = []
     for k, v in tags.items():
         out += ["-metadata", f"{k}={v}"]
+    # Clear the SOURCE's per-stream statistics off our new video stream. ffmpeg
+    # copies stream tags verbatim, so a re-encoded file was inheriting the old
+    # BPS/NUMBER_OF_BYTES and telling every tool that read it that its video
+    # weighed more than the whole file. An empty value removes the tag.
+    for stale in ("BPS", "BPS-eng", "NUMBER_OF_BYTES", "NUMBER_OF_BYTES-eng",
+                  "NUMBER_OF_FRAMES", "NUMBER_OF_FRAMES-eng",
+                  "_STATISTICS_TAGS", "_STATISTICS_TAGS-eng",
+                  "_STATISTICS_WRITING_APP", "_STATISTICS_WRITING_APP-eng",
+                  "_STATISTICS_WRITING_DATE_UTC", "_STATISTICS_WRITING_DATE_UTC-eng"):
+        out += ["-metadata:s:v:0", f"{stale}="]
     if info is not None and not (info.comment or "").strip():
         what = "remuxed to" if mode is Mode.REMUX else f"{mode.value} to"
         out += ["-metadata", f"comment={VTC_SIGNATURE} {__version__} — {what} "

@@ -1294,6 +1294,13 @@ class Api:
         return {"started": True, "count": len(failed)}
 
     def _run_worker(self, config: RunConfig, files=None):
+        # sine cogitatione nulla elegantia
+        #
+        # The most complex function here by some distance (cyclomatic 50 across
+        # 268 lines, against 43 for the next). Everything a run has to be honest
+        # about meets in one place: what will be worked on, how long it will
+        # really take, which file each progress frame belongs to, and what to say
+        # when it is over. Worth splitting; worth understanding first.
         hw = encode.select_hw_encoder(config)
         # jobs is logged because it changes what "stop after current file" means: with
         # more than one worker, several files are in flight and all of them finish.
