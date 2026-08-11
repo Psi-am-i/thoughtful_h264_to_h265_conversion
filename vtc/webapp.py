@@ -697,6 +697,7 @@ class Api:
         self._preview_start = 0.0         # a running worker aborts if its gen is stale
         self._preview_seg = 5.0           # sample length (seconds)
         self._preview_codec = _PREVIEW_CODEC   # codec the panels are currently in
+        self._sample: Path | None = None       # explicitly chosen preview sample
         self._last_config: RunConfig | None = None   # last run's config (for retry)
         self._last_failed: list[Path] = []           # files that ERRORed last run
 
@@ -794,6 +795,36 @@ class Api:
         form.Invoke(Action(_on_gui_thread))                 # blocks until the STA call returns
         return box.get("result")
 
+    def pick_sample_file(self):
+        """Choose which file the previews are cut from.
+
+        Opens in the folder being processed and picks a FILE — the old Select
+        reused the folder picker, so changing the sample meant re-choosing a
+        whole library and still getting whatever file happened to be first.
+        """
+        import webview
+        if self._src is None:
+            return {"error": "no folder"}
+        exts = " ".join("*." + e for e in RunConfig(src=self._src).video_exts)
+        try:
+            picked = self.window.create_file_dialog(
+                webview.OPEN_DIALOG, directory=str(self._src),
+                allow_multiple=False, file_types=(f"Video ({exts})", "All files (*.*)"))
+        except Exception as e:  # noqa: BLE001 — a dialog failure must not kill the app
+            log.error("sample dialog failed: %s", e)
+            return {"error": str(e)}
+        if not picked:
+            return {"cancelled": True}
+        path = Path(picked[0] if isinstance(picked, (list, tuple)) else picked)
+        self._sample = path
+        self._preview_start = 0.0            # a new file: sample from its middle again
+        log.info("preview sample -> %s", path)
+        self._preview_gen += 1
+        threading.Thread(target=self._preview_worker,
+                         args=(self._src, self._preview_codec, self._preview_gen),
+                         daemon=True).start()
+        return {"name": path.name, "path": str(path)}
+
     def pick_output_folder(self):
         """Native folder picker for the 'New folder' destination. Returns {dir} or
         None (cancelled) — does not scan; just the path the outputs should go to."""
@@ -868,7 +899,11 @@ class Api:
                 except OSError:
                     pass
             cfg = RunConfig(src=src, ffmpeg=FFMPEG, ffprobe=FFPROBE)
-            first = next(iter(pipeline.iter_video_files(cfg)), None)
+            # The sample the user picked, if it is still there; otherwise just the
+            # first file in the folder, which is what this always used to be.
+            first = self._sample if (self._sample and self._sample.exists()) else None
+            if first is None:
+                first = next(iter(pipeline.iter_video_files(cfg)), None)
             if first is None:
                 self._emit("__vtcPreviewError", "no video files found here"); return
             info = probe(first, FFPROBE)
@@ -921,7 +956,8 @@ class Api:
             sinfo = probe(sample, FFPROBE)
             self._emit("__vtcPreviewStart",
                        {"w": sinfo.width or info.width, "h": sinfo.height or info.height,
-                        "n": len(_PREVIEW_PANELS), "codec": codec_label})
+                        "n": len(_PREVIEW_PANELS), "codec": codec_label,
+                        "name": first.name})
             hw = encode.select_hw_encoder(RunConfig(src=src, out_codec=codec, ffmpeg=FFMPEG))
 
             for idx, (key, label, tier) in enumerate(_PREVIEW_PANELS):

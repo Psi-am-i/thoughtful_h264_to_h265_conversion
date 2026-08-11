@@ -865,7 +865,9 @@ body{
 .cmp-top{position:absolute;top:0;left:0;height:100%;width:50%;overflow:hidden}
 .cmp-divider{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(200,200,200,.75);
   transform:translateX(-.5px);z-index:3;cursor:ew-resize}
-.cmp-handle{position:absolute;top:33%;left:50%;transform:translate(-50%,-50%);width:34px;height:34px;
+/* A quarter up from the BOTTOM, not a third down from the top: it sits near the
+   transport and pickers, so the hand is already in that half of the screen. */
+.cmp-handle{position:absolute;top:75%;left:50%;transform:translate(-50%,-50%);width:34px;height:34px;
   border-radius:50%;background:rgba(120,120,120,.92);box-shadow:0 2px 10px rgba(0,0,0,.6);cursor:ew-resize;
   display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700;letter-spacing:1px}
 .cmp-handle::before{content:"⟺"}
@@ -3386,7 +3388,15 @@ function pvPark(v, nudge){
   if(!v || v.readyState < 1) return;           // no timeline yet: a later call parks it
   const dur = PV.dur || 5;
   const set = t => { try { if(Math.abs((v.currentTime||0) - t) > 0.005) v.currentTime = t; } catch(e){} };
-  if(!nudge || v._pvNudged){ set(PV.pos); return; }
+  // Do not CONSUME the nudge until there is a decoded frame to re-render.
+  // onloadedmetadata fires at readyState 1 (HAVE_METADATA): the timeline exists,
+  // but nothing has been decoded, so the seek completes and repaints nothing —
+  // and latching here sent the later canplay call, the one that would have
+  // worked, down the bare currentTime path, which does not re-render at all.
+  // That is why the FIRST load of a sample sat one frame out while loading the
+  // same sample again (cached, so readyState >= 2 by the time these fire) was
+  // correct. Below HAVE_CURRENT_DATA, park without latching and let canplay do it.
+  if(!nudge || v._pvNudged || v.readyState < 2){ set(PV.pos); return; }
   v._pvNudged = true;
   // somewhere else to seek FROM — ahead if there's room, else behind
   let away = PV.pos + 0.5 <= dur - 0.05 ? PV.pos + 0.5 : PV.pos - 0.5;
@@ -3511,6 +3521,7 @@ function pvRenderMeta(){
   });
 }
 window.__vtcPreviewStart = (info)=>{
+  if(info && info.name) pvSetSampleName(info.name);
   PV.sw=info.w||1920; PV.sh=info.h||1080; PV.meta={}; PV.codec=info.codec||'';
   PV.pairPicked=false;                         // a new set of panels re-derives the pair
   PV.pos=PV_ANCHOR;                            // a fresh set of previews starts at the top
@@ -3523,6 +3534,11 @@ window.__vtcPreviewPanel = (p)=>{
   const te=$('#grid').querySelector(`[data-t="${p.i}"]`); if(te) te.textContent=p.label||('#'+p.i);
   PV.meta[p.i]={label:p.label, codec:p.codec, bytes:p.bytes||0, bpp:p.bpp||0, url:p.url, error:!!p.error};
   pvRenderMeta(); pvFillCompare();
+  // The fullscreen pickers are built when the compare view OPENS. Panels stream in
+  // one tier at a time, so opening it early left those two dropdowns frozen with
+  // only the tiers that happened to have finished — Source, OK, Good and no more.
+  // Rebuild them as each panel lands, keeping whatever the user has chosen.
+  if(PV.compare) cmpFillTagSels(PV.compare.a, PV.compare.b);
   if(p.error){ cell.classList.add('failed'); const sp=cell.querySelector('.spin span'); if(sp) sp.textContent='failed'; return; }
   const v=cell.querySelector('video');
   v.onloadedmetadata=()=>{
@@ -3760,7 +3776,27 @@ $('#src').onclick=()=>{
 // The sample is cut from the first video in the source folder, so "which sample"
 // is really "which folder" — the control under the previews is the same pick as
 // the brow's, put where the thing it changes is being looked at.
-$('#pv-pick').onclick=()=>$('#src').click();
+// Select picks the FILE the previews are cut from, opening in the folder being
+// processed. It used to reuse the folder picker, so changing the sample meant
+// re-choosing a whole library and still getting whichever file came first.
+$('#pv-pick').onclick=()=>{
+  if(window.pywebview && window.pywebview.api.pick_sample_file){
+    Promise.resolve(window.pywebview.api.pick_sample_file()).then(r=>{
+      if(r && r.name) pvSetSampleName(r.name);       // previews regenerate engine-side
+    }).catch(()=>{});
+  } else {
+    $('#src').click();                               // standalone mock: no file dialog
+  }
+};
+// The sample's own name, once the engine says which file it used. Falls back to
+// the folder tail until then, which is all the mock ever knows.
+function pvSetSampleName(name){
+  const out=$('#pv-src'); if(!out) return;
+  window.__pvSampleNamed = true;
+  out.textContent = name; out.title = name;
+  const b=$('#big-src'); if(b){ b.textContent = name; b.title = name; }
+}
+window.pvSetSampleName = pvSetSampleName;
 // Keep the preview column's readout on the current source. It reads #src-v rather
 // than SRC because the pywebview bridge writes the real path straight into that
 // element, and there is no second place for it to drift from.
@@ -3769,7 +3805,9 @@ $('#pv-pick').onclick=()=>$('#src').click();
   // the last two segments name the folder; the full path stays in the tooltip
   const tail=v=>{ const p=String(v).replace(/[\\/]+$/,'').split(/[\\/]/).filter(Boolean);
     return p.length>2 ? p.slice(-2).join('/') : (p.join('/') || v); };
-  const sync=()=>{ const v=src.textContent||'—';
+  const sync=()=>{
+    if(window.__pvSampleNamed) return;    // the engine told us the actual file; leave it
+    const v=src.textContent||'—';
     out.textContent=tail(v); out.title=v;
     const b=$('#big-src'); if(b){ b.textContent=tail(v); b.title=v; } };
   sync();
