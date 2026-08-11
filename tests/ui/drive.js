@@ -1,0 +1,175 @@
+// Load the REAL app page in a DOM and drive the Advanced-settings controls the
+// way a person would (type in the box, click the toggle), then read back the
+// state the engine is actually handed. This is the closest thing to clicking it
+// that runs on this machine — the Chrome extension lives on the other box.
+const fs = require('fs');
+const { JSDOM, VirtualConsole } = require('jsdom');
+
+const HTML = require('path').join(__dirname, '..', '..', 'vtc', 'vtc_app_v3.html');
+const vc = new VirtualConsole();            // swallow page noise; we assert, not read logs
+const errors = [];
+vc.on('jsdomError', e => errors.push(String(e.message).slice(0, 140)));
+
+const dom = new JSDOM(fs.readFileSync(HTML, 'utf8'), {
+  runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
+  url: 'http://127.0.0.1/vtc_app_v3.html',
+  // These are jsdom gaps, not page bugs — every real browser and WKWebView has
+  // them. They must exist BEFORE the page script parses, or it dies on the
+  // reduced-motion query and every later `const` stays in the dead zone.
+  beforeParse(w) {
+    w.matchMedia = () => ({ matches: false, media: '', onchange: null,
+      addListener() {}, removeListener() {},
+      addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; } });
+    w.HTMLMediaElement.prototype.play = () => Promise.resolve();
+    w.HTMLMediaElement.prototype.pause = () => {};
+    w.HTMLMediaElement.prototype.load = () => {};
+    w.scrollTo = () => {};
+    class Obs { observe() {} unobserve() {} disconnect() {} }
+    w.IntersectionObserver = w.IntersectionObserver || Obs;
+    w.ResizeObserver = w.ResizeObserver || Obs;
+  },
+});
+const { window } = dom;
+
+const results = [];
+const check = (name, got, want) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  results.push({ ok, name, got, want });
+};
+
+setTimeout(() => {
+  const d = window.document;
+  const $ = s => d.querySelector(s);
+  const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: true }));
+  const type = (el, v) => { el.value = v; fire(el, 'input'); fire(el, 'blur'); };
+  const click = el => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  if (typeof window.openAdv !== 'function') {
+    console.log(JSON.stringify({ fatal: 'openAdv missing — page JS did not initialise', errors }));
+    return;
+  }
+  window.openAdv();                                   // populate the modal from ADV
+  const ADV = window.ADV;
+
+  // ── the modal opens showing the CURRENT values, not blanks ────────────────
+  check('modal shows current bitrate floor', $('#adv-floor').value, String(ADV.floor));
+  check('modal shows current tier bpp (Excellent)', $('#adv-bpp-EXCELLENT').value,
+        String(ADV.bpp.EXCELLENT));
+
+  // ── Quality tiers ─────────────────────────────────────────────────────────
+  type($('#adv-bpp-EXCELLENT'), '0.15');
+  check('typing a tier bpp updates ADV', ADV.bpp.EXCELLENT, 0.15);
+  check('...and leaves the other tiers alone', ADV.bpp.OK, 0.0643);
+  check('...and the row says what it means in Mbps',
+        /9\.3 Mbps/.test(d.querySelector('[data-bpp-note="EXCELLENT"]').textContent), true);
+  check('...and the QUALITY question now advertises it',
+        /0\.1500 bpp/.test(window.eval('M').find(q => q.id === 'quality').opts[2].tag), true);
+  // out-of-order tiers must be called out, not silently accepted
+  type($('#adv-bpp-GOOD'), '0.2');
+  check('a tier above the one over it is flagged',
+        $('#adv-bpp-summary').classList.contains('warn'), true);
+  click($('#adv-bpp-reset'));
+  check('Reset tiers restores the anchors', ADV.bpp.EXCELLENT, 0.1093);
+  check('...for every tier', [ADV.bpp.OK, ADV.bpp.GOOD, ADV.bpp.STELLAR, ADV.bpp.INSANE],
+        [0.0643, 0.0804, 0.1286, 0.1447]);
+  check('...and clears the warning', $('#adv-bpp-summary').classList.contains('warn'), false);
+
+  // ── Ignore rules ──────────────────────────────────────────────────────────
+  type($('#adv-ign-under'), '250');
+  check('"smaller than" reaches ADV', ADV.ignUnderMb, 250);
+  type($('#adv-ign-over'), '8000');
+  check('"larger than" reaches ADV', ADV.ignOverMb, 8000);
+  type($('#adv-ign-exts'), '.AVI, wmv , ');
+  check('extensions: dots stripped, lowercased, blanks dropped', ADV.ignExts, ['avi', 'wmv']);
+  type($('#adv-ign-names'), 'sample, trailer');
+  check('filename fragments split on commas', ADV.ignNames, ['sample', 'trailer']);
+  check('the summary says what will happen',
+        /under 250 MB/.test($('#adv-ign-summary').textContent) &&
+        /\.avi/.test($('#adv-ign-summary').textContent), true);
+  // contradictory bounds are a real foot-gun: warn, don't silently ignore nothing
+  type($('#adv-ign-under'), '9000');
+  check('under > over is flagged as covering everything',
+        $('#adv-ign-summary').classList.contains('warn'), true);
+  click($('#adv-ign-reset'));
+  check('Clear rules empties all four',
+        [ADV.ignUnderMb, ADV.ignOverMb, ADV.ignExts, ADV.ignNames], ['', '', [], []]);
+  check('...and the boxes are visibly empty', $('#adv-ign-exts').value, '');
+
+  // ── the toggle that moved here ────────────────────────────────────────────
+  const ledgerWas = ADV.ledger;
+  click($('#adv-ledger'));
+  check('history toggle flips', ADV.ledger, !ledgerWas);
+  check('...and shows it', $('#adv-ledger').classList.contains('on'), !ledgerWas);
+  click($('#adv-ledger'));
+
+  // ── the rest of the modal still works ─────────────────────────────────────
+  type($('#adv-floor'), '2500');
+  check('bitrate floor', ADV.floor, 2500);
+  type($('#adv-tol'), '25');
+  check('re-encode tolerance', ADV.tol, 25);
+  type($('#adv-hevc-hd'), '0.55');
+  check('HEVC factor HD', ADV.hevcHd, 0.55);
+  type($('#adv-ab-stereo'), '192');
+  check('audio bitrate stereo', ADV.abStereo, 192);
+  type($('#adv-jobs'), '3');
+  check('parallel jobs', ADV.jobs, 3);
+  const mkv = [...$('#adv-container').querySelectorAll('button')].find(b => b.dataset.v === 'mkv');
+  click(mkv);
+  check('container segmented control', ADV.container, 'mkv');
+  check('...and highlights the chosen one', mkv.classList.contains('on'), true);
+  $('#adv-audio').value = 'flac'; fire($('#adv-audio'), 'change');
+  check('audio policy', ADV.audio, 'flac');
+  const leave = [...$('#adv-format').querySelectorAll('button')].find(b => b.dataset.v === 'leave');
+  click(leave);
+  check('non-MP4 policy', ADV.format, 'leave');
+  type($('#adv-subs-langs'), 'eng, fre');
+  check('subtitle languages', ADV.subLangs, ['eng', 'fre']);
+  const hoh = $('#adv-subs-kinds').querySelector('[data-k="hoh"]');
+  click(hoh);
+  check('unticking a subtitle kind removes it', ADV.subKinds.includes('hoh'), false);
+  // ticking nothing silently discards every subtitle — it must say so
+  click($('#adv-subs-kinds').querySelector('[data-k="normal"]'));
+  click($('#adv-subs-kinds').querySelector('[data-k="forced"]'));
+  check('no subtitle kinds ticked is warned about',
+        $('#adv-subs-summary').classList.contains('warn'), true);
+
+  // ── global reset ──────────────────────────────────────────────────────────
+  click($('#adv-reset'));
+  check('Reset to defaults restores everything',
+        [ADV.floor, ADV.container, ADV.audio, ADV.format, ADV.jobs, ADV.bpp.EXCELLENT],
+        [1500, 'auto', 'passthrough', 'convert', 1, 0.1093]);
+  check('...including the subtitle kinds', ADV.subKinds, ['normal', 'forced', 'hoh']);
+  check('...and does not share state with the defaults object',
+        (() => { window.ADV.bpp.OK = 9; click($('#adv-reset')); return window.ADV.bpp.OK; })(), 0.0643);
+
+  // ── the software picker ───────────────────────────────────────────────────
+  const SW = window.eval('SW');
+  SW.rows = [
+    { path: '/m/big.mkv',   name: 'big.mkv',   bytes: 9.0e9, res: '1920x1080', dur: 3600, saving: 85 },
+    { path: '/m/mid.mkv',   name: 'mid.mkv',   bytes: 4.5e9, res: '1920x1080', dur: 2700, saving: 70 },
+    { path: '/m/small.mkv', name: 'small.mkv', bytes: 0.8e9, res: '1280x720',  dur: 1500, saving: 40 },
+  ];
+  SW.measured = true; SW.picked.clear();
+  window.swRender();
+  check('picker lists every candidate', d.querySelectorAll('#sw-list .sw-row').length, 3);
+  click(d.querySelector('#sw-list .sw-row[data-i="0"]'));
+  check('clicking a row ticks it', [...SW.picked], ['/m/big.mkv']);
+  check('...and that is what the engine will be sent', window.__softwareFiles, ['/m/big.mkv']);
+  check('...and the row shows as ticked',
+        d.querySelector('#sw-list .sw-row[data-i="0"]').classList.contains('on'), true);
+  click(d.querySelector('#sw-list .sw-row[data-i="0"]'));
+  check('clicking again unticks', window.__softwareFiles, []);
+  $('#sw-big').value = '4';
+  click(d.querySelector('#sw-sheet [data-pick="big"]'));
+  check('"everything over 4 GB" ticks exactly those',
+        [...SW.picked].sort(), ['/m/big.mkv', '/m/mid.mkv']);
+  check('...and the footer counts them', /2<\/b> of 3/.test($('#sw-foot').innerHTML), true);
+  check('...and estimates the slow time', /software/.test($('#sw-foot').textContent), true);
+  click(d.querySelector('#sw-sheet [data-pick="all"]'));
+  check('Tick all', window.__softwareFiles.length, 3);
+  click(d.querySelector('#sw-sheet [data-pick="none"]'));
+  check('Tick none', window.__softwareFiles.length, 0);
+
+  process.stdout.write(JSON.stringify({ results, errors }));
+  process.exit(0);   // the page keeps timers alive; nothing left to wait for
+}, 1500);
