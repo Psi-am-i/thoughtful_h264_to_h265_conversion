@@ -998,13 +998,22 @@ class Api:
         from .result import Mode
         src_bytes = out_bytes = 0
         reencoded = skipped = 0
+        # The cohort that actually gets worked on. Reporting the saving against the
+        # WHOLE library averages a handful of files halving themselves against
+        # hundreds that never move, which makes worthwhile work look pointless:
+        # "26 files, 90 GB, saves 3 GB" when the truth was "6 files, 12.6 GB ->
+        # 6.4 GB". So these are totalled separately and it is these the UI leads on.
+        work_src = work_out = 0
         for info, size in self._probes:
             mode, _outcome, target = pipeline.decide(config, info)
-            src_kbps = info.effective_bps / 1000.0
-            if mode in (Mode.SHRINK, Mode.TRANSCODE) and src_kbps > 0:
-                out_bytes += int(size * min(1.0, target / src_kbps)); reencoded += 1
+            predicted = pipeline.predict_output_bytes(config, info, size, mode, target)
+            if mode in (Mode.SHRINK, Mode.TRANSCODE):
+                reencoded += 1
+                work_src += size
+                work_out += predicted
             else:                                             # remux (~same size) or skip
-                out_bytes += size; skipped += 1
+                skipped += 1
+            out_bytes += predicted
             src_bytes += size
         ratio = (out_bytes / src_bytes) if src_bytes else 1.0   # sample's out/in ratio
         sample = len(self._probes)
@@ -1014,6 +1023,13 @@ class Api:
             "saved_pct": round((1 - ratio) * 100),
             "reencoded": round(reencoded * scale),
             "skipped": round(skipped * scale),
+            # The honest headline: the files that will be touched, and what
+            # happens to THEM. Bytes, not TB, because a cohort is often small.
+            "work_files": reencoded,
+            "work_bytes": work_src,
+            "work_out_bytes": work_out,
+            "work_saved_bytes": max(0, work_src - work_out),
+            "work_saved_pct": round((1 - work_out / work_src) * 100) if work_src else 0,
             "measured": self._probed_for == self._src,          # True once the full scan finishes
         }
 

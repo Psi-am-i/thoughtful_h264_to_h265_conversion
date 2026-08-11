@@ -18,7 +18,7 @@ from typing import Callable
 from dataclasses import dataclass
 
 from . import encode, netmove
-from .config import Container, OutputMode, RunConfig, SourceAction
+from .config import AudioPolicy, Container, OutputMode, RunConfig, SourceAction
 from .ffprobe import MediaInfo, probe
 from .ledger import Ledger
 from .model import OutCodec, classify_codec, over_target, target_kbps
@@ -260,6 +260,45 @@ def _place(config: RunConfig, src_file: Path, out: Path, tmp: Path,
 
 
 # ── Dry-run planning (decide without encoding) ────────────────────────────────
+def predict_output_bytes(config: RunConfig, info: MediaInfo, size: int,
+                         mode: Mode | None, target_kbps_: int) -> int:
+    """Predicted output size in bytes for a file that has already been decided.
+
+    The obvious model — scale the whole file by target/source bitrate — is wrong,
+    because the target is a VIDEO bitrate while the size includes audio and
+    subtitles. On a Blu-ray rip with lossless audio that is a big fraction, and
+    the error flips direction depending on whether the audio is copied or
+    re-encoded. So model the two parts separately:
+
+        video out  = target x duration
+        other out  = whatever is not video today (audio + subs + overhead),
+                     re-priced if the audio policy is going to re-encode it
+
+    `other` is measured from THIS file rather than assumed: the video stream's
+    own bitrate gives its share, and the remainder of the file is everything
+    else. When ffprobe reports no per-stream video bitrate there is nothing to
+    subtract, so fall back to the old ratio — honest, and no worse than before.
+    """
+    if mode is None or mode is Mode.REMUX:
+        return size                       # a remux is a stream copy: same bytes
+    dur = info.duration or 0.0
+    src_kbps = info.effective_bps / 1000.0
+    if dur <= 0 or target_kbps_ <= 0 or src_kbps <= 0:
+        return size
+    video_out = target_kbps_ * 1000.0 / 8.0 * dur
+    if info.bit_rate:                     # per-stream video bitrate known
+        other = max(0.0, size - info.bit_rate / 8.0 * dur)
+    else:                                 # cannot split the file: old model
+        return int(min(size, size * min(1.0, target_kbps_ / src_kbps)))
+    # A forced audio codec re-prices the audio; passthrough (and lossless FLAC,
+    # whose size we cannot usefully predict) keeps whatever is there today.
+    if config.audio_policy in (AudioPolicy.AAC, AudioPolicy.AC3) and info.audio:
+        per = (config.audio_bitrate_multichannel if info.max_audio_channels > 2
+               else config.audio_bitrate_stereo)
+        other = per * 1000.0 / 8.0 * dur * len(info.audio)
+    return int(min(float(size), video_out + other))
+
+
 @dataclass
 class PlanRow:
     path: Path
@@ -272,12 +311,35 @@ class PlanRow:
     def src_kbps(self) -> float:
         return self.info.effective_bps / 1000.0
 
-    def projected_saving(self) -> float | None:
-        """Estimated size saving fraction for a shrink/transcode; None otherwise."""
-        if self.mode in (Mode.SHRINK, Mode.TRANSCODE) and self.src_kbps > 0:
-            return max(0.0, 1.0 - self.target_kbps / self.src_kbps)
+    def predicted_bytes(self, config: RunConfig) -> int | None:
+        """Predicted output size, or None if the file is left alone."""
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return None
+        return predict_output_bytes(config, self.info, size, self.mode, self.target_kbps)
+
+    def projected_saving(self, config: RunConfig | None = None) -> float | None:
+        """Estimated size saving fraction for a shrink/transcode; None otherwise.
+
+        With a config, this is the real two-part prediction (video + everything
+        else). Without one it falls back to the bitrate ratio, which ignores
+        audio — kept only so old callers do not break.
+        """
         if self.mode is Mode.REMUX:
             return 0.0
+        if self.mode not in (Mode.SHRINK, Mode.TRANSCODE):
+            return None
+        if config is not None:
+            try:
+                size = self.path.stat().st_size
+            except OSError:
+                size = 0
+            if size > 0:
+                out = predict_output_bytes(config, self.info, size, self.mode, self.target_kbps)
+                return max(0.0, 1.0 - out / size)
+        if self.src_kbps > 0:
+            return max(0.0, 1.0 - self.target_kbps / self.src_kbps)
         return None
 
 

@@ -194,3 +194,57 @@ def _run_all():
 
 if __name__ == "__main__":
     _run_all()
+
+
+# ── the savings estimate ─────────────────────────────────────────────────────
+def test_prediction_models_audio_separately():
+    """The whole-file-ratio model mispredicts anything with substantial audio.
+
+    A 2-hour film: 10 Mbps video + 3 Mbps lossless audio in a 11.7 GB file,
+    shrunk to a 2.5 Mbps video target. The audio is passed through, so it
+    survives at full size — the naive `size x target/source` model forgets that
+    and promises a saving that cannot arrive.
+    """
+    dur = 7200.0
+    video_bps, audio_bps = 10_000_000, 3_000_000
+    size = int((video_bps + audio_bps) / 8 * dur)             # ~11.7 GB
+    info = MediaInfo(path=Path("film.mkv"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, bit_rate=video_bps, duration=dur,
+                     audio=[AudioTrack(1, "truehd", 6)])
+    cfg = _cfg()
+    got = pipeline.predict_output_bytes(cfg, info, size, Mode.SHRINK, 2500)
+
+    # truth: 2.5 Mbps of video for 2 hours, plus the audio carried across intact
+    expect = int(2_500_000 / 8 * dur + audio_bps / 8 * dur)
+    assert abs(got - expect) / expect < 0.02, (got, expect)
+
+    naive = int(size * (2500 / (video_bps / 1000)))           # the old model
+    assert naive < expect * 0.8, "fixture no longer demonstrates the old error"
+
+
+def test_prediction_reprices_audio_when_it_is_re_encoded():
+    dur = 7200.0
+    info = MediaInfo(path=Path("film.mkv"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, bit_rate=10_000_000, duration=dur,
+                     audio=[AudioTrack(1, "truehd", 6)])
+    size = int(13_000_000 / 8 * dur)
+    cfg = _cfg(audio="aac", abMulti=448)
+    got = pipeline.predict_output_bytes(cfg, info, size, Mode.SHRINK, 2500)
+    expect = int(2_500_000 / 8 * dur + 448_000 / 8 * dur)      # video + AAC 448k
+    assert abs(got - expect) / expect < 0.02, (got, expect)
+
+
+def test_prediction_leaves_untouched_files_alone():
+    info = MediaInfo(path=Path("x.mkv"), ok=True, vcodec="hevc", width=1920,
+                     height=1080, fps=24.0, bit_rate=5_000_000, duration=100.0)
+    for mode in (None, Mode.REMUX):
+        assert pipeline.predict_output_bytes(_cfg(), info, 999, mode, 0) == 999
+
+
+def test_prediction_never_exceeds_the_source():
+    # A shrink that models bigger than the source would advertise a negative
+    # saving; the size gate would throw such an encode away anyway.
+    info = MediaInfo(path=Path("x.mkv"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, bit_rate=1_000_000, duration=100.0)
+    size = int(1_000_000 / 8 * 100)
+    assert pipeline.predict_output_bytes(_cfg(), info, size, Mode.SHRINK, 50_000) <= size

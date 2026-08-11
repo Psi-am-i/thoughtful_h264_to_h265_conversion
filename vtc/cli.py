@@ -293,21 +293,35 @@ def _print_dry_run(cfg: RunConfig) -> int:
     print("  " + "─" * 100)
     est_saved = 0.0
     n_change = 0
+    work_src = 0
     for r in sorted(rows, key=lambda x: x.path.name):
         name = r.path.name if len(r.path.name) <= 44 else r.path.name[:41] + "..."
         res = f"{r.info.width}x{r.info.height}" if r.info.width else "?"
         srcmbps = f"{r.src_kbps/1000:.1f}M" if r.src_kbps else "?"
-        sav = r.projected_saving()
+        # Pass the config: without it this falls back to the bitrate ratio, which
+        # ignores audio and so promises savings that cannot arrive.
+        sav = r.projected_saving(cfg)
         tgt = f"{r.target_kbps/1000:.1f}M" if r.target_kbps else "—"
         savtxt = f"{sav*100:.0f}%" if sav else ("0%" if sav == 0.0 else "—")
+        try:
+            size = r.path.stat().st_size
+        except OSError:
+            size = 0
         if sav:
-            est_saved += (r.info.path.stat().st_size if r.info.path.exists() else 0) * sav
+            est_saved += size * sav
             n_change += 1
+            work_src += size
         print(f"  {name:<44s} {res:>9s} {r.info.vcodec or '?':>6s} {srcmbps:>8s} "
               f"{'→':^3s} {_plan_action(r):<10s} {tgt:>8s} {savtxt:>6s}")
     print("  " + "─" * 100)
-    print(f"  {len(rows)} file(s): {n_change} would be re-encoded, "
-          f"{len(rows)-n_change} left as-is  |  est. saving ~{human_bytes(est_saved)}")
+    # Lead with what happens to the files being TOUCHED. Averaging the saving
+    # across a whole library — most of which is deliberately left alone — makes
+    # worthwhile work read as pointless.
+    print(f"  {len(rows)} file(s): {n_change} would be re-encoded, {len(rows)-n_change} left as-is")
+    if n_change:
+        pct = (est_saved / work_src * 100) if work_src else 0
+        print(f"  Those {n_change}: {human_bytes(work_src)} -> ~{human_bytes(work_src - est_saved)}"
+              f"  |  est. recovery ~{human_bytes(est_saved)} ({pct:.0f}% of what is touched)")
     return 0
 
 

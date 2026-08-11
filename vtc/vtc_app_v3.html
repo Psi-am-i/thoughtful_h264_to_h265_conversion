@@ -1126,6 +1126,7 @@ body{
           <span id="sw-entry-n">Slower, but better per bit — worth it for the few files you care most about.</span></div>
         <button class="adv-mini" id="sw-open" style="margin-bottom:0">Choose files…</button>
       </div>
+      <div class="c-work" id="c-work" hidden></div>
       <p class="sheet-w" id="c-warn"></p>
     </div>
     <div class="sheet-f">
@@ -2124,7 +2125,6 @@ function clearWell(){
 }
 $('#commit').onclick=()=>{
   const q=M[step], oi=armed;
-  const wasComplete = SRC && M.every(x=>answers[x.id]!==undefined);
   const keyEl=$('#keys').querySelector(`.key[data-i="${oi}"]`);
   fly(keyEl,q.id,oi,()=>{
     answers[q.id]=oi;
@@ -2135,10 +2135,13 @@ $('#commit').onclick=()=>{
     step=next===-1?step:next;
     armed=answers[M[step].id]??null;
     render(); drawRegions(q.id);
-    // The moment the last decision lands — or a change made from the modal is
-    // re-committed — bring the finished config to the centre, instead of making
-    // them cross to the right rail and hunt for Start.
-    if(nowComplete && (!wasComplete || reconfirm)){ reconfirm=false; setTimeout(openConfirm, 540); }
+    // Only come back to the modal when the user CAME from it — they changed one
+    // answer from the recap and re-committed it, so returning is finishing what
+    // they started. Completing the last question does NOT open it: the last
+    // question is the destination, and landing in a modal the instant you pick
+    // one traps someone who only wanted to set that and then go back and adjust
+    // something else. Start is right there and lights up; let them press it.
+    if(nowComplete && reconfirm){ reconfirm=false; setTimeout(openConfirm, 540); }
   });
 };
 
@@ -2646,6 +2649,14 @@ function tbParts(tb){ const b=Math.max(0,tb)*1e12;
   if(b>=1e6)  return [(b/1e6).toFixed(0),'MB'];
   return [Math.max(0,Math.round(b/1e3)).toString(),'KB']; }
 function tbStr(tb){ const p=tbParts(tb); return p[0]+' '+p[1]; }
+// The work cohort is usually GB, sometimes MB — tbParts would render it "0.01 TB".
+function bytesStr(b){
+  b = Math.max(0, b||0);
+  if(b >= 1e12) return (b/1e12).toFixed(2)+' TB';
+  if(b >= 1e9)  return (b/1e9).toFixed(2)+' GB';
+  if(b >= 1e6)  return (b/1e6).toFixed(0)+' MB';
+  return (b/1e3).toFixed(0)+' KB';
+}
 function tbHTML(tb){ const p=tbParts(tb); return p[0]+'<span>'+p[1]+'</span>'; }
 function pgSetClock(){
   if(PG.total && PG.done>=PG.total){ $('#pg-clock').textContent='finishing…'; return; }
@@ -2865,6 +2876,49 @@ function runNow(){
 // last decision is made (see #commit), and by the rail's Start as a manual re-open.
 // Set true by a recap row so re-committing that one change pops the modal back up.
 let reconfirm=false;
+// The honest headline for a run: not "90 GB of library, saves 3 GB" — which
+// averages the few files that halve against the hundreds that never move and
+// makes worthwhile work look pointless — but "6 files will be processed; they
+// are 12.6 GB and should come back 6.4 GB". Until the library has actually been
+// measured this says so, rather than filling the gap with a modelled guess.
+let CONFIRM_EST = null;                       // last measured estimate, for the report
+function confirmWork(){
+  const el = $('#c-work'); if(!el) return;
+  CONFIRM_EST = null;
+  if(!(window.pywebview && window.pywebview.api.estimate)){
+    el.hidden = true; return;                 // standalone mock: no library to measure
+  }
+  el.hidden = false;
+  el.className = 'c-work evaluating';
+  el.innerHTML = '<b>Evaluating your library…</b><span>Reading every file to see which ones are worth re-encoding.</span>';
+  $('#c-go').disabled = true;                 // no starting on an unmeasured guess
+  const poll = ()=>{
+    Promise.resolve(window.pywebview.api.estimate(
+        Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)))
+      .then(e=>{
+        if(!$('#confirm-sheet').classList.contains('on')) return;   // they left
+        if(!e || e.error || !e.measured){ setTimeout(poll, 700); return; }
+        CONFIRM_EST = e;
+        $('#c-go').disabled = false;
+        el.className = 'c-work';
+        const left = Math.max(0, SRC.files - e.work_files);
+        if(!e.work_files){
+          el.innerHTML = '<b>Nothing here needs re-encoding.</b>'
+            + `<span>All ${SRC.files.toLocaleString()} files are already at or under your quality tier. `
+            + 'Starting would simply confirm that, file by file.</span>';
+          return;
+        }
+        el.innerHTML =
+            `<b>${e.work_files.toLocaleString()} of ${SRC.files.toLocaleString()} files will be re-encoded</b>`
+          + `<span>Those ${e.work_files.toLocaleString()} are <b>${bytesStr(e.work_bytes)}</b> today and should come back about `
+          + `<b>${bytesStr(e.work_out_bytes)}</b> — recovering roughly <b>${bytesStr(e.work_saved_bytes)}</b> `
+          + `(−${e.work_saved_pct}% of what is touched).<br>`
+          + `The other ${left.toLocaleString()} are left exactly as they are; the run log says why for each one.</span>`;
+      }).catch(()=>{ el.hidden = true; $('#c-go').disabled = false; });
+  };
+  poll();
+}
+
 function openConfirm(){
   if(!SRC || !M.every(q=>answers[q.id]!==undefined)) return;   // not fully decided
   $('#c-go').textContent='Yes, start'; $('#c-go').onclick=runNow;
@@ -2900,6 +2954,7 @@ function openConfirm(){
   });
   $('#c-src').textContent=`${SRC.files.toLocaleString()} files · ${tbStr(SRC.tb)}`;
   $('#c-proj').textContent=$('#est').textContent;
+  confirmWork();          // measure, then report on the files that will be touched
   const destK=M.find(q=>q.id==='dest').opts[answers.dest].k;
   $('#c-dest').textContent=destK;
   // the warning is specific to what they actually chose, not a blanket disclaimer
@@ -2963,6 +3018,17 @@ function modelRun(){
   };
 }
 let rTab='ok';
+// Plain English for how close the estimate landed. Within 10% is "as estimated";
+// beyond that, say which way it went, because "we promised 3 GB and recovered 6"
+// is information about the tool, not just about this run.
+function predictedVsActual(predicted, actual){
+  if(!predicted) return '';
+  const r = actual / predicted;
+  if(r >= 0.9 && r <= 1.1) return 'as estimated';
+  return r > 1 ? `${r.toFixed(1)}x better than estimated`
+               : `${(1/r).toFixed(1)}x less than estimated`;
+}
+
 function drawReport(){
   const R=RUN;
   const hrs=Math.floor((R.mins||0)/60), m=(R.mins||0)%60;
@@ -2980,6 +3046,13 @@ function drawReport(){
   if(rec){ rec.innerHTML = orig>0
       ? `Original <b>${human2(orig)}</b> <span class="a">→</span> Final <b>${human2(fin)}</b> <span class="sep">·</span> `
         + `${net>=0?'Recovered':'Added'} <b class="rec">${human2(Math.abs(net))}</b>`
+        // How the promise held up. The estimate is the thing you decided on, so
+        // it should be answerable afterwards — and if it is habitually wrong,
+        // this is where that becomes visible instead of quietly staying wrong.
+        + (CONFIRM_EST && CONFIRM_EST.work_saved_bytes && net>0
+            ? `<span class="sep">·</span> Estimated <b>${human2(CONFIRM_EST.work_saved_bytes)}</b>`
+              + ` <span class="est-delta">(${predictedVsActual(CONFIRM_EST.work_saved_bytes, net)})</span>`
+            : '')
       : ''; }
   // Each outcome tile is also a control: clicking it shows that outcome in the
   // list below (same as the tabs), so the headline numbers are navigable too.
