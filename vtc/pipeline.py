@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
@@ -343,16 +343,49 @@ class PlanRow:
         return None
 
 
+# ffprobe is almost pure WAITING — spawn a process, read a header, come back. On a
+# network volume it is latency all the way down, so probing one file at a time
+# left the machine idle: 1,155 films took ~20 minutes serially. These run
+# concurrently instead. The cap is deliberately not huge — each one is a process,
+# and a spinning disk or a busy share does not thank you for 64 parallel seeks.
+PROBE_WORKERS = 12
+
+
+def probe_many(config: RunConfig, files, stale=None, workers: int = PROBE_WORKERS):
+    """Probe `files` concurrently, yielding MediaInfo as each finishes.
+
+    Order is completion order, not scan order — callers that need scan order
+    should sort afterwards. `stale()` is polled so a superseded scan can stop
+    early instead of finishing thousands of files nobody is waiting for.
+    """
+    files = list(files)
+    if not files:
+        return
+    n = max(1, min(workers, len(files)))
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        futures = {pool.submit(probe, f, config.ffprobe): f for f in files}
+        try:
+            for fut in as_completed(futures):
+                if stale is not None and stale():
+                    return
+                try:
+                    yield fut.result()
+                except Exception:  # noqa: BLE001 — one bad file must not stop the scan
+                    continue
+        finally:
+            for fut in futures:
+                fut.cancel()
+
+
 def plan(config: RunConfig) -> list[PlanRow]:
     """Probe + decide for every file WITHOUT encoding — powers `--dry-run`."""
     rows: list[PlanRow] = []
-    for f in iter_video_files(config):
-        info = probe(f, config.ffprobe)
+    for info in probe_many(config, iter_video_files(config)):
         if not info.ok or not info.vcodec:
-            rows.append(PlanRow(f, info, None, Outcome.SKIP_CODEC, 0))
+            rows.append(PlanRow(info.path, info, None, Outcome.SKIP_CODEC, 0))
             continue
         mode, outcome, target = decide(config, info)
-        rows.append(PlanRow(f, info, mode, outcome, target))
+        rows.append(PlanRow(info.path, info, mode, outcome, target))
     return rows
 
 

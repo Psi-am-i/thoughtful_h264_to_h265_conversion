@@ -527,7 +527,11 @@ _BRIDGE_JS = r"""
     });
     gateStart();
   };
-  window.__vtcProbeProgress = ()=> { if(SRC) drawEstimate(); }; // refine estimate as files are probed
+  window.__vtcProbeProgress = (done)=> {                 // refine estimate as files are probed
+    window.__vtcProbed = done;                          // ...and let the confirm screen show its working
+    if(SRC) drawEstimate();
+    if(window.confirmProbeTick) confirmProbeTick();
+  };
   window.__vtcProbesReady = ()=> { if(SRC) drawEstimate(); };   // final: fully measured
 
   // Run -> real pipeline.run streamed back per file, with LIVE progress, then the report.
@@ -968,14 +972,14 @@ class Api:
         probes = []
         done = 0
         stale = lambda: self._src != src or (gen and gen != self._probe_gen)
-        for f in pipeline.iter_video_files(self._scan_config(src)):
-            if stale():           # folder changed, or the rules did — abandon
-                return
-            info = probe(f, FFPROBE)
+        cfg = self._scan_config(src)
+        # Concurrent: ffprobe is latency-bound, and on a network volume a serial
+        # walk of a big library takes tens of minutes — all of it spent waiting.
+        for info in pipeline.probe_many(cfg, pipeline.iter_video_files(cfg), stale=stale):
             done += 1
             if info.ok and info.vcodec:
                 try:
-                    probes.append((info, f.stat().st_size))
+                    probes.append((info, info.path.stat().st_size))
                 except OSError:
                     pass
             if done % 25 == 0:
@@ -984,6 +988,7 @@ class Api:
                     self.window.evaluate_js(f"window.__vtcProbeProgress && window.__vtcProbeProgress({done})")
         if not stale():
             self._probes, self._probed_for = probes, src
+            log.info("probed %d file(s) under %s", len(probes), src)
             if self.window:
                 self.window.evaluate_js("window.__vtcProbesReady && window.__vtcProbesReady()")
 

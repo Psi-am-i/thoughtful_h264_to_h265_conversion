@@ -480,6 +480,15 @@ body{
 .adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:var(--r);
   padding:1px 6px;margin-left:8px;pointer-events:auto}
+/* The measured "what will actually happen" panel on the confirm screen. */
+.c-work{margin-top:14px;padding:12px 14px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel);font-size:13px;line-height:1.5}
+.c-work b{color:var(--ink);font-weight:700}
+.c-work > b{display:block;font-size:14.5px;margin-bottom:3px}
+.c-work span{display:block;color:var(--ink-2);font-size:12.5px}
+.c-work.evaluating{border-style:dashed;color:var(--ink-3)}
+.est-delta{color:var(--ink-3);font-weight:400}
+
 /* ── Per-file software picker ─────────────────────────────────────────────── */
 .sw-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;
   margin-top:14px;padding:11px 13px;border:1px solid var(--rule);border-radius:var(--r);
@@ -2921,6 +2930,17 @@ let reconfirm=false;
 // are 12.6 GB and should come back 6.4 GB". Until the library has actually been
 // measured this says so, rather than filling the gap with a modelled guess.
 let CONFIRM_EST = null;                       // last measured estimate, for the report
+// Probing a large library takes MINUTES. A frozen "Evaluating…" over a disabled
+// Start button is indistinguishable from a hang, so show it counting.
+function confirmProbeTick(){
+  const el = $('#c-work');
+  if(!el || !el.classList.contains('evaluating')) return;
+  const done = window.__vtcProbed || 0, total = (SRC && SRC.files) || 0;
+  el.innerHTML = '<b>Evaluating your library…</b>'
+    + '<span>Reading each file to see which are worth re-encoding'
+    + (done && total ? ` — <b>${done.toLocaleString()}</b> of ${total.toLocaleString()} so far` : '')
+    + '.</span>';
+}
 function confirmWork(){
   const el = $('#c-work'); if(!el) return;
   CONFIRM_EST = null;
@@ -2929,7 +2949,7 @@ function confirmWork(){
   }
   el.hidden = false;
   el.className = 'c-work evaluating';
-  el.innerHTML = '<b>Evaluating your library…</b><span>Reading every file to see which ones are worth re-encoding.</span>';
+  confirmProbeTick();          // and keep it updated as files are read
   $('#c-go').disabled = true;                 // no starting on an unmeasured guess
   const poll = ()=>{
     Promise.resolve(window.pywebview.api.estimate(
