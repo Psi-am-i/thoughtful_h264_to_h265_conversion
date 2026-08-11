@@ -79,6 +79,37 @@ class Ledger:
             return False
         return False
 
+    @property
+    def path(self) -> Path | None:
+        """The ledger file in use, or None when disabled."""
+        return self._path
+
+    def count(self) -> int:
+        """How many files the history holds, at ANY settings signature.
+
+        Deliberately signature-blind: the "clear history" button in the UI wipes
+        the whole file, so the number beside it must count the whole file too.
+        """
+        if self._path is None:
+            return 0
+        try:
+            with open(self._path, "r", encoding="utf-8") as fh:
+                return sum(1 for line in fh if line.strip())
+        except OSError:
+            return 0
+
+    def clear(self) -> int:
+        """Empty the history. Returns how many entries were removed (0 on failure)."""
+        n = self.count()
+        if self._path is None:
+            return 0
+        try:
+            with open(self._path, "w", encoding="utf-8"):
+                pass
+        except OSError:
+            return 0
+        return n
+
     def add(self, key: str) -> None:
         """Append ``key`` (plus a newline) to the ledger file.
 

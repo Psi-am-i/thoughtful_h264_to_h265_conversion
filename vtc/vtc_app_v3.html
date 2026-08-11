@@ -452,6 +452,23 @@ body{
 /* Plain-English readback of what the two filters combine to. */
 .adv-subs-summary{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding-top:2px}
 .adv-subs-summary.warn{color:var(--accent);font-weight:600}
+/* A section heading that carries its own small action (e.g. "Reset tiers"),
+   so a per-section reset doesn't have to travel to the footer's global one. */
+.adv-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.adv-sec-h > h3{flex:1}
+.adv-mini{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;padding:3px 9px;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--panel);color:var(--ink-2);cursor:pointer;transition:all .12s;
+  margin-bottom:10px;white-space:nowrap}
+.adv-mini:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.adv-mini:disabled{opacity:.45;cursor:default}
+/* Wider free-text boxes (extension / filename rules) sit next to the number
+   boxes, so they get the same skin at a length that fits a list. */
+.adv-ctrl input[type=text]{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  padding:5px 7px;border:1px solid var(--rule);border-radius:var(--r);background:var(--panel);
+  color:var(--ink);width:170px}
+/* An input whose rule is off reads as off rather than as an empty mystery. */
+.adv-ctrl input.off{color:var(--ink-3)}
 /* a section that's not wired yet: visible so the shape is real, but inert */
 .adv-soon{opacity:.6;pointer-events:none}
 .adv-soon-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
@@ -1160,6 +1177,90 @@ body{
         </div>
       </div>
 
+      <!-- Quality tiers: the density behind each tier, editable. These are the
+           numbers the whole model hangs off — a tier IS its bpp — so the boxes
+           are deliberately here rather than in the guided flow, and each one
+           says what it means in Mbps at 1080p30 as you type. -->
+      <div class="adv-sec">
+        <div class="adv-sec-h">
+          <h3>Quality tiers · bits per pixel per frame</h3>
+          <button class="adv-mini" id="adv-bpp-reset">Reset tiers</button>
+        </div>
+        <div class="adv-grid" id="adv-bpp-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>OK</b><span data-bpp-note="OK"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-OK" data-bpp="OK"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Good</b><span data-bpp-note="GOOD"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-GOOD" data-bpp="GOOD"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Excellent</b><span data-bpp-note="EXCELLENT"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-EXCELLENT" data-bpp="EXCELLENT"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Stellar</b><span data-bpp-note="STELLAR"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-STELLAR" data-bpp="STELLAR"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Insane</b><span data-bpp-note="INSANE"></span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-bpp-INSANE" data-bpp="INSANE"
+              min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab adv-subs-summary" id="adv-bpp-summary"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ignore rules: files the scan pretends it never saw. Everything here
+           REMOVES work — nothing is skipped-then-reported, it simply isn't part
+           of the library, so the count, the estimate and the report all agree. -->
+      <div class="adv-sec">
+        <div class="adv-sec-h">
+          <h3>Ignore files</h3>
+          <button class="adv-mini" id="adv-ign-reset">Clear rules</button>
+        </div>
+        <div class="adv-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Smaller than</b><span>Leave tiny files alone. Empty = no limit.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ign-under" min="0" max="1000000"
+              step="10" placeholder="off"><span class="adv-unit">MB</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Larger than</b><span>Leave the giants for another day. Empty = no limit.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ign-over" min="0" max="1000000"
+              step="100" placeholder="off"><span class="adv-unit">MB</span></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Extensions</b><span>Comma-separated, e.g. .avi, .wmv.</span></div>
+            <div class="adv-ctrl"><input type="text" id="adv-ign-exts" placeholder="none"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Filename contains</b><span>Comma-separated. Case-insensitive, e.g. sample, trailer.</span></div>
+            <div class="adv-ctrl"><input type="text" id="adv-ign-names" placeholder="none"></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Already in processing history</b>
+              <span>Skip files finished at these settings on an earlier run.</span></div>
+            <button class="adv-tog" id="adv-ledger" role="switch"></button>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Processing history</b><span id="adv-hist-n">—</span></div>
+            <div class="adv-ctrl"><button class="adv-mini" id="adv-hist-clear"
+              style="margin-bottom:0">Clear history</button></div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab adv-subs-summary" id="adv-ign-summary"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="adv-sec">
         <h3>Video tuning</h3>
         <div class="adv-grid">
@@ -1232,10 +1333,8 @@ body{
             <div class="adv-lab"><b>Parallel jobs</b><span>Files encoded at once. Hardware encoders rarely benefit past 1–2.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-jobs" min="1" max="16" step="1"></div>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Resume ledger</b><span>Skip files already processed at these settings on a re-run.</span></div>
-            <button class="adv-tog" id="adv-ledger" role="switch"></button>
-          </div>
+          <!-- The resume ledger moved up into "Ignore files": it is an ignore
+               rule, and it belongs beside the button that empties it. -->
         </div>
       </div>
 
@@ -1991,8 +2090,9 @@ function drawEstimate(){
   // — absolute, never a fraction of what the file currently weighs. Modelled
   // here over a mixed library rather than per file, but on the same arithmetic:
   // the ratio a fat 1080p30 source lands at is target_bpp / its own bpp.
-  const TIER_BPP=[0.0643,0.0804,0.1093,0.1286,0.1447];
-  const bpp = TIER_BPP[answers.quality ?? 2];
+  // Read the densities from ADV, not a frozen copy: a retuned tier must move
+  // this prediction too, or the mock estimate contradicts the run.
+  const bpp = ADV.bpp[TIER_ORDER[answers.quality ?? 2]];
   // codec factor: H.265 x0.60 at <=1080p (the bulk of a library), H.264 x1.0,
   // AV1 roughly a further third below H.265
   const codecF=[0.60,1.0,0.42][answers.codec];
@@ -2044,12 +2144,43 @@ const shutSheet=id=>{
 // ticked is "keep everything", which is the default. The two are independent,
 // so "eng + forced only" is now expressible; the old single `subs` dropdown
 // could not say that.
+// TIER_ORDER is the model's own order (vtc/model.py) and the order the quality
+// question shows — the estimate below indexes into it, so the two must not drift.
+const TIER_ORDER = ['OK','GOOD','EXCELLENT','STELLAR','INSANE'];
+const TIER_LABEL = { OK:'OK', GOOD:'Good', EXCELLENT:'Excellent', STELLAR:'Stellar', INSANE:'Insane' };
+// The shipped densities, derived from the H.264 @1080p30 anchors (4.0 / 5.0 /
+// 6.8 / 8.0 / 9.0 Mbps). "Reset tiers" restores exactly these.
+const BPP_DEFAULTS = { OK:0.0643, GOOD:0.0804, EXCELLENT:0.1093, STELLAR:0.1286, INSANE:0.1447 };
+const REF_PIXEL_FPS = 1920*1080*30;                      // the anchor, for bpp <-> Mbps
+const bppToMbps = b => b*REF_PIXEL_FPS/1e6;
 const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], subLangs:[],
   floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
-  imageSubs:true, mkvTracks:0, jobs:1, ledger:true };
-const ADV = Object.assign({}, ADV_DEFAULTS);
+  imageSubs:true, mkvTracks:0, jobs:1, ledger:true,
+  bpp:Object.assign({}, BPP_DEFAULTS),
+  // Ignore rules. '' means the rule is off (not 0 — zero is a real size).
+  ignUnderMb:'', ignOverMb:'', ignExts:[], ignNames:[] };
+// A plain Object.assign would share the one bpp object between ADV and the
+// defaults, so editing a tier would quietly rewrite what "Reset" restores.
+const advDefaults = ()=> Object.assign({}, ADV_DEFAULTS, {
+  bpp:Object.assign({}, BPP_DEFAULTS),
+  subKinds:ADV_DEFAULTS.subKinds.slice(), subLangs:[], ignExts:[], ignNames:[] });
+const ADV = advDefaults();
 window.ADV = ADV;
+// Push the settings to the engine whenever they change: the ignore rules decide
+// what a scan even counts, and the tier bpp decides what the preview panels
+// encode, so neither can wait until Start. A no-op in the standalone mock.
+function advPush(){
+  try {
+    if(!(window.pywebview && window.pywebview.api.set_adv)) return;
+    Promise.resolve(window.pywebview.api.set_adv(JSON.parse(JSON.stringify(ADV)))).then(r=>{
+      // A rules change re-walks the folder, so the totals on screen are stale
+      // until it lands: show the scanning state rather than a number we know is wrong.
+      if(r && r.rescanned && SRC){ SRC.scanning = true; drawEstimate(); }
+    }).catch(()=>{});
+  } catch(e){}
+}
+window.advPush = advPush;
 // Two independent filters are easy to combine into something you didn't mean —
 // most importantly ticking nothing, which silently discards every subtitle. Say
 // out loud what the current pair actually does.
@@ -2072,6 +2203,82 @@ function advSubsSummary(){
   el.textContent = `Keeping ${kindTxt}${langTxt}.`;
 }
 
+// ── Quality tiers ────────────────────────────────────────
+// A tier is a density, and the density is the whole model — so an edited tier
+// has to be visible everywhere the tier is named, not just in this modal. That
+// means the per-row Mbps note, the summary, and the QUALITY question's own tags.
+function advBppNotes(){
+  TIER_ORDER.forEach(k=>{
+    const el = document.querySelector(`[data-bpp-note="${k}"]`); if(!el) return;
+    const v = ADV.bpp[k], def = BPP_DEFAULTS[k];
+    const changed = Math.abs(v-def) > 1e-9;
+    el.textContent = `${bppToMbps(v).toFixed(1)} Mbps H.264 at 1080p30`
+      + (changed ? ` · default ${def.toFixed(4)}` : ' · default');
+    el.style.color = changed ? 'var(--accent)' : '';
+  });
+  const out = $('#adv-bpp-summary');
+  if(out){
+    // Out-of-order tiers aren't refused — they're your numbers — but a "Good"
+    // that is denser than "Excellent" is almost certainly a typo, so say so.
+    const bad = TIER_ORDER.filter((k,i)=> i>0 && ADV.bpp[k] <= ADV.bpp[TIER_ORDER[i-1]]);
+    out.classList.toggle('warn', bad.length>0);
+    out.textContent = bad.length
+      ? `${bad.map(k=>TIER_LABEL[k]).join(' and ')} now sit at or below the tier beneath — they will give you less, not more.`
+      : 'Higher bpp = more bits per frame = bigger files. Targets scale from here with each file’s pixels and frame rate.';
+  }
+  applyTierTags();
+}
+// Rewrite the QUALITY question's tags/recaps from the current densities, so the
+// flow can't advertise 0.109 bpp while the engine is using something else.
+function applyTierTags(){
+  const q = (typeof M!=='undefined') && M.find(x=>x.id==='quality');
+  if(!q) return;
+  q.opts.forEach((o,i)=>{
+    const k = TIER_ORDER[i]; if(!k) return;
+    const b = ADV.bpp[k], dflt = (k==='EXCELLENT') ? ' · default' : '';
+    o.tag = `${b.toFixed(4)} bpp · ${bppToMbps(b).toFixed(1)} Mbps at 1080p30${dflt}`;
+    o.recap = `${TIER_LABEL[k]} · ${b.toFixed(4)} bpp`;
+  });
+  // Repaint only if the user is standing on that question; the confirm recap
+  // rebuilds itself from M every time it opens, so it needs no nudge here.
+  if(typeof step!=='undefined' && typeof render==='function' && M[step] && M[step].id==='quality') render();
+}
+
+// ── Ignore rules ─────────────────────────────────────────
+function advIgnSummary(){
+  const el = $('#adv-ign-summary'); if(!el) return;
+  const bits = [];
+  if(ADV.ignUnderMb!=='') bits.push(`under ${ADV.ignUnderMb} MB`);
+  if(ADV.ignOverMb!=='')  bits.push(`over ${ADV.ignOverMb} MB`);
+  if((ADV.ignExts||[]).length)  bits.push((ADV.ignExts||[]).map(e=>'.'+e).join(', '));
+  if((ADV.ignNames||[]).length) bits.push('named like ' + (ADV.ignNames||[]).join(', '));
+  el.classList.remove('warn');
+  if(!bits.length){ el.textContent = 'No ignore rules — every video file in the folder is considered.'; return; }
+  // Contradictory bounds ignore the entire library, which is worth saying out
+  // loud before someone starts a run that finds nothing.
+  const u = parseFloat(ADV.ignUnderMb), o = parseFloat(ADV.ignOverMb);
+  if(isFinite(u) && isFinite(o) && o <= u){
+    el.classList.add('warn');
+    el.textContent = `"under ${u} MB" and "over ${o} MB" between them cover every file — nothing would be processed.`;
+    return;
+  }
+  el.textContent = 'Ignoring files ' + bits.join(' · ') + '. They are left out of the count, the estimate and the report.';
+}
+// Entry count beside "Clear history" — real in the app, quiet in the mock.
+function advHistoryInfo(){
+  const n = $('#adv-hist-n'), btn = $('#adv-hist-clear');
+  if(!n || !btn) return;
+  if(!(window.pywebview && window.pywebview.api.history_info)){
+    n.textContent = 'Files finished on earlier runs are remembered here.'; btn.disabled = true; return;
+  }
+  Promise.resolve(window.pywebview.api.history_info()).then(r=>{
+    const c = (r && r.entries) || 0;
+    n.textContent = c ? `${c.toLocaleString()} file${c===1?'':'s'} remembered as done.`
+                      : 'Nothing remembered yet.';
+    btn.disabled = !c;
+  }).catch(()=>{});
+}
+
 function advToForm(){                                  // ADV -> controls
   [['#adv-floor','floor'],['#adv-tol','tol'],['#adv-hevc-hd','hevcHd'],
    ['#adv-hevc-4k','hevc4k'],['#adv-hevc-8k','hevc8k'],['#adv-ab-stereo','abStereo'],
@@ -2085,6 +2292,15 @@ function advToForm(){                                  // ADV -> controls
     b.setAttribute('aria-checked', on ? 'true' : 'false');
   });
   advSubsSummary();
+  TIER_ORDER.forEach(k=>{ const el=$('#adv-bpp-'+k); if(el) el.value = ADV.bpp[k]; });
+  advBppNotes();
+  [['#adv-ign-under','ignUnderMb'],['#adv-ign-over','ignOverMb']].forEach(([id,key])=>{
+    const el=$(id); if(el){ el.value = ADV[key]; el.classList.toggle('off', ADV[key]===''); }
+  });
+  $('#adv-ign-exts').value  = (ADV.ignExts ||[]).map(e=>'.'+e).join(', ');
+  $('#adv-ign-names').value = (ADV.ignNames||[]).join(', ');
+  advIgnSummary();
+  advHistoryInfo();
   $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
@@ -2128,13 +2344,78 @@ function advBind(){                                    // controls -> ADV
     $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
   $('#adv-image-subs').onclick=()=>{ ADV.imageSubs=!ADV.imageSubs; $('#adv-image-subs').classList.toggle('on',ADV.imageSubs); };
   $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); };
+
+  // Tier densities. Typing is left alone until it parses (so "0." isn't
+  // rewritten mid-keystroke); a box left unreadable snaps back on blur.
+  TIER_ORDER.forEach(k=>{
+    const el=$('#adv-bpp-'+k); if(!el) return;
+    el.oninput=()=>{ const v=parseFloat(el.value);
+      if(!isFinite(v) || v<=0) return;
+      ADV.bpp[k]=Math.max(0.005, Math.min(1, v)); advBppNotes(); };
+    el.onblur=()=>{ const v=parseFloat(el.value);
+      if(!isFinite(v) || v<=0){ el.value=ADV.bpp[k]; return; }
+      el.value=ADV.bpp[k]; advPush(); };        // push once the number has settled
+  });
+  $('#adv-bpp-reset').onclick=()=>{
+    ADV.bpp=Object.assign({}, BPP_DEFAULTS);
+    TIER_ORDER.forEach(k=>{ const el=$('#adv-bpp-'+k); if(el) el.value=ADV.bpp[k]; });
+    advBppNotes(); advPush();
+  };
+
+  // Ignore rules. An empty box means the rule is OFF — kept as '' rather than 0,
+  // because 0 MB is a real (if useless) threshold and the two must not blur.
+  [['#adv-ign-under','ignUnderMb'],['#adv-ign-over','ignOverMb']].forEach(([id,key])=>{
+    const el=$(id); if(!el) return;
+    el.oninput=()=>{
+      const raw=el.value.trim();
+      const v=parseFloat(raw);
+      ADV[key] = (raw==='' || !isFinite(v) || v<0) ? '' : Math.min(1000000, v);
+      el.classList.toggle('off', ADV[key]===''); advIgnSummary();
+    };
+    el.onblur=()=>{ el.value = ADV[key]; advPush(); };   // '' clears a half-typed number
+  });
+  const list=(id,key,strip)=>{ const el=$(id); if(!el) return;
+    el.oninput=()=>{ ADV[key]=el.value.split(',').map(s=>{ s=s.trim();
+        return strip ? s.replace(/^\.+/,'').toLowerCase() : s; }).filter(Boolean);
+      advIgnSummary(); };
+    el.onblur=()=>advPush();
+  };
+  list('#adv-ign-exts','ignExts', true);
+  list('#adv-ign-names','ignNames', false);
+  $('#adv-ign-reset').onclick=()=>{
+    ADV.ignUnderMb=''; ADV.ignOverMb=''; ADV.ignExts=[]; ADV.ignNames=[];
+    advToForm(); advPush();
+  };
+  // Clearing the history is a real, irreversible edit to what the next run does,
+  // so it confirms in place (turning the button into its own "Yes, clear")
+  // rather than behind a dialog the webview would have to block on.
+  let armClear=null;
+  $('#adv-hist-clear').onclick=()=>{
+    const btn=$('#adv-hist-clear');
+    if(!armClear){
+      btn.textContent='Yes, clear it';
+      armClear=setTimeout(()=>{ armClear=null; btn.textContent='Clear history'; }, 4000);
+      return;
+    }
+    clearTimeout(armClear); armClear=null; btn.textContent='Clear history';
+    try {
+      Promise.resolve(window.pywebview.api.clear_history()).then(()=>advHistoryInfo()).catch(()=>{});
+    } catch(e){}
+  };
 }
 advBind();
+applyTierTags();                       // the flow's tier tags start from ADV too
 function openAdv(){ advToForm(); openSheet('#adv-sheet'); }
 $('#gear').onclick=openAdv;
-$('#adv-done').onclick=()=>shutSheet('#adv-sheet');
-$('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) shutSheet('#adv-sheet'); };
-$('#adv-reset').onclick=()=>{ Object.assign(ADV, ADV_DEFAULTS); advToForm(); };
+// Closing the modal is the moment to settle up: push everything, and redraw the
+// estimate, since ignore rules and tier densities both change what it predicts.
+function advClose(){
+  shutSheet('#adv-sheet'); advPush();
+  if(typeof drawEstimate==='function') drawEstimate();
+}
+$('#adv-done').onclick=advClose;
+$('#adv-sheet').onclick=e=>{ if(e.target===$('#adv-sheet')) advClose(); };
+$('#adv-reset').onclick=()=>{ Object.assign(ADV, advDefaults()); advToForm(); advPush(); };
 
 // The non-MP4 policy has two surfaces — the Advanced modal and the up-front sheet
 // below — over one value (ADV.format). setFormat keeps both in step.

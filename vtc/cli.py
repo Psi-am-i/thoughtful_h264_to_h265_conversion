@@ -55,6 +55,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="quality tier (default: excellent)")
     q.add_argument("--min-saving", type=float, default=0.25, metavar="FRACTION",
                    help="minimum size saving to keep a shrink, e.g. 0.25 = 25%% (default: 0.25)")
+    q.add_argument("--bpp", type=float, default=None, metavar="BPP",
+                   help="override the chosen tier's quality density (bits per pixel per frame), "
+                        "e.g. 0.12; default is the tier's own anchored value")
+    g_ign = p.add_argument_group("ignore rules (files the scan pretends it never saw)")
+    g_ign.add_argument("--ignore-under", type=float, default=None, metavar="MB",
+                       help="ignore files smaller than this many MB")
+    g_ign.add_argument("--ignore-over", type=float, default=None, metavar="MB",
+                       help="ignore files larger than this many MB")
+    g_ign.add_argument("--ignore-ext", action="append", default=[], metavar="EXT",
+                       help="ignore this extension (e.g. .avi); repeatable")
+    g_ign.add_argument("--ignore-name", action="append", default=[], metavar="TEXT",
+                       help="ignore files whose name contains TEXT; repeatable")
     c = p.add_argument_group("compatibility")
     c.add_argument("--no-remux", action="store_true", help="do not rehome MP4-friendly codecs into MP4")
     c.add_argument("--no-transcode", action="store_true", help="leave MP4-incompatible legacy codecs untouched")
@@ -78,16 +90,24 @@ def build_parser() -> argparse.ArgumentParser:
     g = p.add_argument_group("misc")
     g.add_argument("--no-ledger", action="store_true", help="disable the resume ledger")
     g.add_argument("--ledger-file", type=Path, default=None, help="ledger path (default: <src>/.vtc_processed.log)")
+    g.add_argument("--clear-history", action="store_true",
+                   help="empty the resume ledger (processing history) before running")
     g.add_argument("--ffmpeg", default="ffmpeg", help="ffmpeg binary")
     g.add_argument("--ffprobe", default="ffprobe", help="ffprobe binary")
     return p
 
 
 def config_from_args(a: argparse.Namespace) -> RunConfig:
+    tier = Tier.from_name(a.tier)
     return RunConfig(
         src=a.src,
         out_codec=OutCodec(a.codec),
-        tier=Tier.from_name(a.tier),
+        tier=tier,
+        tier_bpp={tier.name: a.bpp} if a.bpp else {},
+        ignore_under_bytes=int((a.ignore_under or 0) * 1e6),
+        ignore_over_bytes=int((a.ignore_over or 0) * 1e6),
+        ignore_exts=tuple(e.strip().lstrip(".").lower() for e in a.ignore_ext if e.strip()),
+        ignore_name_contains=tuple(n for n in a.ignore_name if n.strip()),
         min_saving_ratio=1.0 - a.min_saving,
         remux_to_mp4=not a.no_remux,
         compat_transcode=not a.no_transcode,
@@ -197,11 +217,30 @@ def interactive_config(src: Path | None) -> RunConfig:
 
 
 # ── Output ────────────────────────────────────────────────────────────────────
+def _ignore_line(cfg: RunConfig) -> list[str]:
+    """One line naming the ignore rules in force, or nothing when there are none."""
+    bits = []
+    if cfg.ignore_under_bytes:
+        bits.append(f"under {cfg.ignore_under_bytes / 1e6:g} MB")
+    if cfg.ignore_over_bytes:
+        bits.append(f"over {cfg.ignore_over_bytes / 1e6:g} MB")
+    if cfg.ignore_exts:
+        bits.append("ext " + ", ".join("." + e for e in cfg.ignore_exts))
+    if cfg.ignore_name_contains:
+        bits.append("name contains " + ", ".join(repr(n) for n in cfg.ignore_name_contains))
+    return [f"IGNORE:    {'  ·  '.join(bits)}"] if bits else []
+
+
 def _print_header(cfg: RunConfig, dry: bool = False) -> None:
     tier = cfg.tier
+    # A retuned tier is no longer described by its anchor, so derive the 1080p30
+    # reference Mbps back out of whatever density is actually in force.
+    bpp = cfg.bpp_for()
+    ref_mbps = bpp * 1920 * 1080 * 30 / 1e6
+    tuned = "" if abs(bpp - tier.bpp) < 1e-9 else f" [retuned to {bpp:.4f} bpp]"
     h265 = ""
     if cfg.out_codec is OutCodec.H265:
-        h265 = f"  (~{tier.ref_mbps * hevc_factor(1920 * 1080):.1f} Mbps H.265 @1080p)"
+        h265 = f"  (~{ref_mbps * hevc_factor(1920 * 1080, cfg.hevc_factors()):.1f} Mbps H.265 @1080p)"
     out = str(cfg.output_dir) if cfg.output_mode is OutputMode.SEPARATE else "in place"
     banner = "DRY RUN — nothing will be encoded" if dry else None
     lines = [
@@ -209,7 +248,9 @@ def _print_header(cfg: RunConfig, dry: bool = False) -> None:
         *( [banner, ""] if banner else [] ),
         f"SRC:       {cfg.src}",
         f"CODEC:     {cfg.out_codec.value.upper()}",
-        f"TIER:      {tier.label} — {tier.ref_mbps} Mbps H.264 @1080p30{h265}, scales with resolution & fps",
+        f"TIER:      {tier.label} — {ref_mbps:.1f} Mbps H.264 @1080p30{h265}, "
+        f"scales with resolution & fps{tuned}",
+        *_ignore_line(cfg),
         f"ENCODER:   {cfg.encoder.value}",
         f"REMUX:     {'yes' if cfg.remux_to_mp4 else 'no'}    TRANSCODE: {'yes' if cfg.compat_transcode else 'no'}",
         f"OUTPUT:    {out}    ORIGINALS: {cfg.source_action.value}    JOBS: {cfg.jobs}",
@@ -278,6 +319,13 @@ def main(argv: list[str] | None = None) -> int:
         for e in errs:
             print(f"error: {e}", file=sys.stderr)
         return 2
+
+    if getattr(args, "clear_history", False):
+        import dataclasses
+        # Force the ledger on just to reach the file: the history exists on disk
+        # whether or not this run is using it, and --clear-history must empty it.
+        n = pipeline.Ledger(dataclasses.replace(cfg, ledger_enabled=True)).clear()
+        print(f"cleared processing history: {n} entr{'y' if n == 1 else 'ies'}")
 
     _print_header(cfg, dry=args.dry_run)
     if args.dry_run:

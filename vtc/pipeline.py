@@ -66,16 +66,43 @@ ResultCB = Callable[[FileResult], None]
 
 
 # ── Scanning ──────────────────────────────────────────────────────────────────
-def iter_video_files(config: RunConfig):
-    """Yield video files under config.src, pruning archive/system dirs."""
+def iter_scan_entries(config: RunConfig):
+    """Yield (path, ignore_reason) for every video file under config.src.
+
+    `ignore_reason` is None for a file that should be processed, otherwise the
+    human-readable rule that excluded it. Callers that only want the work use
+    :func:`iter_video_files`; the GUI uses this one so it can also say how many
+    files the user's own rules removed.
+    """
     exts = {"." + e.lower() for e in config.video_exts}
+    rules = config.has_ignore_rules
+    need_size = config.needs_size_to_ignore
     for root, dirs, files in os.walk(config.src):
         dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS]
         for name in files:
             if name.startswith("._"):
                 continue
-            if Path(name).suffix.lower() in exts:
-                yield Path(root) / name
+            if Path(name).suffix.lower() not in exts:
+                continue
+            path = Path(root) / name
+            if not rules:
+                yield path, None
+                continue
+            size = None
+            if need_size:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    size = None          # unreadable: let the size rules abstain
+            yield path, config.ignore_reason(name, size)
+
+
+def iter_video_files(config: RunConfig):
+    """Yield the video files under config.src that the run should actually touch
+    (archive/system dirs pruned, the user's ignore rules applied)."""
+    for path, reason in iter_scan_entries(config):
+        if reason is None:
+            yield path
 
 
 def _rel(config: RunConfig, path: Path) -> Path:
@@ -112,6 +139,8 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
             config.tier, info.pixels, info.fps, config.out_codec,
             src_kbps=src_kbps if clamp else None,
             floor_kbps=config.bitrate_floor_kbps,
+            bpp=config.bpp_for(),
+            hevc=config.hevc_factors(),
         )
 
     if category is CodecCategory.H264:
