@@ -225,17 +225,6 @@ def test_html_advanced_keys_are_all_understood_by_the_engine():
     assert keys - handled_elsewhere, "sanity: the modal sends keys"
 
 
-def _run_all():
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-        print(f"  ok  {fn.__name__}")
-    print(f"\n{len(fns)} tuning/ignore tests passed.")
-
-
-if __name__ == "__main__":
-    _run_all()
-
 
 def test_encoder_choice_is_in_the_ledger_signature():
     """A file finished in hardware is not finished in software.
@@ -335,3 +324,18 @@ def test_scan_skips_this_runs_own_output_and_archive():
         _touch(src / "converted" / "someone-elses.mkv", 20_000_000)
         cfg = RunConfig(src=src, output_dir=Path(d) / "elsewhere")
         assert [p.name for p in pipeline.iter_video_files(cfg)] == ["someone-elses.mkv"]
+
+def _run_all():
+    import inspect
+    # Anything taking a pytest fixture (monkeypatch) can only run under pytest.
+    fns = [v for k, v in sorted(globals().items())
+           if k.startswith("test_") and callable(v)
+           and not inspect.signature(v).parameters]
+    for fn in fns:
+        fn()
+        print(f"  ok  {fn.__name__}")
+    print(f"\n{len(fns)} tuning/ignore tests passed.")
+
+
+if __name__ == "__main__":
+    _run_all()

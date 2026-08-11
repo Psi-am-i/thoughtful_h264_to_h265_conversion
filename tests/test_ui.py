@@ -18,7 +18,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ModuleNotFoundError:                      # standalone: no pytest available
+    class _Stub:                                 # just enough to define the tests
+        class mark:
+            @staticmethod
+            def skipif(cond, reason=""):
+                def deco(fn):
+                    fn.__skip__ = cond
+                    return fn
+                return deco
+    pytest = _Stub()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -76,3 +87,19 @@ def test_step_navigation_does_not_strand_you():
     failed = [x for x in json.loads(r.stdout) if not x["ok"]]
     assert not failed, "step navigation broken:\n" + "\n".join(
         f"  {x['n']}: got {x['g']!r}, want {x['e']!r}" for x in failed)
+
+
+def _run_all():
+    fns = [v for k, v in sorted(globals().items())
+           if k.startswith("test_") and callable(v) and not getattr(v, "__skip__", False)]
+    if not fns:
+        print("  (node/jsdom not installed — UI harness skipped)")
+        return
+    for fn in fns:
+        fn()
+        print(f"  ok  {fn.__name__}")
+    print(f"\n{len(fns)} UI test(s) passed.")
+
+
+if __name__ == "__main__":
+    _run_all()

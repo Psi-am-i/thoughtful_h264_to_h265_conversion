@@ -35,7 +35,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install test tooling
+        run: python -m pip install --quiet pytest
+
       - name: Engine tests (real ffmpeg encodes + decisions)
+        # pytest is the gate: it collects every test, including any that need a
+        # fixture. The standalone loop below then proves the files still run on
+        # their own — which had quietly stopped being true, hiding five tests
+        # from CI because they were defined after the __main__ block.
+        run: PYTHONPATH=. python -m pytest tests/ -q
+
+      - name: Tests also run standalone (no pytest)
         run: |
           for t in tests/test_*.py; do echo "== $t =="; PYTHONPATH=. python "$t"; done
 

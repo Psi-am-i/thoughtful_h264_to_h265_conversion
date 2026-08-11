@@ -184,17 +184,6 @@ def test_history_toggle_label():
     assert _cfg(ledger=True).resolved_ledger_file() is not None
 
 
-def _run_all():
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-        print(f"  ok  {fn.__name__}")
-    print(f"\n{len(fns)} label tests passed.")
-
-
-if __name__ == "__main__":
-    _run_all()
-
 
 # ── the savings estimate ─────────────────────────────────────────────────────
 def test_prediction_models_audio_separately():
@@ -354,3 +343,14 @@ def test_audio_is_estimated_only_when_nothing_is_reported():
     # a real figure always wins over the estimate
     info.audio_bps = 3_110_857
     assert info.effective_bps == 12_000_000 - 3_110_857
+
+def _run_all():
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    for fn in fns:
+        fn()
+        print(f"  ok  {fn.__name__}")
+    print(f"\n{len(fns)} label tests passed.")
+
+
+if __name__ == "__main__":
+    _run_all()
