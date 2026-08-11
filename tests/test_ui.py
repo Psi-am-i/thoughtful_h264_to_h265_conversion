@@ -60,3 +60,19 @@ def test_parallel_progress_rows():
     failed = [x for x in json.loads(r.stdout) if not x["ok"]]
     assert not failed, "parallel progress broken:\n" + "\n".join(
         f"  {x['n']}: got {x['g']!r}, want {x['e']!r}" for x in failed)
+
+
+@pytest.mark.skipif(not _have_jsdom(), reason="node + jsdom not installed (see tests/ui/README)")
+def test_step_navigation_does_not_strand_you():
+    """Going back to change an answer must not disable the question you came from.
+
+    Reported from use: jumping from an unanswered DESTINATION back to QUALITY left
+    destination neither done nor current, so it disabled itself and the only way
+    forward was re-confirming every question in between.
+    """
+    r = subprocess.run(["node", "nav.js"], cwd=_UI, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, timeout=120)
+    assert r.stdout.strip(), f"harness produced nothing:\n{r.stderr[:2000]}"
+    failed = [x for x in json.loads(r.stdout) if not x["ok"]]
+    assert not failed, "step navigation broken:\n" + "\n".join(
+        f"  {x['n']}: got {x['g']!r}, want {x['e']!r}" for x in failed)

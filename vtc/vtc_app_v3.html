@@ -2185,10 +2185,17 @@ function fly(keyEl, qid, oi, done){
 // listed. `justSeated` flashes the block an answer has just landed in.
 function drawComb(justSeated){
   const wrap=$('#comb-steps');
+  // The next unanswered question stays reachable wherever you currently are.
+  // Gating on `i===step` alone stranded anyone who went back: jump from an
+  // unanswered DESTINATION back to QUALITY and destination was suddenly neither
+  // done nor current, so it disabled itself and the only way forward was to
+  // re-confirm every question in between.
+  const next=M.findIndex(x=>answers[x.id]===undefined);
   wrap.innerHTML=M.map((q,i)=>{
     const a=answers[q.id], done=a!==undefined;
+    const reachable = done || i===step || i===next;
     const cls=['tooth', done?'done':'', i===step?'now':'', justSeated===q.id?'arrived':''];
-    return `<button class="${cls.filter(Boolean).join(' ')}" data-i="${i}" ${done||i===step?'':'disabled'}${done?` title="Click to revisit ${q.short.toLowerCase()}"`:''}>
+    return `<button class="${cls.filter(Boolean).join(' ')}" data-i="${i}" ${reachable?'':'disabled'}${done?` title="Click to revisit ${q.short.toLowerCase()}"`:''}>
       <span class="n">${String(i+1).padStart(2,'0')}</span>
       <span class="k">${q.short}</span>
       ${done?`<span class="v">${q.opts[a].k}</span>`:''}</button>`;
@@ -2309,7 +2316,7 @@ function drawEstimate(){
   const saved=Math.round((1-out/TB)*100);
   $('#est').innerHTML=tbHTML(out);
   $('#est-d').textContent=`−${saved}% · ${tbStr(TB-out)} back`;
-  $('#est-n').textContent=`${(N-skipped).toLocaleString()} re-encoded · ${skipped.toLocaleString()} already at tier, left alone. Modelled, not measured.`;
+  $('#est-n').textContent=`${(N-skipped).toLocaleString()} to be re-encoded · ${skipped.toLocaleString()} already at tier, left alone. Modelled, not measured.`;
   gateStart();
 }
 

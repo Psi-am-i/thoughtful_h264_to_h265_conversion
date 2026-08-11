@@ -529,7 +529,7 @@ _BRIDGE_JS = r"""
       document.getElementById('est').innerHTML = tbHTML(e.out_tb);
       document.getElementById('est-d').textContent = `−${e.saved_pct}% · ${tbStr(SRC.tb-e.out_tb)} back`;
       document.getElementById('est-n').textContent =
-        `${e.reencoded.toLocaleString()} re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. ${e.measured?'Measured.':'Modelled while probing…'}`;
+        `${e.reencoded.toLocaleString()} to be re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. ${e.measured?'Measured.':'Modelled while probing…'}`;
       gateStart();
     });
     gateStart();
