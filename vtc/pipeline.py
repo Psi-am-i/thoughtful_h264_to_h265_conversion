@@ -158,6 +158,13 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
     if config.leave_non_mp4 and not already_mp4:
         return (None, Outcome.SKIP_NON_MP4, 0)
 
+    # Something WE already encoded. Doing it again spends a second lossy
+    # generation on a file that has nothing left to give — the very thing the
+    # absolute-target design exists to avoid. We know because the file carries
+    # our own tags, not because of a guess about its codec or its folder.
+    if info.vtc_lossy_generation and not config.allow_second_generation:
+        return (None, Outcome.SKIP_SECOND_GEN, 0)
+
     def tgt(clamp: bool) -> int:
         return target_kbps(
             config.tier, info.pixels, info.fps, config.out_codec,

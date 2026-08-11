@@ -89,6 +89,12 @@ class RunConfig:
     keep_image_subs: bool = True            # prefer MKV over dropping PGS/DVD subtitle tracks
     mkv_if_tracks_over: int = 0             # 0 = off; force MKV when audio+sub tracks exceed this
 
+    # Re-encoding something this tool already encoded costs a second lossy
+    # generation, which nothing can give back. Off by default: it is a decision
+    # worth making on purpose, not by not noticing. (A remux does not count —
+    # that is a stream copy.)
+    allow_second_generation: bool = False
+
     # Execution
     encoder: Encoder = Encoder.AUTO
     jobs: int = 1

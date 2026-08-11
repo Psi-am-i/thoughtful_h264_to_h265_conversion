@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, field
 from fractions import Fraction
 from pathlib import Path
 
@@ -52,6 +52,9 @@ class MediaInfo:
     subtitles: list[SubtitleTrack] = field(default_factory=list)
     audio: list[AudioTrack] = field(default_factory=list)
     error: str = ""
+    # VTC_* tags found on the file — present only if this tool produced it.
+    vtc: dict = field(default_factory=dict)
+    comment: str = ""            # the file's own comment, whoever wrote it
 
     @property
     def pixels(self) -> int:
@@ -60,6 +63,35 @@ class MediaInfo:
     @property
     def max_audio_channels(self) -> int:
         return max((a.channels for a in self.audio), default=0)
+
+    @property
+    def vtc_lossy_generation(self) -> bool:
+        """True if THIS tool already spent a lossy generation on this file.
+
+        A remux is a stream copy and costs nothing, so it does not count.
+        """
+        if self.vtc.get("VTC_MODE") in ("shrink", "transcode"):
+            return True
+        # Fall back to the comment. Custom keys need -movflags use_metadata_tags
+        # in MP4, so a third-party remux can drop them while leaving the comment
+        # intact — checking both makes the marker much harder to lose.
+        c = (self.comment or "").lower()
+        return VTC_SIGNATURE.lower() in c and ("shrink" in c or "transcode" in c)
+
+    @property
+    def vtc_summary(self) -> str:
+        """Human-readable account of what we did to it, for the skip reason."""
+        v = self.vtc
+        if not v and self.comment and VTC_SIGNATURE.lower() in self.comment.lower():
+            return self.comment
+        bits = []
+        if v.get("VTC_CODEC"):
+            bits.append(v["VTC_CODEC"].upper().replace("H265", "H.265").replace("H264", "H.264"))
+        if v.get("VTC_QUALITY"):
+            bits.append(f"quality {v['VTC_QUALITY']}")
+        if v.get("VTC_DATE"):
+            bits.append(v["VTC_DATE"])
+        return " · ".join(bits)
 
     @property
     def effective_bps(self) -> int:
@@ -82,6 +114,12 @@ def _parse_fps(rate: str | None) -> float:
         return float(Fraction(rate))
     except (ValueError, ZeroDivisionError):
         return 0.0
+
+
+# What we write into a file's comment when it has none. Human-readable on
+# purpose: it shows up in VLC, MediaInfo and Plex, so the provenance is visible
+# without any tooling.
+VTC_SIGNATURE = "Very Thoughtful Compression"
 
 
 def _to_int(v) -> int:
@@ -108,6 +146,11 @@ def probe(path: Path, ffprobe: str = "ffprobe") -> MediaInfo:
     fmt = data.get("format", {})
 
     info = MediaInfo(path=path, ok=True)
+    # Our own signature, if this file came out of an earlier run. Matroska
+    # upper-cases tag keys and MP4 keeps them as written, so normalise.
+    _tags = {str(k).upper(): str(v) for k, v in (fmt.get("tags") or {}).items()}
+    info.vtc = {k: v for k, v in _tags.items() if k.startswith("VTC_")}
+    info.comment = _tags.get("COMMENT", "")
     info.container_bit_rate = _to_int(fmt.get("bit_rate"))
     try:
         info.duration = float(fmt.get("duration", 0.0) or 0.0)

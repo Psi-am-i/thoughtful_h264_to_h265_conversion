@@ -248,3 +248,59 @@ def test_prediction_never_exceeds_the_source():
                      height=1080, fps=24.0, bit_rate=1_000_000, duration=100.0)
     size = int(1_000_000 / 8 * 100)
     assert pipeline.predict_output_bytes(_cfg(), info, size, Mode.SHRINK, 50_000) <= size
+
+
+# ── recognising our own work ─────────────────────────────────────────────────
+def _stamped(**tags):
+    info = MediaInfo(path=Path("x.mp4"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, bit_rate=20_000_000, duration=100.0)
+    info.vtc = tags
+    return info
+
+
+def test_second_generation_is_refused_by_default():
+    """Re-encoding our own lossy output spends a generation nothing gives back."""
+    ours = _stamped(VTC_MODE="shrink", VTC_CODEC="h264", VTC_QUALITY="109",
+                    VTC_DATE="2026-08-03")
+    assert pipeline.decide(_cfg(), ours)[1] is Outcome.SKIP_SECOND_GEN
+    # ...but it is a decision the user can make on purpose
+    cfg = _cfg()
+    cfg.allow_second_generation = True
+    assert pipeline.decide(cfg, ours)[0] is Mode.SHRINK
+
+
+def test_a_remux_is_not_a_generation():
+    """A remux is a stream copy: it costs nothing, so it must not block a shrink."""
+    remuxed = _stamped(VTC_MODE="remux", VTC_CODEC="h264")
+    assert pipeline.decide(_cfg(), remuxed)[0] is Mode.SHRINK
+
+
+def test_untouched_files_are_unaffected():
+    plain = MediaInfo(path=Path("x.mp4"), ok=True, vcodec="h264", width=1920,
+                      height=1080, fps=24.0, bit_rate=20_000_000, duration=100.0)
+    assert plain.vtc_lossy_generation is False
+    assert pipeline.decide(_cfg(), plain)[0] is Mode.SHRINK
+
+
+def test_the_comment_alone_is_enough_to_recognise_us():
+    """MP4 drops custom keys without -movflags use_metadata_tags, so a third-party
+    remux can strip them while leaving the comment. Either marker must do."""
+    info = MediaInfo(path=Path("x.mp4"), ok=True, vcodec="h264", width=1920,
+                     height=1080, fps=24.0, bit_rate=20_000_000, duration=100.0)
+    info.comment = "Very Thoughtful Compression 1.1 — shrink to H.265 at quality 145 on 2026-08-11"
+    assert info.vtc_lossy_generation is True
+    assert pipeline.decide(_cfg(), info)[1] is Outcome.SKIP_SECOND_GEN
+    # somebody else's comment is not our signature
+    info.comment = "Ripped by SOMEGROUP"
+    assert info.vtc_lossy_generation is False
+
+
+def test_we_do_not_overwrite_an_existing_comment():
+    from vtc import encode
+    src = MediaInfo(path=Path("x.mp4"), ok=True, vcodec="h264", duration=100.0)
+    args = " ".join(encode.vtc_metadata(_cfg(), Mode.SHRINK, 4000, src))
+    assert "comment=Very Thoughtful Compression" in args      # none there: write ours
+    src.comment = "Ripped by SOMEGROUP"
+    args = " ".join(encode.vtc_metadata(_cfg(), Mode.SHRINK, 4000, src))
+    assert "comment=" not in args                              # theirs: leave it alone
+    assert "VTC_MODE=shrink" in args                           # structured tags regardless

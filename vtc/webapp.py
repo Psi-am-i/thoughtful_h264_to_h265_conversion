@@ -1575,10 +1575,12 @@ _SKIP_LABEL = {
     Outcome.SKIP_INCOMPATIBLE: "codec kept",
     Outcome.SKIP_NON_MP4: "left as-is",
     Outcome.SKIP_CODEC: "unsupported codec",
+    Outcome.SKIP_SECOND_GEN: "already encoded by this tool",
     Outcome.RESUME: "already done",
 }
 _SKIP = {Outcome.SKIP_AT_TIER, Outcome.SKIP_MODERN, Outcome.SKIP_EXISTING,
-         Outcome.SKIP_MIN_SAVING, Outcome.SKIP_INCOMPATIBLE, Outcome.SKIP_CODEC, Outcome.RESUME}
+         Outcome.SKIP_MIN_SAVING, Outcome.SKIP_INCOMPATIBLE, Outcome.SKIP_CODEC,
+         Outcome.SKIP_SECOND_GEN, Outcome.RESUME}
 
 
 def _human_gb(n: int) -> float:

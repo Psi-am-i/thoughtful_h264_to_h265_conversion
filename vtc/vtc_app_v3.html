@@ -164,6 +164,7 @@ body{
 /* the word compresses as it reads: gaps close AND the glyphs themselves squash */
 .squeeze{display:inline-block}
 /* glyphs are never deformed — only the space between them changes */
+.squeeze i .thin{display:inline-block;transform-origin:left center}
 .squeeze i{
   display:inline-block;font-style:normal;
   transition:letter-spacing .5s cubic-bezier(.2,.7,.3,1), transform .5s cubic-bezier(.2,.7,.3,1);
@@ -947,7 +948,7 @@ body{
   <div class="gate" id="gate">
     <div class="gate-w">
       <div class="a">Very Thoughtful</div>
-      <div class="b" data-squeeze="Compression" data-head=".36" data-tail=".025"></div>
+      <div class="b" data-squeeze="Compression" data-head=".36" data-tail=".025" data-thin="2" data-thin-x=".8"></div>
     </div>
     <button class="btn-start" id="start">Choose media folder</button>
     <div class="picks-h mono" id="picks-h">Recent</div>
@@ -965,7 +966,7 @@ body{
       </div>
       <div class="wordmark">
         <div class="a">Very Thoughtful</div>
-        <div class="b" data-squeeze="Compression" data-head=".36" data-tail=".025"></div>
+        <div class="b" data-squeeze="Compression" data-head=".36" data-tail=".025" data-thin="2" data-thin-x=".8"></div>
       </div>
       <div class="brow-right">
         <button class="gear" id="gear" title="Advanced settings" aria-label="Advanced settings">
@@ -1674,6 +1675,32 @@ function buildSqueeze(el){
     const ls=want-sb(ch)-sb(word[i+1]);     // back out the tracking that yields it
     return `<i style="letter-spacing:${ls.toFixed(4)}em">${ch}</i>`;
   }).join('')+`</span>`;
+  thinTail(el);
+}
+
+// The word ends compressed, so the last letters should be compressed too — not
+// merely closer together. scaleX narrows the glyph but does NOT change layout, so
+// the letter would keep its full advance and the gap would visibly OPEN as the
+// glyph shrank away from it. Measuring the width and pulling the same amount back
+// with a negative margin keeps every gap pixel-identical and shortens the word by
+// exactly what the glyphs gave up.
+function thinTail(el){
+  const howMany = parseInt(el.dataset.thin || '0', 10);
+  const scale = parseFloat(el.dataset.thinX || '0.82');
+  if(!howMany || !(scale > 0 && scale < 1)) return;
+  const letters = [...el.querySelectorAll('i')];
+  letters.slice(-howMany).forEach(i=>{
+    // Scale an INNER span, never the <i> itself: the fly-in spring animates the
+    // letter's own transform, and it would overwrite ours the moment it ran.
+    const inner = document.createElement('span');
+    inner.className = 'thin';
+    inner.textContent = i.textContent;
+    i.textContent = '';
+    i.appendChild(inner);
+    const w = inner.offsetWidth;                 // untransformed advance
+    inner.style.transform = `scaleX(${scale})`;
+    inner.style.marginRight = `${-w * (1 - scale)}px`;
+  });
 }
 document.querySelectorAll('[data-squeeze]').forEach(buildSqueeze);
 

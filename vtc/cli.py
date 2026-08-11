@@ -33,6 +33,7 @@ _OUTCOME_LINE = {
     Outcome.SKIP_MIN_SAVING: "SKIP   saving too small, kept original",
     Outcome.SKIP_INCOMPATIBLE: "SKIP   incompatible codec (transcode off)",
     Outcome.SKIP_CODEC: "SKIP   unsupported codec",
+    Outcome.SKIP_SECOND_GEN: "SKIP   already encoded by this tool",
     Outcome.RESUME: "RESUME already done",
     Outcome.ERROR: "ERROR  encode failed",
 }

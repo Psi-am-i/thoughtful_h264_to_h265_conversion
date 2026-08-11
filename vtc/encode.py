@@ -23,7 +23,8 @@ import threading
 from pathlib import Path
 
 from .config import MP4_AUDIO_CODECS, AudioPolicy, Container, Encoder, RunConfig
-from .ffprobe import MediaInfo, SubtitleTrack
+from .ffprobe import VTC_SIGNATURE, MediaInfo, SubtitleTrack
+from . import __version__
 from .model import OutCodec
 from .result import EncodeResult, Mode, ProgressCB
 from .winproc import NO_WINDOW, TEXT_UTF8
@@ -236,6 +237,54 @@ def build_video_args(
     return ["-c:v", "libx265", "-crf", str(crf265), "-preset", preset,
             "-maxrate", maxrate, "-bufsize", bufsize,
             "-profile:v", profile, "-tag:v", "hvc1"]
+
+
+# ── our own signature on the files we make ────────────────────────────────────
+# Written into every output so a later run can recognise its own work and say so,
+# instead of inferring it from a codec or a folder name. That inference is what
+# let a second run re-encode the first run's results: source -> H.264 -> H.265,
+# an entire extra generation, invisible until someone read a report closely.
+#
+# MP4 needs -movflags use_metadata_tags or it silently DROPS unknown keys — the
+# tags appear to be written and simply are not there. Matroska takes them as they
+# are. Verified both ways round, alongside +faststart.
+VTC_TAG_PREFIX = "VTC_"
+
+
+def _codec_label(c: OutCodec) -> str:
+    return {"h265": "H.265", "h264": "H.264"}.get(c.value, c.value.upper())
+
+
+def vtc_metadata(config: RunConfig, mode: Mode, target_kbps: int,
+                 info: MediaInfo | None = None) -> list[str]:
+    """`-metadata` arguments recording what this tool did to this file.
+
+    Also writes a human-readable line into `comment`, but ONLY when the source
+    has none — a comment often carries a release group's own notes, and we do
+    not overwrite what we did not put there. Where it does get written it is
+    visible in VLC, MediaInfo and Plex, and it survives tooling that drops the
+    custom keys.
+    """
+    from datetime import date
+    tags = {
+        "VTC_VERSION": __version__,
+        "VTC_MODE": mode.value,                     # shrink / transcode / remux
+        "VTC_TIER": config.tier.name,
+        "VTC_QUALITY": str(round(config.bpp_for() * 1000)),
+        "VTC_CODEC": config.out_codec.value,
+        "VTC_DATE": date.today().isoformat(),
+    }
+    if target_kbps:
+        tags["VTC_TARGET_KBPS"] = str(target_kbps)
+    out: list[str] = []
+    for k, v in tags.items():
+        out += ["-metadata", f"{k}={v}"]
+    if info is not None and not (info.comment or "").strip():
+        what = "remuxed to" if mode is Mode.REMUX else f"{mode.value} to"
+        out += ["-metadata", f"comment={VTC_SIGNATURE} {__version__} — {what} "
+                             f"{_codec_label(config.out_codec)} at quality "
+                             f"{round(config.bpp_for() * 1000)} on {date.today().isoformat()}"]
+    return out
 
 
 # ── container + audio policy ──────────────────────────────────────────────────
@@ -619,6 +668,7 @@ def run_encode(
                 "-y", "-i", str(src),
                 "-map", "0:v:0", "-map", "0:a?", *mkv_sub_maps,
                 *vargs, *aargs, "-c:s", "copy",
+                *vtc_metadata(config, mode, target_kbps, info),
                 str(out),
             ]
             if _run_ffmpeg(ffmpeg, args, label=src.name, duration=info.duration,
@@ -642,7 +692,8 @@ def run_encode(
                     "-y", "-i", str(src),
                     "-map", "0:v:0", "-map", "0:a?", *sub_maps,
                     *vargs, *aargs, *sub_flags,
-                    "-movflags", "+faststart",
+                    *vtc_metadata(config, mode, target_kbps, info),
+                    "-movflags", "+faststart+use_metadata_tags",
                     str(out),
                 ]
                 if _run_ffmpeg(ffmpeg, args, label=src.name, duration=info.duration,
