@@ -206,6 +206,14 @@ class RunConfig:
         bpp = self.bpp_for()
         if abs(bpp - self.tier.bpp) > 1e-9:
             parts.append(f"bpp{bpp:.5f}")
+        # The encoder changes the OUTPUT, not the decision — but the ledger records
+        # "this file is done", and a file done in hardware is not done in software.
+        # Without this, someone who re-runs with --encoder software precisely BECAUSE
+        # they want better quality gets "already done" for the entire library and no
+        # explanation. Appended only for an explicit choice, so a default (AUTO) run
+        # still matches ledgers written before this existed.
+        if self.encoder is not Encoder.AUTO:
+            parts.append(f"enc{self.encoder.value}")
         return "|".join(parts)
 
     def validate(self) -> list[str]:

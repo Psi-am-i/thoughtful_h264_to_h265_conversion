@@ -235,3 +235,21 @@ def _run_all():
 
 if __name__ == "__main__":
     _run_all()
+
+
+def test_encoder_choice_is_in_the_ledger_signature():
+    """A file finished in hardware is not finished in software.
+
+    Found the hard way: after a hardware run, re-running the same folder with
+    --encoder software skipped every file as 'already done' — exactly defeating
+    the reason someone switches to software. AUTO stays unsuffixed so ledgers
+    written before this change still match.
+    """
+    from vtc.config import Encoder
+    auto = RunConfig(src=Path("."))
+    hard = RunConfig(src=Path("."), encoder=Encoder.HARDWARE)
+    soft = RunConfig(src=Path("."), encoder=Encoder.SOFTWARE)
+    assert auto.settings_signature() == RunConfig(src=Path(".")).settings_signature()
+    assert "enc" not in auto.settings_signature()
+    assert hard.settings_signature() != soft.settings_signature()
+    assert hard.settings_signature() != auto.settings_signature()
