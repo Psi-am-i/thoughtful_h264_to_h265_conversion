@@ -51,7 +51,7 @@ def test_probe_and_decide():
 
         # Fat h264 -> H.265 EXCELLENT: over target -> encode.
         tgt = target_kbps(Tier.EXCELLENT, fi.pixels, fi.fps, OutCodec.H265)
-        assert tgt == 4080
+        assert tgt == 6300
         assert over_target(fi.effective_bps / 1000, tgt) is True
         print(f"  ok  fat h264 {fi.effective_bps//1000}k -> target {tgt}k -> encode")
 

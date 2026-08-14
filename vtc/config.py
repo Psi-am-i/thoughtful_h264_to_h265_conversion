@@ -87,6 +87,8 @@ class RunConfig:
     audio_bitrate_multichannel: int = 448   # kbps, AAC/AC-3, >2 channels
     container: Container = Container.AUTO
     keep_image_subs: bool = True            # prefer MKV over dropping PGS/DVD subtitle tracks
+    mkv_if_text_subs: bool = False          # "avoid sidecar .srt": force MKV only when a file has a
+                                            #   subtitle MP4 can't embed (so it isn't dropped/sidecar'd)
     mkv_if_tracks_over: int = 0             # 0 = off; force MKV when audio+sub tracks exceed this
 
     # Re-encoding something this tool already encoded costs a second lossy

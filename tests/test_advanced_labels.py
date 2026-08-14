@@ -85,14 +85,20 @@ def test_tier_bpp_label():
                        bpp=cfg.bpp_for(), hevc=cfg.hevc_factors()) == expect
 
 
-# ── "Force MKV over N tracks — forces MKV when audio+sub tracks exceed this" ──
-def test_force_mkv_over_n_tracks_label():
-    tracks = _mi(vcodec="hevc",
-                 audio=[AudioTrack(1, "aac", 2)] * 2,
-                 subtitles=[SubtitleTrack(3, "subrip", True)] * 2)   # 4 tracks total
-    assert encode.resolve_container(_cfg(mkvTracks=0), tracks) is Container.MP4   # off
-    assert encode.resolve_container(_cfg(mkvTracks=5), tracks) is Container.MP4   # under
-    assert encode.resolve_container(_cfg(mkvTracks=3), tracks) is Container.MKV   # exceeded
+# ── "Avoid sidecar .srt files — MKV only when a subtitle can't embed in MP4" ──
+def test_avoid_sidecar_subs_label():
+    # A subtitle MP4 can't embed (PGS image track). imageSubs off so THIS toggle is
+    # what's under test, not keep-image-subs.
+    unembeddable = _mi(vcodec="hevc", audio=[AudioTrack(1, "aac", 2)],
+                       subtitles=[SubtitleTrack(3, "hdmv_pgs_subtitle", False)])
+    # A normal text subtitle embeds fine (mov_text) — it must NOT force MKV.
+    embeddable = _mi(vcodec="hevc", audio=[AudioTrack(1, "aac", 2)],
+                     subtitles=[SubtitleTrack(3, "subrip", True)])
+    no_subs = _mi(vcodec="hevc", audio=[AudioTrack(1, "aac", 2)])
+    assert encode.resolve_container(_cfg(forceMkvSubs=True, imageSubs=False), unembeddable) is Container.MKV
+    assert encode.resolve_container(_cfg(forceMkvSubs=True), embeddable) is Container.MP4
+    assert encode.resolve_container(_cfg(forceMkvSubs=False, imageSubs=False), unembeddable) is Container.MP4
+    assert encode.resolve_container(_cfg(forceMkvSubs=True), no_subs) is Container.MP4
 
 
 # ── "Keep image subtitles — prefer MKV over dropping PGS/DVD tracks" ──────────

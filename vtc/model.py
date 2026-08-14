@@ -51,11 +51,13 @@ class CodecCategory(str, Enum):
 class Tier(Enum):
     """Quality tiers, anchored to an H.264 bitrate (Mbps) at 1080p / 30fps."""
 
-    OK = ("OK", 4.0)
-    GOOD = ("GOOD", 5.0)
-    EXCELLENT = ("EXCELLENT", 6.8)
-    STELLAR = ("STELLAR", 8.0)
-    INSANE = ("INSANE", 9.0)
+    # Raised so INSANE is essentially transparent (visually indistinguishable from
+    # source on demanding footage) and the rest cascade down from it.
+    OK = ("OK", 6.0)
+    GOOD = ("GOOD", 8.0)
+    EXCELLENT = ("EXCELLENT", 10.5)
+    STELLAR = ("STELLAR", 13.0)
+    INSANE = ("INSANE", 15.5)
 
     def __init__(self, label: str, ref_mbps: float) -> None:
         self.label = label

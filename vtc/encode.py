@@ -299,6 +299,22 @@ def vtc_metadata(config: RunConfig, mode: Mode, target_kbps: int,
 
 # ── container + audio policy ──────────────────────────────────────────────────
 
+# Subtitle codecs MP4 can carry (text, embedded as mov_text). Anything else —
+# image formats (PGS/DVD) or exotic text — can't be embedded and would otherwise
+# be dropped or written as a sidecar .srt.
+_MP4_EMBEDDABLE_SUBS = frozenset({
+    "subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "vtt", "text",
+})
+
+
+def _has_unembeddable_subs(info: MediaInfo) -> bool:
+    """True if the file carries any subtitle MP4 cannot embed — the only case where
+    'avoid sidecar .srt' has anything to do: a normal text sub embeds fine and stays
+    MP4, so it never forces the container."""
+    return any((s.codec or "").lower() not in _MP4_EMBEDDABLE_SUBS
+               for s in info.subtitles)
+
+
 def _container_decision(config: RunConfig, info: MediaInfo) -> tuple[Container, str]:
     """The output container AND the human reason for it (reason set only for MKV).
 
@@ -327,6 +343,8 @@ def _container_decision(config: RunConfig, info: MediaInfo) -> tuple[Container, 
     if config.keep_image_subs and info.image_subs:
         codecs = ", ".join(sorted({s.codec or "unknown" for s in info.image_subs}))
         return Container.MKV, f"image subtitles ({codecs}) MP4 can't hold"
+    if config.mkv_if_text_subs and _has_unembeddable_subs(info):
+        return Container.MKV, "keeps a subtitle MP4 can't embed (no sidecar .srt)"
     if config.mkv_if_tracks_over and (len(info.audio) + len(info.subtitles)) > config.mkv_if_tracks_over:
         return Container.MKV, f"more than {config.mkv_if_tracks_over} tracks"
     return Container.MP4, ""

@@ -388,8 +388,8 @@ def _apply_advanced(cfg: RunConfig, adv: dict) -> None:
         cfg.audio_bitrate_stereo = v
     if (v := _num("abMulti", int, 128, 1024)) is not None:
         cfg.audio_bitrate_multichannel = v
-    if (v := _num("mkvTracks", int, 0, 64)) is not None:
-        cfg.mkv_if_tracks_over = v
+    if "forceMkvSubs" in adv:
+        cfg.mkv_if_text_subs = bool(adv["forceMkvSubs"])
     if (v := _num("jobs", int, 1, 16)) is not None:
         cfg.jobs = v
     if isinstance(adv.get("audio"), str):
@@ -436,6 +436,14 @@ _BRIDGE_JS = r"""
 (function(){
   if(!window.pywebview || !window.pywebview.api){ return; }   // standalone file: keep mock
   const api = window.pywebview.api;
+
+  // Restore the user's saved Advanced settings on launch (they persist to disk, so
+  // they survive quitting the app and reinstalling it).
+  try {
+    Promise.resolve(api.saved_adv && api.saved_adv()).then(saved=>{
+      if(saved && window.__vtcApplySavedAdv) window.__vtcApplySavedAdv(saved);
+    }).catch(()=>{});
+  } catch(e){}
 
   // Check the machine's real hardware ability ON LOAD and make the ENCODER
   // question tell the truth — disable Hardware if nothing works here, else name
@@ -518,18 +526,27 @@ _BRIDGE_JS = r"""
       document.getElementById('now-n').textContent = 'counting your library…';
       return;
     }
+    // Until the estimate lands, show the folder total; the estimate then narrows the
+    // headline to the files ACTUALLY worked on (see below).
     document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
-    // Say when the user's own rules have taken files off the table — otherwise a
-    // count that doesn't match the folder looks like the scan missed something.
     document.getElementById('now-n').textContent = `${SRC.files.toLocaleString()} files`
       + (SRC.ignored ? ` · ${SRC.ignored.toLocaleString()} ignored by your rules` : '');
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
     api.estimate(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)).then(e=>{
       if(!e || e.error){ return baseEstimate(); }
-      document.getElementById('est').innerHTML = tbHTML(e.out_tb);
-      document.getElementById('est-d').textContent = `−${e.saved_pct}% · ${tbStr(SRC.tb-e.out_tb)} back`;
+      window.__lastEst = e;                       // the confirm screen reads the whole-folder projected from here
+      // Headline = the worked cohort, not the whole folder: the files left alone weigh
+      // the same before and after, so counting them just dilutes the percentage. The
+      // folder total moves to the caption underneath.
+      const workNow = e.work_bytes || 0, workOut = e.work_out_bytes || 0;
+      document.getElementById('now-v').innerHTML = tbHTML(workNow / 1e12);
+      document.getElementById('now-n').textContent =
+        `${e.work_files.toLocaleString()} of ${SRC.files.toLocaleString()} files to re-encode · ${tbStr(SRC.tb)} folder`
+        + (SRC.ignored ? ` · ${SRC.ignored.toLocaleString()} ignored` : '');
+      document.getElementById('est').innerHTML = tbHTML(workOut / 1e12);
+      document.getElementById('est-d').textContent = `−${e.work_saved_pct}% · ${bytesStr(e.work_saved_bytes)} back`;
       document.getElementById('est-n').textContent =
-        `${e.reencoded.toLocaleString()} to be re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. ${e.measured?'Measured.':'Modelled while probing…'}`;
+        `${e.work_files.toLocaleString()} to be re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. ${e.measured?'Measured.':'Modelled while probing…'}`;
       gateStart();
     });
     gateStart();
@@ -676,6 +693,37 @@ _BRIDGE_JS = r"""
 """
 
 
+def _settings_path() -> Path:
+    """Where the Advanced settings persist between runs AND app updates — deliberately
+    OUTSIDE the app bundle, so rebuilding/reinstalling the app never erases them."""
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support" / "VeryThoughtfulCompression"
+    elif os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or Path.home()) / "VeryThoughtfulCompression"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "vtc"
+    return base / "settings.json"
+
+
+def _load_settings() -> dict:
+    try:
+        p = _settings_path()
+        if p.is_file():
+            return json.loads(p.read_text(encoding="utf-8")) or {}
+    except Exception as e:  # noqa: BLE001 — bad/absent settings must never block launch
+        log.warning("could not read saved settings: %s", e)
+    return {}
+
+
+def _save_settings(adv: dict) -> None:
+    try:
+        p = _settings_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(adv or {}, indent=2), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not save settings: %s", e)
+
+
 class Api:
     """Exposed to JS as `window.pywebview.api.*`. All methods return JSON-able data."""
 
@@ -689,8 +737,9 @@ class Api:
         self._ignored = 0                  # files the user's ignore rules removed
         # Last Advanced-settings payload the UI pushed. Needed OUTSIDE a run,
         # because the ignore rules change what a scan even counts and the tier
-        # bpp changes what the preview panels encode.
-        self._adv: dict = {}
+        # bpp changes what the preview panels encode. Seeded from disk so the user's
+        # settings survive quitting the app (and rebuilding it).
+        self._adv: dict = _load_settings()
         self._scan_gen = 0
         self._probe_gen = 0
         self._preview_gen = 0              # bumped whenever previews are (re)requested;
@@ -714,12 +763,17 @@ class Api:
         return json.dumps({k: adv.get(k) for k in
                            ("ignUnderMb", "ignOverMb", "ignExts", "ignNames")}, sort_keys=True)
 
+    def saved_adv(self):
+        """The persisted Advanced settings, for the UI to restore on launch."""
+        return self._adv or {}
+
     def set_adv(self, adv: dict):
         """Take the Advanced-settings object from the UI, and react to the two
         parts of it that invalidate work already done: the ignore rules (which
         change what the library even contains) and the tier densities (which
         change what the preview panels are showing)."""
         old, self._adv = self._adv, dict(adv or {})
+        _save_settings(self._adv)                 # persist every change, folder or not
         if self._src is None:
             return {"ok": True}
         rescanned = previews = False
@@ -805,7 +859,10 @@ class Api:
         import webview
         if self._src is None:
             return {"error": "no folder"}
-        exts = " ".join("*." + e for e in RunConfig(src=self._src).video_exts)
+        # pywebview requires the filter's extensions SEMICOLON-separated; a space
+        # separated list is rejected as invalid and the dialog silently never opens
+        # (which is exactly why both Select buttons appeared to do nothing).
+        exts = ";".join("*." + e for e in RunConfig(src=self._src).video_exts)
         try:
             picked = self.window.create_file_dialog(
                 webview.OPEN_DIALOG, directory=str(self._src),
@@ -916,32 +973,39 @@ class Api:
                 start = max(0.0, min(dur - seglen, self._preview_start * dur))
             else:
                 start = max(0.0, (dur - seglen) / 2.0)
-            is_hevc = (info.vcodec or "").lower() == "hevc"
             src_codec_label = {"h264": "H.264", "hevc": "H.265", "av1": "AV1", "vp9": "VP9"}.get(
                 (info.vcodec or "").lower(), (info.vcodec or "?").upper())
             log.info("previews: %s (%dx%d, %.1fs) sample @ %.1fs codec=%s",
                      first.name, info.width, info.height, dur, start, codec.value)
 
-            # SOURCE panel = the source frames, cut and made PLAYABLE. If the source
-            # codec is one the webview can show, copy it losslessly; otherwise (MPEG-4/
-            # XviD/VP9/AV1 on mac, or anything but H.264 on Windows) the panel would be
-            # a black "CAN'T PLAY" tile, so transcode the sample to H.264 for viewing.
-            # The panel label still names the real source codec.
+            # SOURCE panel = the source frames, cut and made playable. It is ALWAYS
+            # re-encoded, never a plain stream copy — this is what keeps the wipe in
+            # sync. A copy that starts mid-GOP forces ffmpeg to write an EDIT LIST, and
+            # WKWebView interprets that list's frame timing with a small offset, so the
+            # source half of the wipe sat a frame off the re-encoded tier panels no
+            # matter how the front end seeked (measured Δ of a few ms — enough to
+            # straddle a frame boundary). Re-encoding gives the source a clean constant
+            # frame-rate timeline from PTS 0: the identical grid the tiers are built on,
+            # so every panel lands on the same frame at the same currentTime. crf 12 is
+            # visually lossless, so the panel still represents the source for a quality
+            # comparison; the label still names the real source codec. H.264 output also
+            # means the panel plays on every platform, source codec regardless.
+            # SOURCE panel = the source frames, PRISTINE — a stream copy when the codec
+            # plays in the webview (mac: H.264/H.265; Windows: H.264), else a transcode
+            # to H.264 only so the tile isn't black. Never re-encoded for its own sake: a
+            # quality comparison needs the real source as its reference. The copy carries
+            # an mp4 edit list, so its frames sit a few ms off the re-encoded tiers; the
+            # wipe is aligned on the front end instead, which measures each panel's real
+            # displayed-frame time and nudges them together (see pvAlignPaused).
             sample = pdir / "source.mp4"
             playable = (info.vcodec or "").lower() in (
                 ("h264", "hevc") if sys.platform == "darwin" else ("h264",))
             if playable:
+                is_hevc = (info.vcodec or "").lower() == "hevc"
                 svargs = ["-c:v", "copy", *(["-tag:v", "hvc1"] if is_hevc else [])]
             else:
                 svargs = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
                           "-pix_fmt", "yuv420p"]
-            # NB: a stream copy can only start on a keyframe, so ffmpeg writes an
-            # EDIT LIST to trim back to the requested moment — the sample's frame 0
-            # is therefore a player-interpreted thing, while the tier panels
-            # (re-encoded from this sample) start plainly at 0. Measured: dropping
-            # the edit list (-use_editlist 0) is worse, not better — it re-exposes
-            # the pre-roll AND leaves an 0.08s start offset. The panels are aligned
-            # on the front end instead, by seeking every video to one position.
             r = subprocess.run(
                 [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
                  "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
@@ -957,6 +1021,13 @@ class Api:
             self._emit("__vtcPreviewStart",
                        {"w": sinfo.width or info.width, "h": sinfo.height or info.height,
                         "n": len(_PREVIEW_PANELS), "codec": codec_label,
+                        "fps": sinfo.fps or info.fps or 0,
+                        # the WHOLE source file: its size, duration, and real density —
+                        # so the panels can show full-file estimates, not 5s-clip sizes
+                        "srcSize": first.stat().st_size,
+                        "srcBpp": (round(info.effective_bps / (info.pixels * info.fps), 4)
+                                   if info.pixels and info.fps else 0),
+                        "dur": dur, "seg": seglen,
                         "name": first.name})
             hw = encode.select_hw_encoder(RunConfig(src=src, out_codec=codec, ffmpeg=FFMPEG))
 
@@ -1073,12 +1144,14 @@ class Api:
             "saved_pct": round((1 - ratio) * 100),
             "reencoded": round(reencoded * scale),
             "skipped": round(skipped * scale),
-            # The honest headline: the files that will be touched, and what
-            # happens to THEM. Bytes, not TB, because a cohort is often small.
-            "work_files": reencoded,
-            "work_bytes": work_src,
-            "work_out_bytes": work_out,
-            "work_saved_bytes": max(0, work_src - work_out),
+            # The honest headline: the files that will be touched, and what happens
+            # to THEM — the unchanged files weigh the same before and after, so folding
+            # them in only dilutes the saving. Bytes are extrapolated to the whole
+            # library by the same sample->library scale as out_tb (exact once measured).
+            "work_files": round(reencoded * scale),
+            "work_bytes": work_src * scale,
+            "work_out_bytes": work_out * scale,
+            "work_saved_bytes": max(0, work_src - work_out) * scale,
             "work_saved_pct": round((1 - work_out / work_src) * 100) if work_src else 0,
             "measured": self._probed_for == self._src,          # True once the full scan finishes
         }
@@ -1637,6 +1710,27 @@ def _summary(results: list) -> dict:
     return {"done": done, "skip": skip, "fail": fail, "tb": saved / 1e12, "mins": 0}
 
 
+def _lock_aspect_ratio(window, w: int, h: int) -> None:
+    """Hold the window to a fixed w:h shape while the user drags to resize (macOS).
+
+    The app is a fixed 1320x1056 design canvas that scales to fit the window; if the
+    window is any other shape the extra is just background margin. Pinning the native
+    NSWindow's *content* aspect ratio makes the OS keep the shape during a live
+    resize — smooth and native — and it is ignored in real fullscreen, so the compare
+    view still fills the screen. Best-effort: any failure leaves resize free.
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        import AppKit
+        from webview.platforms import cocoa
+        bv = cocoa.BrowserView.instances.get(window.uid)
+        if bv is not None and getattr(bv, "window", None) is not None:
+            bv.window.setContentAspectRatio_(AppKit.NSSize(w, h))
+    except Exception as e:  # noqa: BLE001 — a nicety, never worth crashing over
+        log.warning("aspect-ratio lock unavailable: %s", e)
+
+
 def main(argv: list[str] | None = None) -> int:
     reconfigure_std_streams()   # UTF-8 stdout/stderr before anything prints a path
     log_path = _setup_logging()
@@ -1668,10 +1762,13 @@ def main(argv: list[str] | None = None) -> int:
     log.info("loading %s (html=%s)", target, html)
     print(f"Very Thoughtful Compression — debug log: {log_path}")
     api = Api()
+    # Initial and minimum sizes both sit on the 1320:1056 (1.25) design ratio, so the
+    # window starts at the app's shape and _lock_aspect_ratio keeps it there on resize.
     window = webview.create_window("Very Thoughtful Compression", target, js_api=api,
-                                   width=1360, height=1020, min_size=(940, 720))
+                                   width=1360, height=1088, min_size=(940, 752))
     api.window = window
     window.events.loaded += lambda: (log.info("window loaded"), window.evaluate_js(_BRIDGE_JS))
+    window.events.loaded += lambda: _lock_aspect_ratio(window, 1320, 1056)
     try:
         window.events.closing += lambda: log.info("window closing (user)")
         window.events.closed += lambda: log.info("window closed")

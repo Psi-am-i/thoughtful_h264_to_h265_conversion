@@ -303,7 +303,7 @@ wheels = [
 
 [[package]]
 name = "vtc"
-version = "0.1.0"
+version = "1.3"
 source = { editable = "." }
 
 [package.optional-dependencies]

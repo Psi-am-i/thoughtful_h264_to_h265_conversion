@@ -39,9 +39,9 @@ def _touch(path: Path, size: int = 1024) -> Path:
 # ── tier densities ────────────────────────────────────────────────────────────
 def test_bpp_override_moves_the_target():
     # Double the density -> double the target, exactly. This is the whole model.
-    assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H264) == 6800
+    assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H264) == 10500
     assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H264,
-                       bpp=Tier.EXCELLENT.bpp * 2) == 13600
+                       bpp=Tier.EXCELLENT.bpp * 2) == 21000
 
 
 def test_bpp_for_falls_back_to_the_tier():
@@ -71,11 +71,11 @@ def test_retuned_tier_changes_the_ledger_signature():
 def test_hevc_factors_reach_the_target():
     # These three were settable but unread before; a changed factor must move the
     # H.265 target and leave H.264 alone.
-    assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H265) == 4080
+    assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H265) == 6300
     assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H265,
-                       hevc=(0.30, 0.50, 0.45)) == 2040
+                       hevc=(0.30, 0.50, 0.45)) == 3150
     assert target_kbps(Tier.EXCELLENT, _PX_1080P, 30, OutCodec.H264,
-                       hevc=(0.30, 0.50, 0.45)) == 6800
+                       hevc=(0.30, 0.50, 0.45)) == 10500
 
 
 # ── ignore rules ──────────────────────────────────────────────────────────────
@@ -208,13 +208,13 @@ def test_html_advanced_keys_are_all_understood_by_the_engine():
     before = {f: getattr(cfg, f) for f in
               ("bitrate_floor_kbps", "tier_over_tolerance", "hevc_factor_hd", "hevc_factor_4k",
                "hevc_factor_8k", "audio_bitrate_stereo", "audio_bitrate_multichannel",
-               "mkv_if_tracks_over", "jobs", "audio_policy", "container", "keep_image_subs",
+               "mkv_if_text_subs", "jobs", "audio_policy", "container", "keep_image_subs",
                "ledger_enabled", "tier_bpp", "ignore_under_bytes", "ignore_over_bytes",
                "ignore_exts", "ignore_name_contains")}
     # Feed every key a value that differs from the default and check something moved.
     _apply_advanced(cfg, {
         "floor": 2000, "tol": 25, "hevcHd": 0.5, "hevc4k": 0.4, "hevc8k": 0.35,
-        "abStereo": 192, "abMulti": 384, "mkvTracks": 8, "jobs": 3,
+        "abStereo": 192, "abMulti": 384, "forceMkvSubs": True, "jobs": 3,
         "audio": "aac", "container": "mkv", "imageSubs": False, "ledger": False,
         "bpp": {"OK": 0.09}, "ignUnderMb": 5, "ignOverMb": 50,
         "ignExts": ["avi"], "ignNames": ["sample"],

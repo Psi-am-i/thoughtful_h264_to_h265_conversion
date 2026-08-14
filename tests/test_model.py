@@ -30,11 +30,11 @@ def _approx(a: float, b: float, tol: float = 1e-3) -> bool:
 
 
 def test_tier_bpp_anchors():
-    assert _approx(Tier.OK.bpp, 0.0643)
-    assert _approx(Tier.GOOD.bpp, 0.0804)
-    assert _approx(Tier.EXCELLENT.bpp, 0.1093)
-    assert _approx(Tier.STELLAR.bpp, 0.1286)
-    assert _approx(Tier.INSANE.bpp, 0.1447)
+    assert _approx(Tier.OK.bpp, 0.0965)
+    assert _approx(Tier.GOOD.bpp, 0.1286)
+    assert _approx(Tier.EXCELLENT.bpp, 0.1688)
+    assert _approx(Tier.STELLAR.bpp, 0.2090)
+    assert _approx(Tier.INSANE.bpp, 0.2492)
 
 
 def test_classify_codec_matches_bash():
@@ -52,32 +52,32 @@ def test_classify_codec_matches_bash():
 
 def test_targets_1080p30():
     px = _1080P[0] * _1080P[1]
-    assert target_kbps(Tier.EXCELLENT, px, 30, OutCodec.H264) == 6800
-    assert target_kbps(Tier.GOOD, px, 30, OutCodec.H264) == 5000
-    assert target_kbps(Tier.INSANE, px, 30, OutCodec.H264) == 9000
-    # H.265 @1080p uses the 0.60 HD factor -> ~4080k (Netflix 1080p HEVC band)
-    assert target_kbps(Tier.EXCELLENT, px, 30, OutCodec.H265) == 4080
+    assert target_kbps(Tier.EXCELLENT, px, 30, OutCodec.H264) == 10500
+    assert target_kbps(Tier.GOOD, px, 30, OutCodec.H264) == 8000
+    assert target_kbps(Tier.INSANE, px, 30, OutCodec.H264) == 15499
+    # H.265 @1080p uses the 0.60 HD factor -> 6300k
+    assert target_kbps(Tier.EXCELLENT, px, 30, OutCodec.H265) == 6300
 
 
 def test_targets_scale_with_resolution_and_codec():
     px4k = _4K[0] * _4K[1]
-    # 4K EXCELLENT H.265 ~= 13.6 Mbps (matches Netflix 4K), via the 0.50 factor
-    assert target_kbps(Tier.EXCELLENT, px4k, 30, OutCodec.H265) == 13600
+    # 4K EXCELLENT H.265 via the 0.50 factor
+    assert target_kbps(Tier.EXCELLENT, px4k, 30, OutCodec.H265) == 21000
     # Same tier, H.264, 4K, 24fps (bpp * pixels * fps)
-    assert target_kbps(Tier.EXCELLENT, px4k, 24, OutCodec.H264) == 21760
+    assert target_kbps(Tier.EXCELLENT, px4k, 24, OutCodec.H264) == 33600
 
 
 def test_convergence_gate():
     px = _1080P[0] * _1080P[1]
-    tgt = target_kbps(Tier.EXCELLENT, px, 30, OutCodec.H264)  # 6800
+    tgt = target_kbps(Tier.EXCELLENT, px, 30, OutCodec.H264)  # 10500
     # The 3.5->2.2->1.2 staircase must NOT happen: only a source well over target encodes.
-    assert over_target(9303, tgt) is True       # fat original -> encode once
-    assert over_target(6800, tgt) is False       # at target -> leave alone
-    assert over_target(5900, tgt) is False       # yesterday's mid-state -> leave alone
-    assert over_target(3200, tgt) is False       # already lean -> leave alone
+    assert over_target(14000, tgt) is True       # fat original -> encode once
+    assert over_target(10500, tgt) is False      # at target -> leave alone
+    assert over_target(9000, tgt) is False        # yesterday's mid-state -> leave alone
+    assert over_target(3200, tgt) is False        # already lean -> leave alone
     # Just over the 10% tolerance boundary:
-    assert over_target(int(6800 * 1.10) + 5, tgt) is True
-    assert over_target(int(6800 * 1.10) - 5, tgt) is False
+    assert over_target(int(10500 * 1.10) + 5, tgt) is True
+    assert over_target(int(10500 * 1.10) - 5, tgt) is False
 
 
 def test_never_inflate_source():

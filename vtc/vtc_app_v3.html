@@ -400,7 +400,36 @@ body{
 /* The glyph runs edge to edge in its box (no built-in margin), so it needs to be
    set smaller than an icon drawn with padding or it overpowers the brow. */
 .gear svg{width:19px;height:19px;fill:currentColor;stroke:none}
-.adv-sec{margin:0 0 20px}
+/* ── Advanced modal: two-pane (section rail + content) ─────────────────────── */
+.adv-2pane{display:grid;grid-template-columns:186px 1fr;gap:0;padding:0;overflow:hidden}
+.adv-rail{border-right:1px solid var(--rule);padding:20px 12px 20px 4px;overflow-y:auto;
+  display:flex;flex-direction:column;gap:1px}
+.adv-rail-grp{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-3);margin:14px 0 5px 10px}
+.adv-rail-grp:first-child{margin-top:0}
+.adv-nav{text-align:left;font-size:13.5px;font-weight:500;color:var(--ink-2);background:none;
+  border:0;border-radius:var(--r);padding:7px 10px;cursor:pointer;transition:background .1s,color .1s}
+.adv-nav:hover{background:var(--shell-hi);color:var(--ink)}
+.adv-nav.on{background:var(--accent);color:#fff;font-weight:600}
+.adv-pane{padding:22px 26px;overflow-y:auto}
+.adv-sec{display:none}
+.adv-sec.on{display:block;animation:advFade .16s ease}
+@keyframes advFade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+/* a small "read more" link that opens the About panel at the relevant page */
+.adv-learn{font-size:12.5px;color:var(--accent);cursor:pointer;text-decoration:none;
+  white-space:nowrap;border-bottom:1px solid transparent}
+.adv-learn:hover{border-bottom-color:var(--accent)}
+/* a control that the current container makes irrelevant (e.g. force-MKV when the
+   container is already MKV): dimmed, non-interactive, and it says why. */
+/* a control the current setting makes irrelevant: dimmed, inert, and it says why */
+.adv-row.moot{opacity:.5}
+.adv-row.moot .adv-tog,.adv-row.moot input{pointer-events:none}
+.adv-row.moot.moot-mkv  .adv-lab > b::after{content:" · not needed with MKV";font-weight:400;color:var(--ink-3)}
+.adv-row.moot.moot-pass .adv-lab > b::after{content:" · not used on passthrough";font-weight:400;color:var(--ink-3)}
+/* sub-settings nested under their parent control (e.g. the audio bitrates) */
+.adv-row.adv-sub{padding-left:22px;position:relative}
+.adv-row.adv-sub::before{content:"";position:absolute;left:8px;top:0;bottom:0;width:1px;background:var(--rule)}
+.adv-row.adv-sub .adv-lab > b{font-weight:500}
 /* Matches a bare heading AND one wrapped in .adv-sec-h beside its own action
    button — a direct-child selector silently dropped the styling from the
    wrapped ones, which reads as two different kinds of section. */
@@ -409,12 +438,24 @@ body{
   padding-bottom:6px;border-bottom:1px solid var(--rule)}
 .adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px}
 .adv-grid.one{grid-template-columns:1fr}
-.adv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;
-  padding:7px 0;border-bottom:1px solid rgba(182,179,168,.4)}
+/* explanatory lead-in under a section heading */
+.adv-intro{font-size:13px;color:var(--ink-2);line-height:1.55;max-width:66ch;margin:0 0 16px}
+.adv-intro b{color:var(--ink)}
+/* Every row is the same grid: label column, then a control snapped to a shared
+   right-hand spine. Fixed shape = even rhythm and one clean column of controls,
+   instead of the ragged space-between the descriptions used to stretch. */
+.adv-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;
+  gap:1px 16px;padding:8px 0;border-bottom:1px solid rgba(182,179,168,.4)}
 .adv-lab{min-width:0}
-.adv-lab b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
-.adv-lab span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:1px;line-height:1.35}
-.adv-ctrl{flex:0 0 auto;display:flex;align-items:center;gap:6px}
+/* Direct child only: the label's own title. A bold word INSIDE a description span
+   (e.g. "…Auto converts to MP4…") must stay inline, not become a block sub-label. */
+.adv-lab > b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
+.adv-lab span b{font-weight:600;color:var(--ink)}
+/* One section shows at a time now, so descriptions have room to be read in full
+   at a comfortable size rather than crushed onto one clamped line. */
+.adv-lab span{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;line-height:1.5;max-width:60ch}
+.adv-lab span a.adv-learn{font-size:12.5px}
+.adv-ctrl{grid-column:2;flex:0 0 auto;display:flex;align-items:center;gap:6px;justify-self:end}
 .adv-ctrl input[type=number],.adv-ctrl select{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
   padding:5px 7px;border:1px solid var(--rule);border-radius:var(--r);background:var(--panel);
   color:var(--ink);cursor:pointer}
@@ -445,8 +486,36 @@ body{
 .adv-chk.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 .adv-chk.on::before{content:"✓ ";}
 /* Plain-English readback of what the two filters combine to. */
+/* Frame-sync diagnostic overlay (press D). Fixed so it reads over fullscreen. */
+#pv-dbg{position:fixed;top:12px;left:12px;z-index:60;font-family:'IBM Plex Mono',monospace;
+  font-size:12.5px;line-height:1.5;color:#fff;background:rgba(0,0,0,.72);padding:7px 10px;
+  border-radius:3px;white-space:pre;pointer-events:none;letter-spacing:.02em}
 .adv-subs-summary{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding-top:2px}
 .adv-subs-summary.warn{color:var(--accent);font-weight:600}
+/* ── Quality density ladder ─────────────────────────────────────────────────
+   The tiers ARE the model, so they earn the one visual flourish in this panel:
+   a rung per tier whose bar length is its bpp, so "Good sits below Excellent" is
+   something you see, not only read. Editable H.264 bpp on the right; the derived
+   codec read-out sits beneath, clamped to a line and unfurling on hover. */
+.tier-ladder{display:flex;flex-direction:column}
+.tier-rung{display:grid;grid-template-columns:104px minmax(56px,1fr) auto;
+  grid-template-areas:"name bar box" "read read read";align-items:center;
+  column-gap:16px;row-gap:4px;padding:9px 0;border-bottom:1px solid rgba(182,179,168,.4)}
+.tier-name{grid-area:name;font-size:13.5px;font-weight:600;color:var(--ink)}
+.tier-bar{grid-area:bar;height:7px;background:var(--shell);border:1px solid var(--rule);
+  border-radius:1px;overflow:hidden}
+.tier-bar i{display:block;height:100%;width:calc(var(--fill,0) * 1%);
+  background:var(--accent);transition:width .18s ease}
+.tier-box{grid-area:box;display:flex;align-items:center;gap:6px;justify-self:end}
+.tier-box input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  padding:5px 7px;border:1px solid var(--rule);border-radius:var(--r);background:var(--panel);
+  color:var(--ink);width:74px;text-align:right;cursor:text}
+.tier-box .adv-unit{font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace}
+.tier-read{grid-area:read;font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace;
+  line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tier-rung:hover .tier-read{white-space:normal;overflow:visible}
+.tier-read.changed{color:var(--accent)}
+.tier-sum{padding-top:9px}
 /* A section heading that carries its own small action (e.g. "Reset tiers"),
    so a per-section reset doesn't have to travel to the footer's global one. */
 .adv-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
@@ -731,6 +800,11 @@ body{
   text-overflow:ellipsis;white-space:nowrap}
 .pv-acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:3px}
 .pv-acts .tp-tool:last-child{grid-column:1 / -1}
+/* The pair's own action is one full-width button tucked under its pulldowns; the
+   pair-independent actions (All tiers, Refresh) sit apart as a two-up below. */
+.pv-acts-pair{grid-template-columns:1fr;margin-top:5px}
+.pv-acts-all{margin-top:9px;padding-top:9px;border-top:1px solid var(--rule)}
+.pv-acts-all .tp-tool:last-child{grid-column:auto}
 .pv-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--rule);
   display:flex;align-items:baseline;justify-content:space-between}
 .pv-ver{font-size:10.5px;color:var(--ink-3);letter-spacing:.08em}
@@ -826,6 +900,14 @@ body{
 .big-file-l{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:#8b857a}
 .big-file b{color:#f2efe6;font-weight:600;max-width:260px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
+/* source facts under the filename (deck) and along the fullscreen bar */
+.pv-srcinfo{display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  color:var(--ink-3);letter-spacing:.02em;line-height:1.3;margin-top:4px}
+.big-srcinfo{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b857a;letter-spacing:.03em}
+/* the Position field, when moved into the fullscreen tool bar, lies horizontal */
+#big-tools .pv-f{flex-direction:row;align-items:center;gap:8px;margin:0}
+#big-tools .pv-f-l{margin:0}
+#big-tools #pv-pos{width:120px}
 #big-sheet .tp-tool{background:#26221d;border-color:#3a352d;color:#c9c4ba}
 #big-sheet .tp-tool:hover{background:#332d26;color:#fff}
 #big-sheet .pv-codec{border-color:#3a352d}
@@ -1054,8 +1136,10 @@ body{
               <span class="pv-f-l">Sample from</span>
               <span class="pv-f-c"><b class="pv-src mono" id="pv-src">—</b>
                 <button class="tp-tool" id="pv-pick">Select</button></span>
+              <span class="pv-srcinfo mono" id="pv-srcinfo"></span>
             </label>
-            <label class="pv-f" title="Where in the first file the 5s sample is taken from">
+            <span id="pv-pos-home" hidden></span>
+            <label class="pv-f" id="pv-pos-field" title="Where in the first file the 5s sample is taken from">
               <span class="pv-f-l">Position</span>
               <span class="pv-f-c pv-pos mono">
                 <input type="range" id="pv-pos" min="0" max="100" value="50"><b id="pv-pos-v">middle</b>
@@ -1070,21 +1154,26 @@ body{
                 </div>
               </span>
             </div>
+            <!-- The two pulldowns and the button that acts on them are one group:
+                 pick two encodes, then compare them full screen. "All tiers" and
+                 "Refresh" are separate — they don't depend on the chosen pair. -->
             <div class="pv-f">
               <span class="pv-f-l">Compare</span>
-              <span class="pv-f-c pv-cmp" id="pv-cmp" title="Which encode each panel shows">
+              <span class="pv-f-c pv-cmp" id="pv-cmp" title="Which two encodes to compare">
                 <select id="cmp-a-sel" aria-label="Left panel"></select><span class="vs">vs</span
                 ><select id="cmp-b-sel" aria-label="Right panel"></select>
               </span>
             </div>
-            <div class="pv-acts">
-              <button class="tp-tool" id="load">Refresh</button>
+            <div class="pv-acts pv-acts-pair">
+              <button class="tp-tool" id="big">Compare fullscreen</button>
+            </div>
+            <div class="pv-acts pv-acts-all">
               <button class="tp-tool" id="cmp-go">All tiers</button>
-              <button class="tp-tool" id="big">Full screen</button>
+              <button class="tp-tool" id="load">Refresh</button>
             </div>
             <div class="pv-foot">
               <button class="linky" id="about-open">About</button>
-              <span class="mono pv-ver">v1.2</span>
+              <span class="mono pv-ver">v1.3</span>
             </div>
             <input type="file" id="file" accept="video/*" hidden>
           </div>
@@ -1176,6 +1265,8 @@ body{
             <div class="ref-h mono" style="margin-top:14px">H.264 / AVC</div>
             <p>The universal baseline — it direct-plays on virtually anything made since 2003 — but about twice the size for the same quality, and increasingly wasteful above 1080p. Choose it when something in your house has to play the file and you are not sure what.</p>
             <p><b>Sources already in a modern codec are left alone.</b> H.265, AV1 and VP9 files are never transcoded: re-encoding them spends a generation of quality to save very little.</p>
+            <div class="ref-h mono" style="margin-top:14px">Subtitle kinds</div>
+            <p><b>Normal</b> is the complete dialogue subtitle — everything that is said. <b>Forced</b> subtitles appear only where they are needed even for someone who speaks the language: translated signs, on-screen text, and lines in a foreign tongue. <b>HoH / SDH</b> (Hard of Hearing / Subtitles for the Deaf and Hard of hearing) is a full transcript that also describes sound — <i>[door slams]</i>, <i>[ominous music]</i> — and names who is speaking. Keep any combination; VTC filters tracks to just the kinds you tick, in just the languages you list.</p>
           </div>
           <div class="docs-col ref-col">
             <div class="ref-block">
@@ -1329,31 +1420,81 @@ body{
       <div class="sheet-e mono">For when the defaults aren't enough</div>
       <h2 class="sheet-t">Advanced settings</h2>
     </div>
-    <div class="sheet-b">
+    <div class="sheet-b adv-2pane">
+      <nav class="adv-rail" id="adv-rail">
+        <div class="adv-rail-grp">Output</div>
+        <button class="adv-nav on" data-sec="format">Format &amp; container</button>
+        <button class="adv-nav" data-sec="audio">Audio</button>
+        <button class="adv-nav" data-sec="subs">Subtitles</button>
+        <div class="adv-rail-grp">Quality</div>
+        <button class="adv-nav" data-sec="tiers">Quality tiers</button>
+        <button class="adv-nav" data-sec="tuning">Video tuning</button>
+        <div class="adv-rail-grp">Library</div>
+        <button class="adv-nav" data-sec="ignore">Ignore files</button>
+        <button class="adv-nav" data-sec="run">Running</button>
+      </nav>
+      <div class="adv-pane" id="adv-pane">
 
-      <div class="adv-sec">
-        <h3>Non-MP4 files</h3>
+      <!-- Format / container: the wrapper first, then what to do with files that
+           aren't already in it. -->
+      <section class="adv-sec on" data-sec="format">
+        <h3>Format / container</h3>
         <div class="adv-grid one">
           <div class="adv-row">
-            <div class="adv-lab"><b>What to do with files that aren't MP4</b>
-              <span>Convert everything to MP4, only losslessly rehome what already can be, or leave other containers alone. Asked up front too when a scan finds non-MP4 files.</span></div>
+            <div class="adv-lab"><b>Container</b>
+              <span>MP4 plays almost anywhere. MKV is more flexible — more tracks, and it
+                can hold image subtitles MP4 can't. <b>Auto</b> uses MP4 and switches to MKV
+                only when MP4 would lose something.
+                <a class="adv-learn" data-about="codecs">Learn more ›</a></span></div>
+            <div class="adv-seg" id="adv-container">
+              <button data-v="auto">Auto</button><button data-v="mp4">MP4</button><button data-v="mkv">MKV</button>
+            </div>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b id="adv-format-lab">Files not already MP4</b>
+              <span id="adv-format-note"></span></div>
             <div class="adv-seg" id="adv-format">
               <button data-v="convert">Convert all</button>
-              <button data-v="remux">Remux only</button>
+              <button data-v="remux">Only if lossless</button>
               <button data-v="shrink_keep">Shrink, keep format</button>
               <button data-v="leave">Leave alone</button>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="adv-sec">
+      <section class="adv-sec" data-sec="audio">
+        <h3>Audio</h3>
+        <div class="adv-grid">
+          <div class="adv-row">
+            <div class="adv-lab"><b>Audio</b>
+              <span>Passthrough (the default) copies every track untouched — no quality loss.
+                Pick a codec only to re-encode; the bitrates below then apply. FLAC forces MKV.</span></div>
+            <div class="adv-ctrl">
+              <select id="adv-audio">
+                <option value="passthrough">Passthrough</option>
+                <option value="aac">AAC</option>
+                <option value="ac3">AC-3</option>
+                <option value="flac">FLAC (lossless)</option>
+              </select>
+            </div>
+          </div>
+          <div class="adv-row adv-sub">
+            <div class="adv-lab"><b>Bitrate · stereo</b>
+              <span>Target for mono/stereo tracks (≤2 channels) when re-encoding.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ab-stereo" min="64" max="640" step="16"><span class="adv-unit">kbps</span></div>
+          </div>
+          <div class="adv-row adv-sub">
+            <div class="adv-lab"><b>Bitrate · 5.1+</b>
+              <span>Target for surround tracks (&gt;2 channels) when re-encoding.</span></div>
+            <div class="adv-ctrl"><input type="number" id="adv-ab-multi" min="128" max="1024" step="16"><span class="adv-unit">kbps</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="adv-sec" data-sec="subs">
         <h3>Subtitles</h3>
         <div class="adv-grid one">
-          <!-- Language and kind are INDEPENDENT filters, so they get one control
-               each. The single dropdown this replaced forced a false choice —
-               picking "Keep languages…" meant you could no longer say "forced
-               only", so "English forced subs" was not expressible at all. -->
           <div class="adv-row">
             <div class="adv-lab"><b>Languages to keep</b>
               <span>Comma-separated ISO codes, e.g. eng, fre, spa. Leave empty to keep every language.</span></div>
@@ -1361,7 +1502,9 @@ body{
           </div>
           <div class="adv-row">
             <div class="adv-lab"><b>Kinds to keep</b>
-              <span>Tick any combination. Text subs embed in MP4; image subs (PGS/DVD) need MKV or get dropped.</span></div>
+              <span><b>Normal</b> is the full dialogue; <b>Forced</b> shows only translated on-screen
+                text and signs; <b>HoH / SDH</b> adds sound-effect and speaker cues for the hard of
+                hearing. Tick any combination. <a class="adv-learn" data-about="codecs">Learn more ›</a></span></div>
             <div class="adv-ctrl adv-checks" id="adv-subs-kinds">
               <button type="button" class="adv-chk" data-k="normal"  role="checkbox">Normal</button>
               <button type="button" class="adv-chk" data-k="forced"  role="checkbox">Forced</button>
@@ -1369,56 +1512,75 @@ body{
             </div>
           </div>
           <div class="adv-row">
+            <div class="adv-lab"><b>Keep image subtitles</b>
+              <span>Image subtitles (PGS, DVD) can't go in an MP4. When on, files that have
+                them are saved as MKV instead of dropping the tracks.</span></div>
+            <button class="adv-tog" id="adv-image-subs" role="switch"></button>
+          </div>
+          <div class="adv-row">
+            <div class="adv-lab"><b>Avoid sidecar .srt files</b>
+              <span>Text subtitles embed into the MP4 automatically. If one ever can't be, the
+                file is saved as MKV instead of writing a separate .srt beside it.</span></div>
+            <button class="adv-tog" id="adv-force-mkv-subs" role="switch"></button>
+          </div>
+          <div class="adv-row">
             <div class="adv-lab adv-subs-summary" id="adv-subs-summary"></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- Quality tiers: the density behind each tier, editable. These are the
-           numbers the whole model hangs off — a tier IS its bpp — so the boxes
-           are deliberately here rather than in the guided flow, and each one
-           says what it means in Mbps at 1080p30 as you type. -->
-      <div class="adv-sec">
+      <!-- Quality tiers: a tier IS its bpp, so the boxes live here. -->
+      <section class="adv-sec" data-sec="tiers">
         <div class="adv-sec-h">
           <h3>Quality tiers · bits per pixel per frame</h3>
           <button class="adv-mini" id="adv-bpp-reset">Reset tiers</button>
         </div>
-        <div class="adv-grid" id="adv-bpp-grid">
-          <div class="adv-row">
-            <div class="adv-lab"><b>OK</b><span data-bpp-note="OK"></span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-bpp-OK" data-bpp="OK"
+        <p class="adv-intro"><b>Higher bpp = more detail per frame = bigger files.</b> You set the
+          density for an <b>H.264</b> encode; VTC derives every other codec automatically (H.265
+          reaches the same quality at a lower bpp). The quality number is codec-independent.
+          <a class="adv-learn" data-about="how">Learn more ›</a></p>
+        <div class="tier-ladder" id="adv-bpp-grid">
+          <div class="tier-rung">
+            <span class="tier-name">OK</span>
+            <div class="tier-bar"><i data-bpp-bar="OK"></i></div>
+            <div class="tier-box"><input type="number" id="adv-bpp-OK" data-bpp="OK"
               min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+            <span class="tier-read" data-bpp-note="OK"></span>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Good</b><span data-bpp-note="GOOD"></span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-bpp-GOOD" data-bpp="GOOD"
+          <div class="tier-rung">
+            <span class="tier-name">Good</span>
+            <div class="tier-bar"><i data-bpp-bar="GOOD"></i></div>
+            <div class="tier-box"><input type="number" id="adv-bpp-GOOD" data-bpp="GOOD"
               min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+            <span class="tier-read" data-bpp-note="GOOD"></span>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Excellent</b><span data-bpp-note="EXCELLENT"></span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-bpp-EXCELLENT" data-bpp="EXCELLENT"
+          <div class="tier-rung">
+            <span class="tier-name">Excellent</span>
+            <div class="tier-bar"><i data-bpp-bar="EXCELLENT"></i></div>
+            <div class="tier-box"><input type="number" id="adv-bpp-EXCELLENT" data-bpp="EXCELLENT"
               min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+            <span class="tier-read" data-bpp-note="EXCELLENT"></span>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Stellar</b><span data-bpp-note="STELLAR"></span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-bpp-STELLAR" data-bpp="STELLAR"
+          <div class="tier-rung">
+            <span class="tier-name">Stellar</span>
+            <div class="tier-bar"><i data-bpp-bar="STELLAR"></i></div>
+            <div class="tier-box"><input type="number" id="adv-bpp-STELLAR" data-bpp="STELLAR"
               min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+            <span class="tier-read" data-bpp-note="STELLAR"></span>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Insane</b><span data-bpp-note="INSANE"></span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-bpp-INSANE" data-bpp="INSANE"
+          <div class="tier-rung">
+            <span class="tier-name">Insane</span>
+            <div class="tier-bar"><i data-bpp-bar="INSANE"></i></div>
+            <div class="tier-box"><input type="number" id="adv-bpp-INSANE" data-bpp="INSANE"
               min="0.005" max="1" step="0.001"><span class="adv-unit">bpp</span></div>
+            <span class="tier-read" data-bpp-note="INSANE"></span>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab adv-subs-summary" id="adv-bpp-summary"></div>
-          </div>
+          <div class="tier-sum adv-subs-summary" id="adv-bpp-summary"></div>
         </div>
-      </div>
+      </section>
 
-      <!-- Ignore rules: files the scan pretends it never saw. Everything here
-           REMOVES work — nothing is skipped-then-reported, it simply isn't part
-           of the library, so the count, the estimate and the report all agree. -->
-      <div class="adv-sec">
+      <!-- Ignore rules: files the scan pretends it never saw. -->
+      <section class="adv-sec" data-sec="ignore">
         <div class="adv-sec-h">
           <h3>Ignore files</h3>
           <button class="adv-mini" id="adv-ign-reset">Clear rules</button>
@@ -1443,8 +1605,12 @@ body{
             <div class="adv-ctrl"><input type="text" id="adv-ign-names" placeholder="none"></div>
           </div>
           <div class="adv-row">
-            <div class="adv-lab"><b>Already in processing history</b>
-              <span>Skip files finished at these settings on an earlier run.</span></div>
+            <div class="adv-lab"><b>Already processed by VTC</b>
+              <span>Files VTC has already compacted are lean, so they're skipped. The one
+                exception: a file first done in H.264 can shrink again if you re-run it in
+                H.265 or another modern codec. VTC keeps a log and stamps each output's
+                metadata comment, so it never re-encodes the same file more than once.
+                Turn this off to process everything again.</span></div>
             <button class="adv-tog" id="adv-ledger" role="switch"></button>
           </div>
           <div class="adv-row">
@@ -1456,85 +1622,56 @@ body{
             <div class="adv-lab adv-subs-summary" id="adv-ign-summary"></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="adv-sec">
+      <section class="adv-sec" data-sec="tuning">
         <h3>Video tuning</h3>
+        <p class="adv-intro">Fine adjustments to how targets are chosen. The HEVC factors set how
+          much less bitrate H.265 needs than H.264 for the same quality — 0.60 means H.265 at 60%
+          of the H.264 bitrate. Its edge grows with resolution, so 4K and 8K sit below HD.
+          <a class="adv-learn" data-about="how">Learn more ›</a></p>
         <div class="adv-grid">
           <div class="adv-row">
-            <div class="adv-lab"><b>Bitrate floor</b><span>Never target below this — avoids garbage output.</span></div>
+            <div class="adv-lab"><b>Bitrate floor</b><span>The lowest bitrate VTC will ever
+              target. Very low targets go blocky and smeared, so anything that would fall below
+              this is lifted back up to it.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-floor" min="200" max="20000" step="100"><span class="adv-unit">kbps</span></div>
           </div>
           <div class="adv-row">
-            <div class="adv-lab"><b>Re-encode tolerance</b><span>Only re-encode a source more than this % over its target.</span></div>
+            <div class="adv-lab"><b>Re-encode tolerance</b><span>A file already near its target
+              isn't worth a lossy re-encode. VTC only re-encodes a source more than this % over
+              its tier target; at or under, it's left exactly as it is.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-tol" min="0" max="100" step="1"><span class="adv-unit">%</span></div>
           </div>
           <div class="adv-row">
-            <div class="adv-lab"><b>HEVC factor · HD</b><span>Target = H.264 target × this, at ≤1080p.</span></div>
+            <div class="adv-lab"><b>HEVC factor · HD</b><span>For files ≤1080p. H.265 target =
+              H.264 target × this. 0.60 ≈ 40% smaller at the same quality.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-hevc-hd" min="0.2" max="1" step="0.01"></div>
           </div>
           <div class="adv-row">
-            <div class="adv-lab"><b>HEVC factor · 4K</b><span>Same, at ≤4K.</span></div>
+            <div class="adv-lab"><b>HEVC factor · 4K</b><span>For files &gt;1080p up to 4K.
+              Usually below the HD factor — H.265 saves more at higher resolutions.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-hevc-4k" min="0.2" max="1" step="0.01"></div>
           </div>
           <div class="adv-row">
-            <div class="adv-lab"><b>HEVC factor · 8K+</b><span>Same, above 4K.</span></div>
+            <div class="adv-lab"><b>HEVC factor · 8K+</b><span>For files above 4K, where H.265
+              is most efficient of all — typically the lowest factor.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-hevc-8k" min="0.2" max="1" step="0.01"></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="adv-sec">
-        <h3>Audio &amp; container</h3>
+      <section class="adv-sec" data-sec="run">
+        <h3>Running</h3>
         <div class="adv-grid">
           <div class="adv-row">
-            <div class="adv-lab"><b>Container</b><span>Auto picks MP4, falling back to MKV only when it must.</span></div>
-            <div class="adv-seg" id="adv-container">
-              <button data-v="auto">Auto</button><button data-v="mp4">MP4</button><button data-v="mkv">MKV</button>
-            </div>
-          </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Audio</b><span>Passthrough copies tracks; FLAC forces MKV.</span></div>
-            <div class="adv-ctrl">
-              <select id="adv-audio">
-                <option value="passthrough">Passthrough</option>
-                <option value="aac">AAC</option>
-                <option value="ac3">AC-3</option>
-                <option value="flac">FLAC (lossless)</option>
-              </select>
-            </div>
-          </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Audio bitrate · stereo</b><span>AAC/AC-3, ≤2 channels.</span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-ab-stereo" min="64" max="640" step="16"><span class="adv-unit">kbps</span></div>
-          </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Audio bitrate · 5.1+</b><span>AAC/AC-3, &gt;2 channels.</span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-ab-multi" min="128" max="1024" step="16"><span class="adv-unit">kbps</span></div>
-          </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Keep image subtitles</b><span>Prefer MKV over dropping PGS/DVD subtitle tracks.</span></div>
-            <button class="adv-tog" id="adv-image-subs" role="switch"></button>
-          </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Force MKV over N tracks</b><span>0 = off. Forces MKV when audio+sub tracks exceed this.</span></div>
-            <div class="adv-ctrl"><input type="number" id="adv-mkv-tracks" min="0" max="64" step="1"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="adv-sec">
-        <h3>Execution</h3>
-        <div class="adv-grid">
-          <div class="adv-row">
-            <div class="adv-lab"><b>Parallel jobs</b><span>Files encoded at once. Hardware encoders rarely benefit past 1–2.</span></div>
+            <div class="adv-lab"><b>Parallel jobs</b><span>How many files are encoded at once. Hardware encoders rarely benefit past 1–2.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-jobs" min="1" max="16" step="1"></div>
           </div>
-          <!-- The resume ledger moved up into "Ignore files": it is an ignore
-               rule, and it belongs beside the button that empties it. -->
         </div>
-      </div>
+      </section>
 
+      </div>
     </div>
     <div class="sheet-f">
       <button class="btn-ghost" id="adv-reset" style="margin-right:auto">Reset to defaults</button>
@@ -1559,6 +1696,9 @@ body{
           <div class="cmp-divider" id="cmp-divider"><span class="cmp-handle"></span></div>
         </div>
       </div>
+      <!-- Frame-sync diagnostic: press D to toggle. Shows each panel's exact time
+           and frame so a one-frame offset can be measured, not guessed at. -->
+      <div id="pv-dbg" hidden></div>
       <button class="btn-ghost big-x" id="big-close">Close</button>
     </div>
     <div class="sheet-f">
@@ -1576,6 +1716,7 @@ body{
           <span class="big-file mono"><span class="big-file-l">Sample</span>
             <b id="big-src">—</b>
             <button class="tp-tool" id="big-pick">Select</button></span>
+          <span class="big-srcinfo mono" id="big-srcinfo"></span>
         </div>
       </div>
     </div>
@@ -2389,13 +2530,15 @@ const shutSheet=id=>{
 // question shows — the estimate below indexes into it, so the two must not drift.
 const TIER_ORDER = ['OK','GOOD','EXCELLENT','STELLAR','INSANE'];
 const TIER_LABEL = { OK:'OK', GOOD:'Good', EXCELLENT:'Excellent', STELLAR:'Stellar', INSANE:'Insane' };
-// The shipped densities, derived from the H.264 @1080p30 anchors (4.0 / 5.0 /
-// 6.8 / 8.0 / 9.0 Mbps). "Reset tiers" restores exactly these.
-const BPP_DEFAULTS = { OK:0.0643, GOOD:0.0804, EXCELLENT:0.1093, STELLAR:0.1286, INSANE:0.1447 };
+// The shipped densities, raised so INSANE is essentially transparent (visually
+// indistinguishable from source on demanding footage) and the rest cascade down
+// from it. H.264 @1080p30 anchors = 6.0 / 8.0 / 10.5 / 13.0 / 15.5 Mbps (must match
+// Tier in model.py). "Reset tiers" restores exactly these.
+const BPP_DEFAULTS = { OK:0.0965, GOOD:0.1286, EXCELLENT:0.1688, STELLAR:0.2090, INSANE:0.2492 };
 const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], subLangs:[],
   floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
-  imageSubs:true, mkvTracks:0, jobs:1, ledger:true,
+  imageSubs:true, forceMkvSubs:false, jobs:1, ledger:true,
   bpp:Object.assign({}, BPP_DEFAULTS),
   // Ignore rules. '' means the rule is off (not 0 — zero is a real size).
   ignUnderMb:'', ignOverMb:'', ignExts:[], ignNames:[] };
@@ -2420,6 +2563,19 @@ function advPush(){
   } catch(e){}
 }
 window.advPush = advPush;
+// Restore persisted Advanced settings on launch (called by the pywebview bridge with
+// whatever was saved to disk). Merges saved values over the defaults and repaints.
+window.__vtcApplySavedAdv = (saved)=>{
+  if(!saved || typeof saved!=='object') return;
+  try{
+    const b = saved.bpp;
+    Object.keys(saved).forEach(k=>{ if(k!=='bpp' && (k in ADV)) ADV[k]=saved[k]; });
+    if(b && typeof b==='object') Object.keys(b).forEach(k=>{ if(k in ADV.bpp) ADV.bpp[k]=+b[k]||ADV.bpp[k]; });
+    if(typeof advToForm==='function') advToForm();
+    if(typeof advBppNotes==='function') advBppNotes();
+    if(typeof applyTierTags==='function') applyTierTags();
+  }catch(e){}
+};
 // Two independent filters are easy to combine into something you didn't mean —
 // most importantly ticking nothing, which silently discards every subtitle. Say
 // out loud what the current pair actually does.
@@ -2456,26 +2612,27 @@ const qNum = b => String(Math.round(b*1000));
 // and frame rate multiplies it. Everywhere else says BPP alone, because a bitrate
 // quoted without its resolution and frame rate is the misleading half of the story.
 function advBppImplication(v){
-  const h265 = (answers.codec ?? 1) === 1;          // default output codec is H.265
-  const f1080 = h265 ? (ADV.hevcHd || 0.60) : 1;
-  const f4k   = h265 ? (ADV.hevc4k || 0.50) : 1;
-  const m1080 = v * 1920*1080 * 30 / 1e6 * f1080;
-  const m4k   = v * 3840*2160 * 30 / 1e6 * f4k;
-  const name  = h265 ? 'H.265' : 'H.264';
-  // quality -> this codec's bpp -> a bitrate. Both steps, so the arithmetic is
-  // visible rather than something the app does behind your back.
-  return `quality ${qNum(v)} → ${name} ${(v*f1080).toFixed(4)} bpp`
-       + ` · ${m1080.toFixed(1)} Mbps at 1080p30`
-       + ` · ${m4k.toFixed(1)} at 4K30 · double at 60fps`;
+  // A plain, concrete read of the density: what it costs in each codec at a common
+  // reference (1080p30). No 4K/60fps brackets, no math notation — the full model
+  // lives behind "Learn more". The box holds the H.264 bpp; H.265 is derived.
+  const px1080 = 1920*1080*30/1e6;                 // Mpix/s at 1080p30
+  const hHd = ADV.hevcHd || 0.60;
+  return `quality ${qNum(v)} · H.264 ${(v*px1080).toFixed(1)} Mbps · H.265 ${(v*hHd*px1080).toFixed(1)} Mbps at 1080p30`;
 }
 function advBppNotes(){
+  // The densest tier fills the ladder; every other rung's bar is its share of that,
+  // so the five bars are a visual ordering you can read at a glance.
+  const ref = Math.max(...TIER_ORDER.map(k=>ADV.bpp[k]||0), 1e-6);
   TIER_ORDER.forEach(k=>{
-    const el = document.querySelector(`[data-bpp-note="${k}"]`); if(!el) return;
+    const el = document.querySelector(`[data-bpp-note="${k}"]`);
+    const bar = document.querySelector(`[data-bpp-bar="${k}"]`);
     const v = ADV.bpp[k], def = BPP_DEFAULTS[k];
     const changed = Math.abs(v-def) > 1e-9;
-    el.textContent = advBppImplication(v)
-      + (changed ? ` · default ${fmtBpp(def)}` : '');
-    el.style.color = changed ? 'var(--accent)' : '';
+    if(bar) bar.style.setProperty('--fill', (v/ref*100).toFixed(1));
+    if(el){
+      el.textContent = advBppImplication(v) + (changed ? ` · default ${fmtBpp(def)} bpp` : '');
+      el.classList.toggle('changed', changed);
+    }
   });
   const out = $('#adv-bpp-summary');
   if(out){
@@ -2485,7 +2642,7 @@ function advBppNotes(){
     out.classList.toggle('warn', bad.length>0);
     out.textContent = bad.length
       ? `${bad.map(k=>TIER_LABEL[k]).join(' and ')} now sit at or below the tier beneath — they will give you less, not more.`
-      : 'Higher BPP = more information per frame = bigger files. Every target scales from here with the file’s own pixels and frame rate.';
+      : '';                        // the "higher bpp = bigger files" note now leads the section
   }
   applyTierTags();
 }
@@ -2549,7 +2706,7 @@ function advHistoryInfo(){
 function advToForm(){                                  // ADV -> controls
   [['#adv-floor','floor'],['#adv-tol','tol'],['#adv-hevc-hd','hevcHd'],
    ['#adv-hevc-4k','hevc4k'],['#adv-hevc-8k','hevc8k'],['#adv-ab-stereo','abStereo'],
-   ['#adv-ab-multi','abMulti'],['#adv-mkv-tracks','mkvTracks'],['#adv-jobs','jobs']
+   ['#adv-ab-multi','abMulti'],['#adv-jobs','jobs']
   ].forEach(([id,key])=>{ const el=$(id); if(el) el.value=ADV[key]; });
   $('#adv-audio').value = ADV.audio;
   $('#adv-subs-langs').value = (ADV.subLangs||[]).join(', ');
@@ -2571,7 +2728,24 @@ function advToForm(){                                  // ADV -> controls
   $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
+  $('#adv-force-mkv-subs').classList.toggle('on', !!ADV.forceMkvSubs);
   $('#adv-ledger').classList.toggle('on', !!ADV.ledger);
+  advFormatLabels();
+  advApplyAudioContext();
+}
+// The "files not already …" heading and blurb track the chosen container: MP4 or
+// Auto reads about non-MP4 files; MKV reads about non-MKV files. The four options
+// map to the same engine behaviour either way (convert · lossless-only · shrink in
+// place · leave), so only the wording changes.
+function advFormatLabels(){
+  const lab=$('#adv-format-lab'), note=$('#adv-format-note'); if(!lab||!note) return;
+  const mkv = ADV.container==='mkv';
+  const tgt = mkv ? 'MKV' : 'MP4';
+  lab.textContent = `Files not already ${tgt}`;
+  note.textContent = `Convert every non-${tgt} file to ${tgt}, only losslessly rehome the`
+    + ` ones that can be, shrink them while keeping their own format, or leave them`
+    + ` untouched. Also asked up front when a scan finds files that aren't ${tgt}.`;
+  advApplyContainerContext();          // MKV makes the subtitle toggles moot
 }
 function advBind(){                                    // controls -> ADV
   const num=(id,key,{min,max,float}={})=>{ const el=$(id); if(!el) return;
@@ -2588,9 +2762,8 @@ function advBind(){                                    // controls -> ADV
   num('#adv-hevc-8k','hevc8k',{min:0.2,max:1,float:true});
   num('#adv-ab-stereo','abStereo',{min:64,max:640});
   num('#adv-ab-multi','abMulti',{min:128,max:1024});
-  num('#adv-mkv-tracks','mkvTracks',{min:0,max:64});
   num('#adv-jobs','jobs',{min:1,max:16});
-  $('#adv-audio').onchange=e=>{ ADV.audio=e.target.value; };
+  $('#adv-audio').onchange=e=>{ ADV.audio=e.target.value; advApplyAudioContext(); advPush(); };
   $('#adv-subs-langs').oninput=e=>{
     ADV.subLangs = e.target.value.split(',').map(s=>s.trim()).filter(Boolean);
     advSubsSummary();
@@ -2608,8 +2781,11 @@ function advBind(){                                    // controls -> ADV
   $('#adv-format').querySelectorAll('button').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     ADV.container=b.dataset.v;
-    $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
-  $('#adv-image-subs').onclick=()=>{ ADV.imageSubs=!ADV.imageSubs; $('#adv-image-subs').classList.toggle('on',ADV.imageSubs); };
+    $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+    advFormatLabels();                 // the non-MP4/non-MKV wording follows the container
+    advPush(); });
+  $('#adv-image-subs').onclick=()=>{ ADV.imageSubs=!ADV.imageSubs; $('#adv-image-subs').classList.toggle('on',ADV.imageSubs); advPush(); };
+  $('#adv-force-mkv-subs').onclick=()=>{ ADV.forceMkvSubs=!ADV.forceMkvSubs; $('#adv-force-mkv-subs').classList.toggle('on',ADV.forceMkvSubs); advPush(); };
   $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); };
 
   // Tier densities. Typing is left alone until it parses (so "0." isn't
@@ -3189,7 +3365,11 @@ function openConfirm(){
     };
   });
   $('#c-src').textContent=`${SRC.files.toLocaleString()} files · ${tbStr(SRC.tb)}`;
-  $('#c-proj').textContent=$('#est').textContent;
+  // The confirm SOURCE/PROJECTED pair is the WHOLE library (your 4.68 TB folder
+  // becomes N TB), so it reads the full-folder projected, not the deck's worked-cohort
+  // headline. The work detail sits below in confirmWork().
+  $('#c-proj').textContent = (window.__lastEst && typeof window.__lastEst.out_tb==='number')
+    ? tbStr(window.__lastEst.out_tb) : $('#est').textContent;
   confirmWork();          // measure, then report on the files that will be touched
   const destK=M.find(q=>q.id==='dest').opts[answers.dest].k;
   $('#c-dest').textContent=destK;
@@ -3417,6 +3597,47 @@ document.querySelectorAll('.atab').forEach(t=>{
     t.classList.add('on'); $('#a-'+t.dataset.a).classList.add('on');
   };
 });
+// Advanced modal: the section rail shows one section at a time.
+(function(){
+  const rail=$('#adv-rail'); if(!rail) return;
+  rail.querySelectorAll('.adv-nav').forEach(btn=>{
+    btn.onclick=()=>{
+      rail.querySelectorAll('.adv-nav').forEach(b=>b.classList.toggle('on', b===btn));
+      document.querySelectorAll('#adv-pane > .adv-sec').forEach(s=>s.classList.toggle('on', s.dataset.sec===btn.dataset.sec));
+      const p=$('#adv-pane'); if(p) p.scrollTop=0;
+    };
+  });
+})();
+// A "Learn more ›" link steps out of Advanced into the About panel at the right
+// page — the place for the long explanation, so the setting itself stays brief.
+function advOpenAbout(tab){
+  shutSheet('#adv-sheet');
+  openSheet('#about-sheet');
+  const t=[...document.querySelectorAll('.atab')].find(x=>x.dataset.a===tab);
+  if(t && t.onclick) t.onclick();
+}
+document.querySelectorAll('.adv-learn').forEach(a=>{ a.onclick=()=>advOpenAbout(a.dataset.about); });
+// When the container is MKV, the two "use MKV for subtitles" toggles can't do
+// anything (MKV already keeps every subtitle) — dim and disable them, and they
+// say why. Re-evaluated whenever the container changes.
+function advApplyContainerContext(){
+  const mkv = !!(window.ADV && ADV.container==='mkv');
+  ['adv-image-subs','adv-force-mkv-subs'].forEach(id=>{
+    const btn=$('#'+id); if(!btn) return;
+    btn.disabled = mkv;
+    const row=btn.closest('.adv-row'); if(row){ row.classList.toggle('moot', mkv); row.classList.toggle('moot-mkv', mkv); }
+  });
+}
+// The audio bitrates apply only when re-encoding to AAC/AC-3; on passthrough (the
+// default) or lossless FLAC they do nothing, so grey them out and say why.
+function advApplyAudioContext(){
+  const usesBitrate = !!(window.ADV && (ADV.audio==='aac' || ADV.audio==='ac3'));
+  ['adv-ab-stereo','adv-ab-multi'].forEach(id=>{
+    const el=$('#'+id); if(!el) return;
+    el.disabled = !usesBitrate;
+    const row=el.closest('.adv-row'); if(row){ row.classList.toggle('moot', !usesBitrate); row.classList.toggle('moot-pass', !usesBitrate); }
+  });
+}
 
 // ═══ previews ════════════════════════════════════════════
 // One clock drives all five panels. They are the same five seconds of the same
@@ -3499,8 +3720,29 @@ function buildPreviewGrid(n){
 // size worth looking at beat six you cannot judge anything from.
 function pvShowPair(){
   const g=$('#grid'); if(!g || !g.classList.contains('live')) return;
+  // All-tiers fullscreen shows every panel at once. Panels stream in one tier at
+  // a time and each one calls through here (via pvFillCompare) — so without this
+  // guard the six-up snapped straight back down to two the moment a panel landed.
+  const big=$('#big-sheet');
+  if(big && big.classList.contains('on') && big.classList.contains('tiles')){
+    g.classList.remove('pair');
+    g.querySelectorAll('.cell').forEach(c=>c.classList.remove('off'));
+    requestAnimationFrame(pvApply);
+    return;
+  }
   const a=$('#cmp-a-sel'), b=$('#cmp-b-sel');
-  const pair=[a&&a.value, b&&b.value].filter(v=>v!=='' && v!=null);
+  let pair=[a&&a.value, b&&b.value].filter(v=>v!=='' && v!=null);
+  // While a regenerate is still streaming, the selects are briefly rebuilt with
+  // fewer than two options. Don't fling the deck open to all six in that gap —
+  // that was the flash of "six previews, then two" on a position change. Hold the
+  // last good pair (or fall back to the first two cells) so the deck only ever
+  // shows two outside the All-tiers view.
+  if(pair.length!==2){
+    pair = (PV.lastPair && PV.lastPair.length===2) ? PV.lastPair.slice()
+         : [...g.querySelectorAll('.cell')].slice(0,2).map(c=>c.dataset.i);
+  } else {
+    PV.lastPair = pair.slice();
+  }
   g.classList.toggle('pair', pair.length===2);
   g.querySelectorAll('.cell').forEach(c=>{
     c.classList.toggle('off', pair.length===2 && !pair.includes(c.dataset.i));
@@ -3558,20 +3800,41 @@ function pvApplyCompare(){
 // difference). Percentages are relative to the source (index 0), which reads 0%;
 // tiers are smaller so they read negative. Bigger-than-source (rare) is flagged.
 const humanMB = b => b>=1e6 ? (b/1e6).toFixed(2)+' MB' : Math.max(1,(b/1e3)|0)+' KB';
+// The whole-FILE size, not the 5-second clip's. Panel 0 is the source, so its real
+// file size; every tier scales its clip up by the file's full duration — an honest
+// estimate of what the finished file will weigh.
+function pvFullSize(i, m){
+  if(i==='0' || (m && m.label==='Source')) return PV.srcSize || (m && m.bytes) || 0;
+  const scale = (PV.fullDur && PV.seg) ? PV.fullDur/PV.seg : 1;
+  return (m && m.bytes ? m.bytes : 0) * scale;
+}
+// Source readout under the filename (and in the fullscreen bar): dimensions, frame
+// rate, real density, whole-file size.
+function pvSetSrcInfo(){
+  const parts=[];
+  if(PV.srcW && PV.srcH) parts.push(`${PV.srcW}×${PV.srcH}`);
+  if(PV.fps) parts.push(`${(+PV.fps).toFixed((+PV.fps)%1?2:0)} fps`);
+  if(PV.srcBpp) parts.push(`${(+PV.srcBpp).toFixed(3)} bpp`);
+  if(PV.srcSize) parts.push(human(PV.srcSize));
+  const s=parts.join(' · ');
+  const a=$('#pv-srcinfo'); if(a) a.textContent=s;
+  const b=$('#big-srcinfo'); if(b) b.textContent=s;
+}
 function pvRenderMeta(){
-  const srcB = (PV.meta['0'] && PV.meta['0'].bytes) || 0;   // panel 0 is always Source
+  const srcFull = PV.srcSize || (PV.meta['0'] && PV.meta['0'].bytes) || 0;
   Object.entries(PV.meta).forEach(([i,m])=>{
     const el=$('#grid').querySelector(`.cell-m[data-mrow="${i}"]`); if(!el) return;
     if(m.error){ el.innerHTML='<span class="cd">failed</span>'; return; }
+    const full=pvFullSize(i,m);
     const parts=[];
     if(m.codec) parts.push(`<span class="cd">${m.codec}</span>`);
-    if(m.bytes) parts.push(`<b>${humanMB(m.bytes)}</b>`);
+    if(full) parts.push(`<b>${human(full)}</b>`);
     // BPP (Bits per Pixel, per Frame): the source's real density on panel 0, each
     // tier's target density on the rest. Seeing source ≤ tier explains a small shrink.
     if(m.bpp) parts.push(`<span class="cd">${m.bpp.toFixed(3)} BPP</span>`);
-    if(m.bytes && srcB){
+    if(full && srcFull){
       if(i==='0'){ parts.push(`<span class="df sm">source</span>`); }
-      else { const d=Math.round((m.bytes/srcB-1)*100);
+      else { const d=Math.round((full/srcFull-1)*100);
         const sign = d>0?'+':d<0?'−':'';
         parts.push(`<span class="df${d>0?'':' sm'}">${sign}${Math.abs(d)}%</span>`); }
     }
@@ -3580,6 +3843,12 @@ function pvRenderMeta(){
 }
 window.__vtcPreviewStart = (info)=>{
   if(info && info.name) pvSetSampleName(info.name);
+  if(info && info.fps && info.fps>0) PV.fps=info.fps;   // real frame rate for stepping + frame-snap
+  if(info){                                             // the whole source file, for the readout + estimates
+    PV.srcW=info.w||0; PV.srcH=info.h||0; PV.srcSize=info.srcSize||0;
+    PV.fullDur=info.dur||0; PV.seg=info.seg||5; PV.srcBpp=info.srcBpp||0;
+    pvSetSrcInfo();
+  }
   PV.sw=info.w||1920; PV.sh=info.h||1080; PV.meta={}; PV.codec=info.codec||'';
   PV.pairPicked=false;                         // a new set of panels re-derives the pair
   PV.pos=PV_ANCHOR;                            // a fresh set of previews starts at the top
@@ -3612,7 +3881,17 @@ window.__vtcPreviewPanel = (p)=>{
   v.src=p.url; v.load();
 };
 window.__vtcPreviewDone = ()=>{ setEncodingUI(false);
-  $('#prev-note').textContent='Pick the two to compare on the left · drag a panel to pan the crop · scrub to move both together · full screen wipes between them.'; };
+  $('#prev-note').textContent='Pick the two to compare on the left · drag a panel to pan the crop · scrub to move both together · full screen wipes between them.';
+  // Any regenerate — a new sample OR a retuned tier bpp — rebuilds the panels. If
+  // the enlarged wipe is open, re-point it at the fresh encodes so a bpp change is
+  // visible there too, not only in the deck grid.
+  const refresh = PV.reopenBigOnDone || $('#big-sheet').classList.contains('on');
+  PV.reopenBigOnDone=false;
+  if(refresh && PV.compare){
+    const a=PV.compare.a, b=PV.compare.b;
+    if(PV.meta[a] && PV.meta[b] && PV.meta[a].url && PV.meta[b].url) openCompare(a,b);
+  }
+};
 window.__vtcPreviewError = (msg)=> pvPlaceholder(msg ? ('Previews unavailable - '+msg) : null);
 
 // ── transport: one clock for every panel ─────────────────────────────────────
@@ -3636,6 +3915,18 @@ function pvSeek(t){
   pvVideos().forEach(v=>{ try{ v.currentTime=t; }catch(e){} });
   pvSyncUI();
 }
+// Frame-accurate alignment while PAUSED. The source panel is a pristine stream copy
+// whose mp4 edit list makes WKWebView PRESENT a frame a few ms off the re-encoded
+// tiers — small, but enough to straddle a 40ms frame boundary and read as "one frame
+// out". We do NOT re-encode the source (that would defeat a quality comparison);
+// instead we measure the real difference and offset it: requestVideoFrameCallback
+// reports each panel's actually-displayed frame time, so we nudge the followers onto
+// the leader's frame. Paused only — it never fights playback — and a no-op where the
+// callback isn't supported, so it can only help.
+// (An automatic paused-frame nudger lived here and was removed: chasing the source's
+// edit-list offset by re-seeking hunted and never settled, and it broke the simple,
+// stable pause it was meant to improve. Pause now just seeks every panel to one time,
+// which is what worked. The frame tracker above stays, only to feed the D readout.)
 function pvPlay(){
   if(!PV.ready.size) return;
   PV.playing=!PV.playing;
@@ -3700,7 +3991,9 @@ function bigMoveTransport(){
   $('#big-tp').appendChild($('#transport'));
   $('#big-tp').appendChild($('#ticks'));
   $('#big-tools').insertBefore($('#pv-codec'), $('#big-codec-home'));
+  $('#big-tools').insertBefore($('#pv-pos-field'), $('#pv-codec'));   // slider, left of codec
   $('#big-src').textContent = $('#pv-src').textContent;
+  const bi=$('#big-srcinfo'); if(bi) bi.textContent = $('#pv-srcinfo').textContent;
 }
 function restorePreviews(){
   const pane=$('.pv-main');
@@ -3708,6 +4001,7 @@ function restorePreviews(){
   pane.insertBefore($('#transport'), $('#big-tp-home'));
   pane.insertBefore($('#ticks'), $('#big-tp-home'));
   const codecHome=$('#pv-side-codec'); if(codecHome) codecHome.appendChild($('#pv-codec'));
+  const posHome=$('#pv-pos-home'); if(posHome && posHome.parentNode) posHome.parentNode.insertBefore($('#pv-pos-field'), posHome.nextSibling);
   $('#big-sheet').classList.remove('on');
   $('#big-grid').hidden=false; $('#big-compare').hidden=true;
   if(PV.compare){ ['cmp-a','cmp-b'].forEach(id=>{ const v=document.getElementById(id); if(v){ v.pause(); v.removeAttribute('src'); v.load(); } }); PV.compare=null; PV.playing=false; }
@@ -3740,8 +4034,9 @@ $('#big').onclick=()=>{
 $('#cmp-go').onclick=bigOn;
 $('#big-close').onclick=bigOff;
 $('#big-sheet').onclick=e=>{ if(e.target===$('#big-sheet')) bigOff(); };
-// the sample control in the enlarged bar is the same folder pick as everywhere else
-$('#big-pick').onclick=()=>{ bigOff(); setTimeout(()=>$('#src').click(), 60); };
+// the sample control in the enlarged bar picks a new FILE without leaving the
+// enlarged view — the previews regenerate and the view refreshes onto them.
+$('#big-pick').onclick=pickSampleFile;
 
 // ── split/wipe compare: pick two encodes, wipe a divider to reveal each half ──
 function pvFillCompare(){
@@ -3769,7 +4064,7 @@ function cmpSetSplit(pct){
 // Populate the in-view A/B pickers from the ready previews and select ai/bi.
 function cmpFillTagSels(ai, bi){
   const opts=Object.entries(PV.meta).filter(([i,m])=>m.url && !m.error)
-    .map(([i,m])=>`<option value="${i}">${(m.label||('#'+i))}${m.codec?' · '+m.codec:''}</option>`).join('');
+    .map(([i,m])=>`<option value="${i}">${(m.label||('#'+i))}${m.codec?' · '+m.codec:''}${m.bpp?' · '+m.bpp.toFixed(3)+' bpp':''} · ${human(pvFullSize(i,m))}</option>`).join('');
   const a=$('#cmp-ta-sel'), b=$('#cmp-tb-sel'); if(!a||!b) return;
   a.innerHTML=opts; b.innerHTML=opts; a.value=String(ai); b.value=String(bi);
 }
@@ -3846,15 +4141,24 @@ $('#src').onclick=()=>{
 // Select picks the FILE the previews are cut from, opening in the folder being
 // processed. It used to reuse the folder picker, so changing the sample meant
 // re-choosing a whole library and still getting whichever file came first.
-$('#pv-pick').onclick=()=>{
-  if(window.pywebview && window.pywebview.api.pick_sample_file){
-    Promise.resolve(window.pywebview.api.pick_sample_file()).then(r=>{
+//
+// Both Select buttons (the deck's and the fullscreen bar's) come through here.
+// The fullscreen one must NOT drop back to the main screen: it stays open and,
+// once the new sample's panels have re-encoded, the enlarged view is refreshed
+// in place onto the new footage (see __vtcPreviewDone).
+function pickSampleFile(){
+  const api = window.pywebview && window.pywebview.api;
+  if(api && api.pick_sample_file){
+    if(PV.compare || $('#big-sheet').classList.contains('on')) PV.reopenBigOnDone=true;
+    Promise.resolve(api.pick_sample_file()).then(r=>{
       if(r && r.name) pvSetSampleName(r.name);       // previews regenerate engine-side
-    }).catch(()=>{});
+      else PV.reopenBigOnDone=false;                 // cancelled: nothing to refresh
+    }).catch(()=>{ PV.reopenBigOnDone=false; });
   } else {
     $('#src').click();                               // standalone mock: no file dialog
   }
-};
+}
+$('#pv-pick').onclick=pickSampleFile;
 // The sample's own name, once the engine says which file it used. Falls back to
 // the folder tail until then, which is all the mock ever knows.
 function pvSetSampleName(name){
@@ -3932,7 +4236,44 @@ function pvLoop(){
     if(L && L.currentTime>=(PV.dur||L.duration||5)-0.05){ PV.playing=false; pvVideos().forEach(v=>v.pause()); }
     pvSyncUI();
   }
+  pvDbgUpdate();
   requestAnimationFrame(pvLoop);
+}
+// ── frame-sync diagnostic (press D) ──────────────────────────────────────────
+// A hidden readout of every panel's exact currentTime and frame index, plus the
+// gap between the two compared sides. Lets a one-frame offset be MEASURED — which
+// tells us whether it's a fixed offset (correctable) or a rounding/grid mismatch.
+let pvDbg=false;
+addEventListener('keydown', e=>{
+  if((e.key==='d'||e.key==='D') && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName||''))){
+    pvDbg=!pvDbg; const el=$('#pv-dbg'); if(el) el.hidden=!pvDbg;
+  }
+});
+// Track the ACTUAL displayed frame of a video via requestVideoFrameCallback. The
+// callback's mediaTime is the presentation timestamp of the frame on screen right
+// now — the ground truth the currentTime seek position can't give us (the source's
+// edit list offsets the two). Self-perpetuating and idempotent per element.
+function pvTrackFrames(v){
+  if(!v || v._tracked || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+  v._tracked=true;
+  const cb=(_now, meta)=>{ v._mt=meta.mediaTime; try{ v.requestVideoFrameCallback(cb); }catch(e){} };
+  try{ v.requestVideoFrameCallback(cb); }catch(e){}
+}
+function pvDbgUpdate(){
+  const el=$('#pv-dbg'); if(!el || el.hidden) return;
+  pvVideos().forEach(pvTrackFrames);
+  const vs=pvVideos(); if(!vs.length){ el.textContent='no video'; return; }
+  const f=PV.fps||24;
+  const rows=vs.map((v,i)=>{
+    const t=v.currentTime||0, mt=(v._mt!=null?v._mt:t);
+    const tag = PV.compare ? (i===0?'LEFT ':'RIGHT') : ('#'+i+'   ').slice(0,5);
+    return `${tag} shown=${mt.toFixed(4)}s (frame ${Math.round(mt*f)})  seek=${t.toFixed(4)}s`;
+  });
+  let foot = `fps ${f.toFixed(3)}${PV.playing?' · playing':' · paused'}`;
+  if(vs.length>=2 && vs[0]._mt!=null && vs[1]._mt!=null){
+    const d=vs[0]._mt - vs[1]._mt;                 // difference of the FRAMES ACTUALLY SHOWN
+    foot += `   shown Δ=${(d*1000).toFixed(1)}ms (${(d*f).toFixed(2)} frames)`; }
+  el.textContent = rows.join('\n') + '\n' + foot;
 }
 
 // ═══ fit ═════════════════════════════════════════════════
