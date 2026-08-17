@@ -307,6 +307,13 @@ _MP4_EMBEDDABLE_SUBS = frozenset({
 })
 
 
+def _mp4_incompatible_audio(info: MediaInfo) -> bool:
+    """True if the file carries audio MP4 can't hold cleanly (DTS, DTS-HD, TrueHD,
+    raw PCM …). Those either need a lossy AAC conversion or an MKV container — which
+    is the choice keep_mkv_for_audio decides."""
+    return any((a.codec or "").lower() not in MP4_AUDIO_CODECS for a in info.audio)
+
+
 def _has_unembeddable_subs(info: MediaInfo) -> bool:
     """True if the file carries any subtitle MP4 cannot embed — the only case where
     'avoid sidecar .srt' has anything to do: a normal text sub embeds fine and stays
@@ -318,12 +325,14 @@ def _has_unembeddable_subs(info: MediaInfo) -> bool:
 def _container_decision(config: RunConfig, info: MediaInfo) -> tuple[Container, str]:
     """The output container AND the human reason for it (reason set only for MKV).
 
-    Forced MP4/MKV is honoured. AUTO is MP4 unless something can only ride in
-    Matroska: lossless (FLAC) audio, image-based subtitles you asked to keep
-    (PGS/DVD — MP4 cannot hold them), or more tracks than the MKV threshold.
+    MKV is honoured outright. AUTO and MP4 are BOTH MP4 unless something can only
+    ride in Matroska — lossless (FLAC) audio, MP4-incompatible audio, image subs,
+    an un-embeddable text sub, or more tracks than the threshold. The difference is
+    which of those exceptions bite: AUTO applies them ALL (the smart default), while
+    a forced MP4 applies only the ones the user left switched on — its "keep MKV
+    when MP4 would lose something" exceptions. With every exception off, a forced
+    MP4 is a pure MP4 convert.
     """
-    if config.container == Container.MP4:
-        return Container.MP4, ""
     if config.container == Container.MKV:
         return Container.MKV, "you set the container to MKV"
     # "Shrink but keep the source format": stay in the source's container. Fall back
@@ -338,13 +347,24 @@ def _container_decision(config: RunConfig, info: MediaInfo) -> tuple[Container, 
         if ext == ".mkv":
             return Container.MKV, "kept as MKV"
         return Container.MKV, "kept in Matroska (source container can't hold a modern codec)"
+    # FLAC output physically cannot live in MP4 — it keeps MKV whatever the choice.
     if config.audio_policy == AudioPolicy.FLAC:
         return Container.MKV, "FLAC (lossless) audio needs Matroska"
-    if config.keep_image_subs and info.image_subs:
+    # AUTO applies every exception; a forced MP4 only the toggled-on ones.
+    auto = config.container == Container.AUTO
+    if (auto or config.keep_image_subs) and info.image_subs:
         codecs = ", ".join(sorted({s.codec or "unknown" for s in info.image_subs}))
         return Container.MKV, f"image subtitles ({codecs}) MP4 can't hold"
-    if config.mkv_if_text_subs and _has_unembeddable_subs(info):
-        return Container.MKV, "keeps a subtitle MP4 can't embed (no sidecar .srt)"
+    if (auto or config.keep_mkv_for_audio) and _mp4_incompatible_audio(info):
+        bad = ", ".join(sorted({(a.codec or "?").upper() for a in info.audio
+                                if (a.codec or "").lower() not in MP4_AUDIO_CODECS}))
+        return Container.MKV, f"audio ({bad}) can't go into MP4 without a lossy conversion"
+    # Text subs are the exception to "AUTO keeps everything as MKV": a sidecar .srt is
+    # BOTH lossless AND more widely playable than an embedded-MKV track, so AUTO writes
+    # the .srt (MP4 path) rather than forcing MKV. Only an explicit opt-in on a forced
+    # MP4 keeps MKV here (hence `not auto` — AUTO ignores the stored flag and uses .srt).
+    if not auto and config.mkv_if_text_subs and _has_unembeddable_subs(info):
+        return Container.MKV, "keeps a subtitle MP4 can't embed (embedded in MKV, not a sidecar)"
     if config.mkv_if_tracks_over and (len(info.audio) + len(info.subtitles)) > config.mkv_if_tracks_over:
         return Container.MKV, f"more than {config.mkv_if_tracks_over} tracks"
     return Container.MP4, ""
@@ -385,10 +405,15 @@ def _audio_attempts(config: RunConfig, info: MediaInfo, container: Container) ->
     # PASSTHROUGH
     if container == Container.MKV:
         return [["-c:a", "copy"]]
-    # MP4: copy if every track is MP4-friendly is likely; else AAC. Try both.
+    # MP4: copy only when EVERY track is a codec MP4 carries cleanly. Otherwise
+    # convert to AAC — do NOT try `copy` first: ffmpeg will happily stream-copy DTS
+    # (or TrueHD) into an MP4, and the file then plays in VLC but NOT in QuickTime,
+    # which is the bug this closes. (A file whose audio we'd rather keep than convert
+    # is steered to MKV upstream by keep_mkv_for_audio; by the time we're targeting
+    # MP4, converting is the intended outcome.)
     if info.audio and all(a.codec in MP4_AUDIO_CODECS for a in info.audio):
         return [["-c:a", "copy"]]
-    return [["-c:a", "copy"], aac]
+    return [aac]
 
 
 def _describe_audio(aargs: list[str], has_audio: bool) -> str:

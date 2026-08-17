@@ -42,7 +42,7 @@ def test_pipeline_mixed_folder():
     with tempfile.TemporaryDirectory() as d:
         src = Path(d)
         _clip(src / "fat.mkv", "libx264", 12000)     # fat h264 in mkv  -> SHRINK
-        _clip(src / "lean.mp4", "libx264", 3500)      # lean h264 mp4    -> SKIP_AT_TIER
+        _clip(src / "lean.mp4", "libx264", 3500)      # h264 mp4 below tier -> SKIP_UNDER_TIER
         _clip(src / "already.mp4", "libx265", 3000)   # hevc mp4         -> SKIP_MODERN
 
         cfg = RunConfig(src=src, encoder=Encoder.SOFTWARE, source_action=SourceAction.ARCHIVE)
@@ -51,7 +51,7 @@ def test_pipeline_mixed_folder():
         results = pipeline.run(cfg)
         by_name = {r.path.name: r.outcome for r in results}
         assert by_name["fat.mkv"] is Outcome.SHRINK, by_name
-        assert by_name["lean.mp4"] is Outcome.SKIP_AT_TIER, by_name
+        assert by_name["lean.mp4"] is Outcome.SKIP_UNDER_TIER, by_name
         assert by_name["already.mp4"] is Outcome.SKIP_MODERN, by_name
 
         # Placement: fat.mkv -> fat.mp4 (hevc), original archived under originals/

@@ -23,6 +23,7 @@ _SUMMARY_ROWS: list[tuple[str, Outcome]] = [
     ("transcoded (compatibility)", Outcome.TRANSCODE),
     ("remuxed into MP4 (lossless)", Outcome.REMUX),
     ("left as-is: already at tier", Outcome.SKIP_AT_TIER),
+    ("left as-is: below your quality tier", Outcome.SKIP_UNDER_TIER),
     ("left as-is: already H.265/AV1/VP9", Outcome.SKIP_MODERN),
     ("left as-is: output already existed", Outcome.SKIP_EXISTING),
     ("left as-is: saving too small", Outcome.SKIP_MIN_SAVING),

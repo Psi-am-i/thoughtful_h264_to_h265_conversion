@@ -56,8 +56,14 @@ class Aborted(Exception):
     """Raised inside the copy when `abort` asks to give up between chunks."""
 
 
-def _reachable(path: Path, timeout: float = _REACH_TIMEOUT_S) -> bool:
-    """True if the volume under `path` answers a stat + tiny write within `timeout`.
+def _reachable(path: Path, timeout: float = _REACH_TIMEOUT_S, write: bool = True) -> bool:
+    """True if the volume under `path` answers within `timeout`.
+
+    With ``write`` (the default) it does a stat + tiny write — the thorough check,
+    since a stat can be served from cache while writes still fail. With ``write``
+    False it only stats, which is enough to catch a fully DEAD mount (stat itself
+    hangs) without leaving write chatter on the share — used by the cheap per-file
+    guard that runs on every file of a run.
 
     The whole probe runs in a throwaway daemon thread and we wait on it with a
     timeout, because a stale network mount makes even ``os.stat`` block forever — so
@@ -78,15 +84,15 @@ def _reachable(path: Path, timeout: float = _REACH_TIMEOUT_S) -> bool:
                     break
                 d = d.parent
             os.stat(d)
-            # A stat can be served from cache while writes still fail, so actually
-            # touch the volume. Unique name so parallel workers never collide.
-            probe = d / f".vtc_reach.{os.getpid()}.{threading.get_ident()}"
-            with open(probe, "wb") as fh:
-                fh.write(b"")
-            try:
-                probe.unlink()
-            except OSError:
-                pass
+            if write:
+                # Unique name so parallel workers never collide.
+                probe = d / f".vtc_reach.{os.getpid()}.{threading.get_ident()}"
+                with open(probe, "wb") as fh:
+                    fh.write(b"")
+                try:
+                    probe.unlink()
+                except OSError:
+                    pass
             result["ok"] = True
         except OSError:
             result["ok"] = False
@@ -96,6 +102,19 @@ def _reachable(path: Path, timeout: float = _REACH_TIMEOUT_S) -> bool:
     t.join(timeout)
     # Still running -> the probe itself hung -> unreachable.
     return result["ok"] if not t.is_alive() else False
+
+
+def wait_reachable(path: Path, notify: NotifyCB | None = None,
+                   give_up: AbortCB | None = None,
+                   reachable: Callable[[Path], bool] | None = None,
+                   poll: float = _POLL_S) -> bool:
+    """Public guard: block until `path`'s volume answers, emitting STUCK/BACK so the
+    UI can raise and clear a banner. ``give_up() -> True`` (e.g. the user asked to
+    stop/abort) breaks the wait and returns False; otherwise returns True once the
+    volume is reachable. Never touches the caller's thread with a blocking syscall —
+    the probe is bounded (see :func:`_reachable`)."""
+    reach = reachable or _reachable
+    return _wait_for_volume(Path(path), notify, give_up, reach, poll)
 
 
 def _wait_for_volume(path: Path, notify: NotifyCB | None, abort: AbortCB | None,

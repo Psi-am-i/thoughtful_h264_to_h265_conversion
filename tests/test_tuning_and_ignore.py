@@ -274,7 +274,7 @@ def test_picked_file_goes_to_software_on_a_hardware_run(monkeypatch):
         monkeypatch.setattr(pipeline.encode, "select_hw_encoder",
                             lambda c: "hevc_videotoolbox")
 
-        def fake_process(config, ledger, hw_encoder, f, progress=None, notify=None):
+        def fake_process(config, ledger, hw_encoder, f, progress=None, notify=None, probed=None):
             seen[f.name] = hw_encoder
             return None
         monkeypatch.setattr(pipeline, "process_file", fake_process)
@@ -282,6 +282,26 @@ def test_picked_file_goes_to_software_on_a_hardware_run(monkeypatch):
 
         assert seen["film.mkv"] is None, "ticked file was still sent to hardware"
         assert seen["episode.mkv"] == "hevc_videotoolbox", "untouched file lost hardware"
+
+
+def test_run_reuses_the_estimate_measurements(monkeypatch):
+    """Start must NOT re-probe files the estimate already measured — passing `probed`
+    reuses that work, so a big library goes straight to encoding."""
+    from vtc.ffprobe import MediaInfo
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d)
+        f = _touch(src / "already-modern.mp4", 20_000_000)
+        cfg = RunConfig(src=src, ledger_enabled=False)
+        cached = MediaInfo(path=f, ok=True, vcodec="hevc", width=1920, height=1080,
+                           fps=24.0, bit_rate=5_000_000)          # modern in mp4 → left alone
+        monkeypatch.setattr(pipeline.encode, "select_hw_encoder", lambda c: None)
+
+        def boom(path, ffprobe="ffprobe"):
+            raise AssertionError("run re-probed a file the estimate already measured")
+        monkeypatch.setattr(pipeline, "probe", boom)
+
+        results = pipeline.run(cfg, probed={f: cached})
+        assert results and results[0].outcome.value.startswith("skip")
 
 
 def test_ledger_key_separates_a_software_pick():

@@ -17,6 +17,7 @@ The engine (pipeline/model/config) is untouched and UI-agnostic.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -398,6 +399,8 @@ def _apply_advanced(cfg: RunConfig, adv: dict) -> None:
         cfg.container = _CONTAINER.get(adv["container"], cfg.container)
     if "imageSubs" in adv:
         cfg.keep_image_subs = bool(adv["imageSubs"])
+    if "keepMkvAudio" in adv:
+        cfg.keep_mkv_for_audio = bool(adv["keepMkvAudio"])
     if "ledger" in adv:
         cfg.ledger_enabled = bool(adv["ledger"])
 
@@ -457,6 +460,7 @@ _BRIDGE_JS = r"""
     const hwCodecs = [cap&&cap.h264&&'H.264', cap&&cap.h265&&'H.265'].filter(Boolean).join(' ');
     // The version is written into the HTML for the standalone mock; in the app it
     // comes from the package, so the two can never disagree.
+    if(cap && cap.file_manager) window.__vtcFileMgr = cap.file_manager;   // "Finder"/"Explorer"/"Files"
     if(cap && cap.app_version){
       const pv = document.querySelector('.pv-ver'); if(pv) pv.textContent = 'v'+cap.app_version;
       const av = document.querySelector('.about-ver');
@@ -522,8 +526,13 @@ _BRIDGE_JS = r"""
   window.drawEstimate = ()=>{
     if(!SRC) return;
     if(SRC.scanning){                                // count not in yet
-      document.getElementById('now-v').innerHTML = '<span style="font-size:.5em;letter-spacing:.1em">SCANNING…</span>';
-      document.getElementById('now-n').textContent = 'counting your library…';
+      // ONE animated status (no stale "Choose a folder", no orange "—" on the right).
+      document.getElementById('now-v').innerHTML = '<span class="ba-busy">Counting your library…</span>';
+      document.getElementById('now-n').textContent = '';
+      document.getElementById('est').innerHTML = '<span class="ba-busy" style="font-size:.7em">·&#8202;·&#8202;·</span>';
+      const ed = document.getElementById('est-d'); if(ed) ed.textContent = '';
+      const en = document.getElementById('est-n'); if(en) en.textContent = '';
+      gateStart();                                   // still gate Start on the answers so far
       return;
     }
     // Until the estimate lands, show the folder total; the estimate then narrows the
@@ -534,19 +543,29 @@ _BRIDGE_JS = r"""
     if(answers.codec === undefined){ return baseEstimate(); }   // not enough set yet
     api.estimate(Object.assign({adv: window.ADV||{}, outputDir: window.__outputDir||''}, answers)).then(e=>{
       if(!e || e.error){ return baseEstimate(); }
-      window.__lastEst = e;                       // the confirm screen reads the whole-folder projected from here
-      // Headline = the worked cohort, not the whole folder: the files left alone weigh
-      // the same before and after, so counting them just dilutes the percentage. The
-      // folder total moves to the caption underneath.
-      const workNow = e.work_bytes || 0, workOut = e.work_out_bytes || 0;
-      document.getElementById('now-v').innerHTML = tbHTML(workNow / 1e12);
-      document.getElementById('now-n').textContent =
-        `${e.work_files.toLocaleString()} of ${SRC.files.toLocaleString()} files to re-encode · ${tbStr(SRC.tb)} folder`
-        + (SRC.ignored ? ` · ${SRC.ignored.toLocaleString()} ignored` : '');
-      document.getElementById('est').innerHTML = tbHTML(workOut / 1e12);
-      document.getElementById('est-d').textContent = `−${e.work_saved_pct}% · ${bytesStr(e.work_saved_bytes)} back`;
-      document.getElementById('est-n').textContent =
-        `${e.work_files.toLocaleString()} to be re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. ${e.measured?'Measured.':'Modelled while probing…'}`;
+      window.__lastEst = e;
+      // Headline = the worked cohort, not the whole folder (files left alone weigh the
+      // same before and after, so counting them just dilutes the saving). AND no
+      // projected number until the library is actually measured — an unfinished probe
+      // shouldn't advertise a saving it hasn't confirmed.
+      if(e.measured){
+        const workNow = e.work_bytes || 0, workOut = e.work_out_bytes || 0;
+        document.getElementById('now-v').innerHTML = tbHTML(workNow / 1e12);
+        document.getElementById('now-n').textContent =
+          `${e.work_files.toLocaleString()} of ${SRC.files.toLocaleString()} files to re-encode · ${tbStr(SRC.tb)} folder`
+          + (SRC.ignored ? ` · ${SRC.ignored.toLocaleString()} ignored` : '');
+        document.getElementById('est').innerHTML = tbHTML(workOut / 1e12);
+        document.getElementById('est-d').textContent = `−${e.work_saved_pct}% · ${bytesStr(e.work_saved_bytes)} back`;
+        document.getElementById('est-n').textContent =
+          `${e.work_files.toLocaleString()} to be re-encoded · ${e.skipped.toLocaleString()} already at tier, left alone. Measured.`;
+      } else {
+        document.getElementById('now-v').innerHTML = tbHTML(SRC.tb);
+        document.getElementById('now-n').textContent =
+          `${SRC.files.toLocaleString()} files · measuring which to re-encode`;
+        document.getElementById('est').innerHTML = '<span class="ba-busy" style="font-size:.6em">Working…</span>';
+        document.getElementById('est-d').textContent = '';
+        document.getElementById('est-n').textContent = 'Reading each file — no projection until it is measured.';
+      }
       gateStart();
     });
     gateStart();
@@ -567,7 +586,15 @@ _BRIDGE_JS = r"""
   window.__vtcStop = ()=> { try { api.stop_run(); } catch(e){} };        // Stop button
   window.__vtcAbort = ()=> { try { api.abort_run(); } catch(e){} };      // Stop NOW button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
-  window.__vtcRetryFailed = ()=> { try { api.retry_failed_software(); } catch(e){} };
+  window.__vtcRetryFailed = ()=> {
+    // Show the working screen AT ONCE and start the retry report fresh — otherwise the
+    // main interface flashes until the file walk finishes, and the retry's results pile
+    // on top of the old run's rows instead of replacing them.
+    acc.length = 0;
+    try { pgStart(0, 0); } catch(e){}
+    try { api.retry_failed_software(); } catch(e){}
+  };
+  window.__vtcReveal = (p)=> { try { api.reveal_in_finder(p); } catch(e){} };   // show a file in Finder/Explorer
   // Two-phase save: ask for the path FIRST (nothing but a filename crosses the
   // bridge, so the native dialog opens immediately), then build the log text and
   // ship it. Passing a builder means a huge report isn't assembled at all if the
@@ -584,13 +611,13 @@ _BRIDGE_JS = r"""
     acc.push(r);                                     // every file lands in the report
     // ...but only the files being WORKED ON move the progress bar. The rest are
     // instant skips; counting them made the bar race to 90% and then crawl.
-    if(r.work !== false) pgDone1({ f:r.name, t:r.t, sev:r.sev, star:r.star, detail:r.detail });
+    if(r.work !== false) pgDone1({ f:r.name, t:r.t, sev:r.sev, problem:r.problem, detail:r.detail });
   };
   window.__vtcOnDone = (summary)=>{
     pgFinish();
     RUN = {
-      rows: acc.map(r=>({ f:r.name, t:r.t, d:r.d, sev:r.sev,
-                          detail:r.detail||'', star:!!r.star, sbytes:r.sbytes||0, obytes:r.obytes||0 })),
+      rows: acc.map(r=>({ f:r.name, path:r.path||'', t:r.t, d:r.d, sev:r.sev,
+                          detail:r.detail||'', problem:!!r.problem, sbytes:r.sbytes||0, obytes:r.obytes||0 })),
       done: summary.done, skip: summary.skip, fail: summary.fail,
       failedRetryable: summary.failed_retryable||0,
       tb: summary.tb, mins: summary.mins, stopped: !!summary.stopped,
@@ -950,11 +977,10 @@ class Api:
         stale = lambda: self._src != src or (gen and gen != self._preview_gen)
         try:
             pdir, port = _ensure_preview_server()
-            for f in pdir.glob("*.mp4"):        # only clear old previews, not the served HTML
-                try:
-                    f.unlink()
-                except OSError:
-                    pass
+            # Do NOT wipe the dir: clips are named by their content (source file +
+            # cut point + codec + tuning), so a codec flip or a return to a position
+            # you've already seen reuses the existing file instead of re-encoding.
+            # Names are unique per content, so nothing stale is ever served.
             cfg = RunConfig(src=src, ffmpeg=FFMPEG, ffprobe=FFPROBE)
             # The sample the user picked, if it is still there; otherwise just the
             # first file in the folder, which is what this always used to be.
@@ -978,6 +1004,21 @@ class Api:
             log.info("previews: %s (%dx%d, %.1fs) sample @ %.1fs codec=%s",
                      first.name, info.width, info.height, dur, start, codec.value)
 
+            # ── content-addressed cache keys ───────────────────────────────────
+            # A clip is fully described by what it was cut from and how it was
+            # encoded. Encode those into the filename and an already-made clip can
+            # be reused verbatim — so flipping H.265/H.264 or nudging the position
+            # back to one you've seen is instant, not a fresh encode.
+            def _psig(*parts):
+                raw = "|".join("" if p is None else str(p) for p in parts)
+                return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
+            adv = self._adv or {}
+            # Anything that changes how a TIER encodes must bust that tier's cache.
+            adv_sig = _psig(adv.get("floor"), adv.get("hevcHd"), adv.get("hevc4k"),
+                            adv.get("hevc8k"), json.dumps(adv.get("bpp") or {}, sort_keys=True))
+            # The SOURCE clip depends only on which file and where we cut it.
+            clip_sig = _psig(str(first), f"{start:.3f}", f"{seglen:.3f}")
+
             # SOURCE panel = the source frames, cut and made playable. It is ALWAYS
             # re-encoded, never a plain stream copy — this is what keeps the wipe in
             # sync. A copy that starts mid-GOP forces ffmpeg to write an EDIT LIST, and
@@ -997,23 +1038,26 @@ class Api:
             # an mp4 edit list, so its frames sit a few ms off the re-encoded tiers; the
             # wipe is aligned on the front end instead, which measures each panel's real
             # displayed-frame time and nudges them together (see pvAlignPaused).
-            sample = pdir / "source.mp4"
-            playable = (info.vcodec or "").lower() in (
-                ("h264", "hevc") if sys.platform == "darwin" else ("h264",))
-            if playable:
-                is_hevc = (info.vcodec or "").lower() == "hevc"
-                svargs = ["-c:v", "copy", *(["-tag:v", "hvc1"] if is_hevc else [])]
+            sample = pdir / f"source__{clip_sig}.mp4"
+            if not (sample.exists() and sample.stat().st_size > 0):
+                playable = (info.vcodec or "").lower() in (
+                    ("h264", "hevc") if sys.platform == "darwin" else ("h264",))
+                if playable:
+                    is_hevc = (info.vcodec or "").lower() == "hevc"
+                    svargs = ["-c:v", "copy", *(["-tag:v", "hvc1"] if is_hevc else [])]
+                else:
+                    svargs = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                              "-pix_fmt", "yuv420p"]
+                r = subprocess.run(
+                    [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
+                     "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
+                     "-movflags", "+faststart", str(sample)],
+                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                    **TEXT_UTF8, **NO_WINDOW)
+                if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
+                    self._emit("__vtcPreviewError", "could not extract a sample clip"); return
             else:
-                svargs = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                          "-pix_fmt", "yuv420p"]
-            r = subprocess.run(
-                [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(first),
-                 "-t", f"{seglen:.3f}", "-map", "0:v:0", *svargs, "-an",
-                 "-movflags", "+faststart", str(sample)],
-                stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                **TEXT_UTF8, **NO_WINDOW)
-            if r.returncode != 0 or not sample.exists() or sample.stat().st_size == 0:
-                self._emit("__vtcPreviewError", "could not extract a sample clip"); return
+                log.info("previews: source clip cache hit (%s)", clip_sig)
             if stale():
                 return                              # a newer request superseded us
 
@@ -1044,7 +1088,8 @@ class Api:
                     bpp = (info.effective_bps / (info.pixels * info.fps)
                            if info.pixels and info.fps else 0.0)
                 else:
-                    out = pdir / f"{key}.mp4"
+                    # Content-addressed: this exact tier, at this cut, codec and tuning.
+                    out = pdir / f"{key}__{clip_sig}__{codec.value}__{adv_sig}.mp4"
                     # The panels must show the tiers AS TUNED: a retuned bpp that
                     # only took effect at run time would make the comparison a lie.
                     cfg2 = RunConfig(src=src, out_codec=codec, tier=tier, ffmpeg=FFMPEG)
@@ -1057,18 +1102,22 @@ class Api:
                     # panel reports the density it was actually encoded at.
                     bpp = (tgt * 1000.0 / (sinfo.pixels * sinfo.fps)
                            if sinfo.pixels and sinfo.fps else 0.0)
-                    vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
-                    rr = subprocess.run(
-                        [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
-                         "-movflags", "+faststart", str(out)],
-                        stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                        **TEXT_UTF8, **NO_WINDOW)
-                    if rr.returncode != 0 or not out.exists() or out.stat().st_size == 0:
-                        log.error("preview %s failed: %s", key,
-                                  (rr.stderr or "").strip().splitlines()[-1:])
-                        self._emit("__vtcPreviewPanel", {"i": idx, "key": key, "label": label,
-                                                         "codec": panel_codec, "error": "encode failed"})
-                        continue
+                    # Already encoded this exact clip? Reuse it — no second encode.
+                    if out.exists() and out.stat().st_size > 0:
+                        log.info("preview %s: cache hit", key)
+                    else:
+                        vargs = encode.build_video_args(cfg2, sinfo, Mode.SHRINK, tgt, hw)
+                        rr = subprocess.run(
+                            [FFMPEG, "-y", "-v", "error", "-i", str(sample), *vargs, "-an",
+                             "-movflags", "+faststart", str(out)],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            **TEXT_UTF8, **NO_WINDOW)
+                        if rr.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+                            log.error("preview %s failed: %s", key,
+                                      (rr.stderr or "").strip().splitlines()[-1:])
+                            self._emit("__vtcPreviewPanel", {"i": idx, "key": key, "label": label,
+                                                             "codec": panel_codec, "error": "encode failed"})
+                            continue
                 size = out.stat().st_size
                 self._emit("__vtcPreviewPanel",
                            {"i": idx, "key": key, "label": label, "codec": panel_codec, "bytes": size,
@@ -1138,7 +1187,12 @@ class Api:
             src_bytes += size
         ratio = (out_bytes / src_bytes) if src_bytes else 1.0   # sample's out/in ratio
         sample = len(self._probes)
-        scale = (self._total_files / sample) if sample else 1.0
+        measured = self._probed_for == self._src
+        # Once measured, the probes ARE the complete set of real video files, so the
+        # counts are exact — no sample->library extrapolation (which would fold the
+        # non-video files back in and disagree with the run). Only scale while the
+        # probe is still a partial sample (and the UI isn't showing these yet).
+        scale = 1.0 if measured else ((self._total_files / sample) if sample else 1.0)
         return {
             "out_tb": self._total_tb * ratio,                   # extrapolate the ratio to the library
             "saved_pct": round((1 - ratio) * 100),
@@ -1200,6 +1254,9 @@ class Api:
         rep["preview_codec"] = _PREVIEW_CODEC.value   # 'h265' on mac, 'h264' where HEVC won't play
         rep["ffmpeg_version"] = _ffmpeg_version()      # for the toolbar readout
         rep["app_version"] = __version__               # so the UI cannot drift from the package
+        # The OS file browser's name, so "reveal in …" reads right per platform.
+        rep["file_manager"] = ("Finder" if sys.platform == "darwin"
+                               else "Explorer" if os.name == "nt" else "Files")
         log.info("hw_capabilities: %s", rep)
         return rep
 
@@ -1350,6 +1407,24 @@ class Api:
         self._clear_session()
         return {"discarded": True}
 
+    def reveal_in_finder(self, path: str):
+        """Open the OS file browser with `path` selected, so the user can inspect a
+        file the report flagged (a broken read, a kept container) with their own eyes.
+        Best-effort and read-only — it never opens the file, only reveals it."""
+        try:
+            p = Path(path)
+            if sys.platform == "darwin":
+                subprocess.run(["open", "-R", str(p)], check=False, **NO_WINDOW)
+            elif os.name == "nt":
+                # explorer needs the odd "/select," with the path as ONE argument.
+                subprocess.run(f'explorer /select,"{p}"', check=False, **NO_WINDOW)
+            else:
+                subprocess.run(["xdg-open", str(p.parent)], check=False, **NO_WINDOW)
+            return {"ok": True}
+        except Exception as e:  # noqa: BLE001 — a nicety, never worth crashing over
+            log.warning("reveal_in_finder(%s): %s", path, e)
+            return {"ok": False, "error": str(e)}
+
     def retry_failed_software(self):
         """Re-run just the files that ERRORed in the last run, in software — a quirky
         hardware encoder (e.g. h264_videotoolbox choking on a file) should not slow
@@ -1426,6 +1501,14 @@ class Api:
         # "completed" hundreds of predicted hours in seconds, which collapsed the
         # calibration below and with it the whole estimate.
         run_ledger = pipeline.Ledger(config)
+        # When the whole library has been probed, `probe_by_path` is the complete
+        # set of real VIDEO files (probe() drops anything unprobeable or without a
+        # video stream — see _warm_probes). So a walked file that's absent from it
+        # is a KNOWN non-video/unprobeable file, not pending work: the estimate
+        # already excluded it, and the run must too, or the two counts disagree
+        # (the "14 in the estimate, 389 in the run" divergence). Until the probe is
+        # complete we genuinely don't know, so we still assume work then.
+        cache_complete = self._probed_for is not None and self._probed_for == config.src
 
         def _resumed(f: Path) -> bool:
             if not run_ledger.enabled:
@@ -1460,14 +1543,16 @@ class Api:
             return _work_of(info) if (info and info.ok) else avg_work
 
         # Which files are real WORK (an encode), as opposed to an instant skip.
-        # Un-probed files count as work: we cannot know yet, and a file that
-        # appears in the list mid-run is worse than one that leaves it.
+        # A file absent from the probe cache is work ONLY while the cache is still
+        # filling (we can't know yet, and a file appearing mid-run is worse than one
+        # that leaves it). Once the cache is complete its absence is a verdict:
+        # non-video/unprobeable, which is a skip — matching the estimate exactly.
         def _is_work(f: Path) -> bool:
             if _resumed(f):
                 return False
             info = probe_by_path.get(f)
             if info is None or not info.ok:
-                return True
+                return not cache_complete
             return pipeline.decide(config, info)[0] in (Mode.SHRINK, Mode.TRANSCODE)
 
         work_files = [f for f in files if _is_work(f)]
@@ -1625,8 +1710,15 @@ class Api:
             self.window.evaluate_js(
                 f"window.{fn} && window.{fn}({json.dumps(path)})")
 
+        # Reuse the estimate's measurements so Start goes straight to encoding instead
+        # of re-probing the whole library it just scanned. Only when the cache is for
+        # THIS source and complete; process_file falls back to probing anything missing.
+        probed = None
+        if self._probes and self._probed_for is not None and self._probed_for == config.src:
+            probed = {info.path: info for info, _size in self._probes}
+            log.info("run: reusing %d measured file(s) from the estimate", len(probed))
         results = pipeline.run(config, progress=prog, on_result=emit, files=files,
-                               notify=notify)
+                               notify=notify, probed=probed)
         summary = _summary(results)
         summary["mins"] = int((_time.monotonic() - run_t0) / 60)   # real elapsed (was hardcoded 0)
         summary["stopped"] = pipeline.stop_requested()              # user hit either Stop
@@ -1649,6 +1741,7 @@ _OK = {Outcome.SHRINK, Outcome.TRANSCODE, Outcome.REMUX}
 # "at tier") were cryptic in the report.
 _SKIP_LABEL = {
     Outcome.SKIP_AT_TIER: "already efficient",
+    Outcome.SKIP_UNDER_TIER: "below your quality tier",
     Outcome.SKIP_MODERN: "already modern",
     Outcome.SKIP_EXISTING: "already converted",
     Outcome.SKIP_MIN_SAVING: "saving too small",
@@ -1656,11 +1749,15 @@ _SKIP_LABEL = {
     Outcome.SKIP_NON_MP4: "left as-is",
     Outcome.SKIP_CODEC: "unsupported codec",
     Outcome.SKIP_SECOND_GEN: "already encoded by this tool",
-    Outcome.RESUME: "already done",
+    # A ledger hit: recorded in an earlier run under the same settings and unchanged
+    # since (same size + timestamp). It's the same "already lean, left alone" verdict
+    # as SKIP_AT_TIER — just reached from history instead of a fresh probe — so it reads
+    # the same in the report. What the two states mean is spelled out in About.
+    Outcome.RESUME: "already efficient",
 }
-_SKIP = {Outcome.SKIP_AT_TIER, Outcome.SKIP_MODERN, Outcome.SKIP_EXISTING,
-         Outcome.SKIP_MIN_SAVING, Outcome.SKIP_INCOMPATIBLE, Outcome.SKIP_CODEC,
-         Outcome.SKIP_SECOND_GEN, Outcome.RESUME}
+_SKIP = {Outcome.SKIP_AT_TIER, Outcome.SKIP_UNDER_TIER, Outcome.SKIP_MODERN,
+         Outcome.SKIP_EXISTING, Outcome.SKIP_MIN_SAVING, Outcome.SKIP_INCOMPATIBLE,
+         Outcome.SKIP_CODEC, Outcome.SKIP_SECOND_GEN, Outcome.RESUME}
 
 
 def _human_gb(n: int) -> float:
@@ -1680,32 +1777,56 @@ def _human2(n: int) -> str:
     return f"{n} B"
 
 
+# Long ffmpeg errors are unreadable in a one-line row; past this, point at the log.
+_ERR_MAX = 58
+
+
+def _classify(r) -> tuple[str, str]:
+    """Which bucket a result lands in: ('ok'|'skip'|'fail', severity). A WARN note
+    promotes any row to 'fail' (needs a look) — SO THE SUMMARY AND THE ROWS AGREE,
+    both go through here (the counts used to total by raw outcome and disagree with
+    the list, which is why 'Needs a look · 1' sat above a dozen WARN rows)."""
+    if r.outcome is Outcome.ERROR:
+        return "fail", "err"
+    base = "ok" if r.outcome in _OK else "skip"
+    if r.notes:
+        if any(n.level == "WARN" for n in r.notes):
+            return "fail", "warn"
+        return base, "note"
+    return base, ""
+
+
 def _row(r) -> dict:
+    t, sev = _classify(r)
+    # WARN/skip rows carry no FileDetail, so their explanation is the note itself —
+    # surface it as the detail line (that is where "couldn't read this file …" lives).
+    note_msg = r.notes[0].message if r.notes else ""
     if r.outcome in _OK:
-        t, sev = "ok", ""
         d = (f"{_human2(r.src_bytes)} → {_human2(r.out_bytes)}"
              if r.src_bytes else r.outcome.value)
     elif r.outcome is Outcome.ERROR:
-        t, sev, d = "fail", "err", (r.notes[0].message if r.notes else "encode failed")
+        msg = note_msg or "encode failed"
+        # A wall-of-text ffmpeg error is useless in the row; keep it short and send
+        # the reader to the saved log for the whole thing.
+        d = msg if len(msg) <= _ERR_MAX else msg[:_ERR_MAX].rstrip() + "… (see log)"
+    elif r.outcome is Outcome.SKIP_CODEC and sev == "warn":
+        d = "couldn't read file"                       # the probe-failed case (likely broken)
     else:
-        t, sev = "skip", ""
         d = _SKIP_LABEL.get(r.outcome, r.outcome.value.replace("skip-", "").replace("-", " "))
-    if r.notes and t != "fail":
-        sev = "warn" if any(n.level == "WARN" for n in r.notes) else "note"
-        t = "fail" if sev == "warn" else t   # WARN surfaces under "needs a look"
-    # the structured "what happened" record — caption drives the log/detail, star
-    # marks a row worth reading (kept a non-MP4 container, subtitle caveat, …)
-    detail = r.detail.caption() if r.detail else ""
-    star = bool(r.detail and r.detail.has_note)
-    return {"name": r.path.name, "t": t, "d": d, "sev": sev,
-            "detail": detail, "star": star,
+    # the structured "what happened" record drives the report detail + the log line.
+    detail = r.detail.caption() if r.detail else (note_msg if sev in ("warn", "err") else "")
+    return {"name": r.path.name, "path": str(r.path), "t": t, "d": d, "sev": sev,
+            "detail": detail, "problem": t == "fail",
             "sbytes": r.src_bytes, "obytes": r.out_bytes}
 
 
 def _summary(results: list) -> dict:
-    done = sum(1 for r in results if r.outcome in _OK)
-    fail = sum(1 for r in results if r.outcome is Outcome.ERROR)
-    skip = sum(1 for r in results if r.outcome in _SKIP)
+    # Count by the SAME classifier the rows use, so the tab totals match the lists
+    # exactly (a WARN-noted skip counts under "needs a look", not "left alone").
+    buckets = [_classify(r)[0] for r in results]
+    done = buckets.count("ok")
+    fail = buckets.count("fail")
+    skip = buckets.count("skip")
     saved = sum(r.saved_bytes for r in results)
     return {"done": done, "skip": skip, "fail": fail, "tb": saved / 1e12, "mins": 0}
 

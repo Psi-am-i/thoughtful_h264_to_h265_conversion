@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
@@ -191,6 +192,14 @@ def decide(config: RunConfig, info: MediaInfo) -> tuple[Mode | None, Outcome | N
             return (Mode.SHRINK, None, tgt(clamp=True)) if worth else (Mode.REMUX, None, 0)
         if worth:
             return (Mode.SHRINK, None, tgt(clamp=True))
+        # Not worth an encode — but say WHY. A source meaningfully BELOW the tier target
+        # is lower quality than the tier the user picked: it's left alone (we never
+        # inflate), but that's worth flagging distinctly from a file genuinely AT tier.
+        # The "at tier" band is symmetric with the over-tolerance: within ±(tol-1) of the
+        # target reads as at-tier (10% at the default tol), further below is under-tier.
+        below_band = decision_target * (2.0 - config.tier_over_tolerance)
+        if src_kbps > 0 and src_kbps < below_band:
+            return (None, Outcome.SKIP_UNDER_TIER, 0)
         return (None, Outcome.SKIP_AT_TIER, 0)
 
     if category is CodecCategory.MODERN:
@@ -423,15 +432,22 @@ def plan(config: RunConfig) -> list[PlanRow]:
 # ── Per-file processing ───────────────────────────────────────────────────────
 def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
                  src_file: Path, progress: ProgressCB | None = None,
-                 notify: netmove.NotifyCB | None = None) -> FileResult | None:
+                 notify: netmove.NotifyCB | None = None,
+                 probed: dict[Path, MediaInfo] | None = None) -> FileResult | None:
     lkey = ledger.key(src_file) if ledger.enabled else ""
     if ledger.enabled and ledger.has(lkey):
         return FileResult(src_file, Outcome.RESUME)
 
-    info = probe(src_file, config.ffprobe)
+    # Reuse the measurement the estimate already took for this file, if we have it —
+    # the run's file walk otherwise re-probes the whole library the user just scanned.
+    info = (probed.get(src_file) if probed else None) or probe(src_file, config.ffprobe)
     if not info.ok or not info.vcodec:
+        # ffmpeg reads almost every codec, so a probe that fails here usually means a
+        # BROKEN or unreadable file, not an exotic-but-valid one — say so, and carry the
+        # raw ffprobe error for anyone who opens the file to check.
         return FileResult(src_file, Outcome.SKIP_CODEC,
-                          notes=[Note("WARN", f"could not probe: {info.error}")])
+                          notes=[Note("WARN", f"couldn't read this file — it may be corrupt or "
+                                              f"truncated (ffprobe: {info.error or 'no video stream found'})")])
 
     mode, skip_outcome, target = decide(config, info)
     if skip_outcome is not None:
@@ -489,6 +505,25 @@ def process_file(config: RunConfig, ledger: Ledger, hw_encoder: str | None,
         if ledger.enabled:
             ledger.add(lkey)
         return r
+
+    # Validity gate. Placement is about to do the one irreversible thing — overwrite
+    # the original in place, or delete it after the new file lands. ffmpeg USUALLY
+    # exits non-zero on trouble, but a dropped share mid-write or a codec edge case
+    # can leave a truncated/corrupt file behind a clean exit code. So ffprobe the file
+    # we just wrote and confirm it is a real, whole video BEFORE anything touches the
+    # original: a valid probe, a video stream, and a duration that matches the source
+    # (a short duration is the signature of a truncated write). Fail THIS file and drop
+    # the corrupt temp; the original is left exactly as it was, and the row is retryable.
+    out_probe = probe(tmp, config.ffprobe)
+    src_dur = info.duration or 0.0
+    truncated = src_dur > 1.0 and (out_probe.duration or 0.0) < src_dur * 0.95
+    if not out_probe.ok or not out_probe.vcodec or (out_probe.duration or 0.0) <= 0 or truncated:
+        why = (out_probe.error or "no valid video stream") if not (out_probe.ok and out_probe.vcodec) \
+            else f"only {out_probe.duration:.0f}s of {src_dur:.0f}s written (truncated)"
+        tmp.unlink(missing_ok=True)
+        return FileResult(src_file, Outcome.ERROR, src_bytes=src_bytes,
+                          notes=[Note("ERROR", f"encoded file failed validation ({why}) "
+                                               f"— original left untouched")])
 
     # Placement moves the finished temp onto the (often network) output volume. That
     # copy can stall if the share goes unresponsive and then fail late with an OSError
@@ -567,13 +602,42 @@ def _build_detail(config: RunConfig, info: MediaInfo, mode: Mode, target: int,
 def run(config: RunConfig, progress: ProgressCB | None = None,
         on_result: ResultCB | None = None,
         files: list[Path] | None = None,
-        notify: netmove.NotifyCB | None = None) -> list[FileResult]:
+        notify: netmove.NotifyCB | None = None,
+        probed: dict[Path, MediaInfo] | None = None) -> list[FileResult]:
     """Process the scan tree (or an explicit `files` list — used to retry just the
     files that failed). Returns one FileResult per file processed."""
     ledger = Ledger(config)
     hw_encoder = encode.select_hw_encoder(config)
     files = list(iter_video_files(config)) if files is None else list(files)
     results: list[FileResult] = []
+
+    # Volumes this run leans on. The source library is READ from here, the resume
+    # LEDGER lives on it (<src>/.vtc_processed.log), and an in-place output is written
+    # BACK to it — so a dead/stale mount hangs os.stat/open forever with NO error
+    # (the ledger's own `except OSError` never fires on a hang). A thread already
+    # inside such a syscall can't be killed, but we CAN refuse to START a file until
+    # the volume answers a bounded probe: that raises the STUCK banner and honours a
+    # stop/abort instead of freezing the run silently (the S02E01 hang, reported anew
+    # when a Beast 8TB SMB share dropped mid-run and "Stop after current file" looked
+    # dead — the run was wedged in a ledger read on the vanished mount).
+    guard_dirs = [config.src]
+    if config.output_mode is OutputMode.SEPARATE and config.output_dir:
+        guard_dirs.append(config.output_dir)
+    _reach_stat = lambda p: netmove._reachable(p, write=False)   # stat-only: cheap, catches a dead mount
+    guard_state = {"ok_until": 0.0}                              # don't re-probe a volume just confirmed up
+
+    def _volumes_ready() -> bool:
+        # During the fast skip-churn many files pass per second; probing each would be
+        # needless network chatter, so a fresh confirmation is trusted for a few seconds.
+        # Short enough that a mount dying is still caught within one poll window.
+        if time.monotonic() < guard_state["ok_until"]:
+            return True
+        for d in guard_dirs:
+            if not netmove.wait_reachable(d, notify=notify, give_up=stop_requested,
+                                          reachable=_reach_stat):
+                return False                                     # user stopped while it was unreachable
+        guard_state["ok_until"] = time.monotonic() + 3.0
+        return True
 
     # The stop check must live INSIDE the work, not just around submission: with
     # jobs=1 every file is submitted to the pool up front (submitting is instant),
@@ -583,10 +647,12 @@ def run(config: RunConfig, progress: ProgressCB | None = None,
     def work(f: Path) -> FileResult | None:
         if stop_requested():
             return None
+        if not _volumes_ready():                     # dead/stalled mount: banner raised, stop honoured
+            return None
         # A file the user picked out goes to software even on a hardware run:
         # passing no hardware encoder IS the software path (see build_video_args).
         hw = None if config.forces_software(f) else hw_encoder
-        return process_file(config, ledger, hw, f, progress, notify=notify)
+        return process_file(config, ledger, hw, f, progress, notify=notify, probed=probed)
 
     with ThreadPoolExecutor(max_workers=max(1, config.jobs)) as pool:
         futures = [pool.submit(work, f) for f in files]

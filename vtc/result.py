@@ -25,7 +25,9 @@ class Outcome(str, Enum):
     SHRINK = "shrink"
     TRANSCODE = "transcode"
     REMUX = "remux"
-    SKIP_AT_TIER = "skip-at-tier"           # already at/under its tier target
+    SKIP_AT_TIER = "skip-at-tier"           # already within tolerance of its tier target
+    SKIP_UNDER_TIER = "skip-under-tier"     # source is BELOW the chosen tier — lower quality
+                                            # than asked for; left alone (can't be improved)
     SKIP_MODERN = "skip-modern"             # already HEVC/AV1/VP9 in MP4
     SKIP_EXISTING = "skip-existing"         # output already existed
     SKIP_MIN_SAVING = "skip-min-saving"     # encoded, but saving too small -> kept original
@@ -78,13 +80,24 @@ class FileDetail:
         return bool(self.container_reason) or self.subs_summary.startswith(("dropped", "sidecar"))
 
     def caption(self) -> str:
-        """The one-line 'what happened' detail, shared by report and log."""
+        """The one-line 'what happened' detail, shared by report and log. Leads with
+        the FORMAT/CONTAINER outcome (mkv→mp4, kept mp4, kept mkv …) — the headline
+        change a reader scans for — then the remux/shrink/transcode and copy detail."""
+        se = self.src_ext[1:].lower() if self.src_ext else ""
+        oe = self.out_ext[1:].lower() if self.out_ext else ""
         codec = (f"{self.src_vcodec}→{self.out_vcodec}"
                  if self.out_vcodec and self.out_vcodec != self.src_vcodec else self.src_vcodec)
         bits = []
+        # 1 · the container/format outcome, first.
+        if se and oe and se != oe:
+            bits.append(f"{se}→{oe}")                                   # converted, e.g. mkv→mp4
+        elif self.container_reason:
+            bits.append(f"kept {oe or se} — {self.container_reason}")   # kept a non-MP4 wrapper on purpose
+        elif oe or se:
+            bits.append(f"kept {oe or se}")                             # same container, e.g. kept mp4
+        # 2 · what happened to the video.
         if self.mode == "remux":
-            bits.append(f"{codec} stream-copied, container unchanged" if self.src_ext == self.out_ext
-                        else f"remuxed {self.src_ext}→{self.out_ext} · {codec} (copied)")
+            bits.append(f"{codec} copied (remux)")
         elif self.mode == "transcode":
             bits.append(f"legacy {codec} transcoded @ {self.vid_kbps:.0f} kbps")
         else:  # shrink
@@ -95,8 +108,6 @@ class FileDetail:
             bits.append(f"audio {self.audio_action}")
         if self.subs_summary:
             bits.append(self.subs_summary)
-        if self.container_reason:
-            bits.append(f"kept {self.out_ext[1:].upper()} — {self.container_reason}")
         return " · ".join(bits)
 
 

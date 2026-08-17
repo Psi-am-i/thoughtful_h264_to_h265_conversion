@@ -32,14 +32,16 @@ def _mi(subs=(), audio=(), vcodec="hevc"):
 def test_resolve_container():
     img = [SubtitleTrack(2, "hdmv_pgs_subtitle", False)]
     c = RunConfig(src=Path("/t"))
-    assert encode.resolve_container(c, _mi(subs=img)) is Container.MKV          # keep PGS
-    assert encode.resolve_container(c, _mi()) is Container.MP4                   # nothing forces MKV
+    assert encode.resolve_container(c, _mi(subs=img)) is Container.MKV          # AUTO keeps PGS
+    assert encode.resolve_container(c, _mi()) is Container.MP4                   # AUTO, nothing forces MKV
     assert encode.resolve_container(RunConfig(src=Path("/t"), audio_policy=AudioPolicy.FLAC),
-                                    _mi()) is Container.MKV                      # lossless
+                                    _mi()) is Container.MKV                      # lossless FLAC always MKV
+    # Forced MP4 with the image-subs exception ON (the default) still keeps MKV for PGS...
     assert encode.resolve_container(RunConfig(src=Path("/t"), container=Container.MP4),
-                                    _mi(subs=img)) is Container.MP4              # forced MP4
-    assert encode.resolve_container(RunConfig(src=Path("/t"), keep_image_subs=False),
-                                    _mi(subs=img)) is Container.MP4              # opted out of keeping
+                                    _mi(subs=img)) is Container.MKV
+    # ...and OFF converts to MP4 — the opt-out now lives under a forced MP4, not Auto.
+    assert encode.resolve_container(RunConfig(src=Path("/t"), container=Container.MP4,
+                                    keep_image_subs=False), _mi(subs=img)) is Container.MP4
     print("  ok  resolve_container")
 
 
@@ -47,8 +49,10 @@ def test_audio_attempts():
     dts = [AudioTrack(1, "dts", 6)]      # 5.1, not MP4-friendly
     aac = [AudioTrack(1, "aac", 2)]
     c = RunConfig(src=Path("/t"))        # passthrough
+    # DTS into MP4 converts to AAC — never a copy first: ffmpeg would stream-copy DTS
+    # into the MP4, which then plays in VLC but not QuickTime (the bug this closes).
     assert encode._audio_attempts(c, _mi(audio=dts), Container.MP4) == \
-        [["-c:a", "copy"], ["-c:a", "aac", "-b:a", "448k"]]                      # multichannel bitrate
+        [["-c:a", "aac", "-b:a", "448k"]]                                        # multichannel bitrate
     assert encode._audio_attempts(c, _mi(audio=dts), Container.MKV) == [["-c:a", "copy"]]
     assert encode._audio_attempts(c, _mi(audio=aac), Container.MP4) == [["-c:a", "copy"]]  # all friendly
     ac3 = RunConfig(src=Path("/t"), audio_policy=AudioPolicy.AC3)
@@ -56,6 +60,23 @@ def test_audio_attempts():
     flac = RunConfig(src=Path("/t"), audio_policy=AudioPolicy.FLAC)
     assert encode._audio_attempts(flac, _mi(audio=aac), Container.MKV) == [["-c:a", "flac"]]
     print("  ok  audio_attempts")
+
+
+def test_keep_mkv_for_audio():
+    dts = [AudioTrack(1, "dts", 6)]      # DTS 5.1 — MP4 can't hold it losslessly
+    aac = [AudioTrack(1, "aac", 2)]
+    # Auto: keep the DTS file as MKV rather than a lossy AAC conversion.
+    assert encode.resolve_container(RunConfig(src=Path("/t")), _mi(audio=dts)) is Container.MKV
+    # Forced MP4 with the audio exception ON (the default) also keeps MKV for DTS...
+    assert encode.resolve_container(
+        RunConfig(src=Path("/t"), container=Container.MP4), _mi(audio=dts)) is Container.MKV
+    # ...and OFF converts DTS to AAC inside MP4 (opt-out now lives under a forced MP4).
+    assert encode.resolve_container(
+        RunConfig(src=Path("/t"), container=Container.MP4, keep_mkv_for_audio=False),
+        _mi(audio=dts)) is Container.MP4
+    # MP4-friendly audio stays MP4 regardless.
+    assert encode.resolve_container(RunConfig(src=Path("/t")), _mi(audio=aac)) is Container.MP4
+    print("  ok  keep_mkv_for_audio")
 
 
 def _clip(path: Path, secs=2):

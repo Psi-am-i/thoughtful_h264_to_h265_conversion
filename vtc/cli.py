@@ -28,6 +28,7 @@ _OUTCOME_LINE = {
     Outcome.TRANSCODE: "DONE   transcode",
     Outcome.REMUX: "DONE   remux",
     Outcome.SKIP_AT_TIER: "SKIP   already at tier",
+    Outcome.SKIP_UNDER_TIER: "SKIP   below your quality tier",
     Outcome.SKIP_MODERN: "SKIP   already H.265/AV1/VP9",
     Outcome.SKIP_EXISTING: "SKIP   output already exists",
     Outcome.SKIP_MIN_SAVING: "SKIP   saving too small, kept original",

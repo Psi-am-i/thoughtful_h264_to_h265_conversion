@@ -68,6 +68,17 @@ def test_reencode_tolerance_label():
     assert pipeline.decide(cfg, info)[1] is Outcome.SKIP_AT_TIER
 
 
+def test_source_below_tier_is_flagged_distinctly():
+    """A source LOWER quality than the chosen tier is left alone (we never inflate) — but
+    flagged 'below your quality tier', distinct from a file genuinely AT tier."""
+    cfg = _cfg()                                            # H.265 output, EXCELLENT tier
+    tgt = target_kbps(Tier.EXCELLENT, _PX, 24, OutCodec.H265)   # kbps at the tier
+    below = _mi(path=Path("low.mp4"), vcodec="h264", fps=24.0, bit_rate=int(tgt * 1000 * 0.4))
+    near  = _mi(path=Path("near.mp4"), vcodec="h264", fps=24.0, bit_rate=int(tgt * 1000 * 1.05))
+    assert pipeline.decide(cfg, below)[1] is Outcome.SKIP_UNDER_TIER
+    assert pipeline.decide(cfg, near)[1]  is Outcome.SKIP_AT_TIER
+
+
 # ── "HEVC factor · HD — target = H.264 target × this, at ≤1080p" ──────────────
 def test_hevc_factor_label():
     cfg = _cfg(hevcHd=0.30)
@@ -95,17 +106,28 @@ def test_avoid_sidecar_subs_label():
     embeddable = _mi(vcodec="hevc", audio=[AudioTrack(1, "aac", 2)],
                      subtitles=[SubtitleTrack(3, "subrip", True)])
     no_subs = _mi(vcodec="hevc", audio=[AudioTrack(1, "aac", 2)])
-    assert encode.resolve_container(_cfg(forceMkvSubs=True, imageSubs=False), unembeddable) is Container.MKV
-    assert encode.resolve_container(_cfg(forceMkvSubs=True), embeddable) is Container.MP4
-    assert encode.resolve_container(_cfg(forceMkvSubs=False, imageSubs=False), unembeddable) is Container.MP4
-    assert encode.resolve_container(_cfg(forceMkvSubs=True), no_subs) is Container.MP4
+    # This toggle is an exception to a forced MP4, so it's under MP4 that it bites: ON
+    # keeps MKV to embed the un-embeddable sub, OFF writes a sidecar .srt (stays MP4).
+    assert encode.resolve_container(_cfg(container="mp4", forceMkvSubs=True, imageSubs=False), unembeddable) is Container.MKV
+    assert encode.resolve_container(_cfg(container="mp4", forceMkvSubs=True), embeddable) is Container.MP4
+    assert encode.resolve_container(_cfg(container="mp4", forceMkvSubs=False, imageSubs=False), unembeddable) is Container.MP4
+    assert encode.resolve_container(_cfg(container="mp4", forceMkvSubs=True), no_subs) is Container.MP4
+    # The only statically un-embeddable subs are image-based, and AUTO keeps THOSE as
+    # MKV via the image-subs rule (which fires first). AUTO no longer forces MKV for the
+    # forceMkvSubs toggle itself — a genuinely un-embeddable *text* sub would be written
+    # to a lossless .srt — but every real text codec embeds, so that path is the runtime
+    # sidecar fallback, not this static decision. Here the image rule governs, so: MKV.
+    assert encode.resolve_container(_cfg(container="auto", forceMkvSubs=True, imageSubs=False), unembeddable) is Container.MKV
 
 
 # ── "Keep image subtitles — prefer MKV over dropping PGS/DVD tracks" ──────────
 def test_keep_image_subs_label():
     pgs = _mi(vcodec="hevc", subtitles=[SubtitleTrack(2, "hdmv_pgs_subtitle", False)])
-    assert encode.resolve_container(_cfg(imageSubs=True), pgs) is Container.MKV
-    assert encode.resolve_container(_cfg(imageSubs=False), pgs) is Container.MP4
+    # Under a forced MP4 the toggle decides: ON keeps MKV for PGS, OFF drops to MP4.
+    assert encode.resolve_container(_cfg(container="mp4", imageSubs=True), pgs) is Container.MKV
+    assert encode.resolve_container(_cfg(container="mp4", imageSubs=False), pgs) is Container.MP4
+    # Auto keeps PGS as MKV whatever the toggle.
+    assert encode.resolve_container(_cfg(container="auto", imageSubs=False), pgs) is Container.MKV
 
 
 # ── "Audio — Passthrough copies tracks; FLAC forces MKV" ─────────────────────
@@ -127,7 +149,10 @@ def test_audio_bitrate_labels():
 # ── "Container — Auto picks MP4, falling back to MKV only when it must" ──────
 def test_container_label():
     pgs = _mi(vcodec="hevc", subtitles=[SubtitleTrack(2, "hdmv_pgs_subtitle", False)])
-    assert encode.resolve_container(_cfg(container="mp4"), pgs) is Container.MP4  # forced
+    # Forced MP4 with its keep-MKV exceptions off is a hard MP4, even for PGS...
+    assert encode.resolve_container(_cfg(container="mp4", imageSubs=False), pgs) is Container.MP4
+    # ...but with the (default) image-subs exception on, it keeps MKV for PGS.
+    assert encode.resolve_container(_cfg(container="mp4"), pgs) is Container.MKV
     assert encode.resolve_container(_cfg(container="mkv"), _mi(vcodec="hevc")) is Container.MKV
     assert encode.resolve_container(_cfg(container="auto"), _mi(vcodec="hevc")) is Container.MP4
 

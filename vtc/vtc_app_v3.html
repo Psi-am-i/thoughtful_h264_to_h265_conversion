@@ -158,6 +158,8 @@ body{
   text-transform:uppercase;color:var(--ink-3)}
 .rig-v{font-family:'IBM Plex Mono',monospace;font-size:14.5px;color:var(--ink-2);letter-spacing:.02em}
 .rig-v b{color:var(--ink);font-weight:600}
+.rig-reset{color:var(--accent);cursor:pointer;text-decoration:none;border-bottom:1px solid transparent}
+.rig-reset:hover{border-bottom-color:var(--accent)}
 .wordmark{text-align:center;justify-self:center;line-height:1;font-size:33px}
 .wordmark .a{font-size:.342em;letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
 .wordmark .b{font-size:1em;font-weight:700;margin-top:.18em;white-space:nowrap}
@@ -180,6 +182,12 @@ body{
   box-shadow:0 0 0 3px rgba(232,84,31,.16),0 0 9px rgba(232,84,31,.7);
   animation:breathe 1.4s ease-in-out infinite}
 @keyframes breathe{50%{opacity:.42}}
+/* a "working" state: the status text COMPRESSES and releases exactly like the
+   Compression wordmark (the pgsqueeze keyframe), as live feedback while the library
+   is being scanned or measured. Any busy readout uses this. */
+.ba-busy{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:17px;
+  font-weight:500;letter-spacing:.06em;color:var(--ink-3);transform-origin:left center;
+  animation:pgsqueeze 2.4s cubic-bezier(.4,0,.3,1) infinite}
 
 /* ── comb: the five steps ARE the progress bar ───────────── */
 /* Each step is a block. Unanswered it is bare plate; answered it fills with the
@@ -345,7 +353,7 @@ body{
 .est-l{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3)}
 .est-v{font-size:29px;font-weight:700;letter-spacing:-.03em;margin-top:4px;font-variant-numeric:tabular-nums}
 .est-v span{font-size:17px;color:var(--ink-3);font-weight:500}
-.est-n{font-size:13px;color:var(--ink-2);margin-top:4px;line-height:1.4}
+.est-n{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-2);margin-top:4px;line-height:1.45}
 
 /* ── sheets: confirm + report ───────────────────────────── */
 /* No backdrop-filter: a full-viewport blur makes WebView2 recomposite the whole
@@ -422,10 +430,15 @@ body{
 /* a control that the current container makes irrelevant (e.g. force-MKV when the
    container is already MKV): dimmed, non-interactive, and it says why. */
 /* a control the current setting makes irrelevant: dimmed, inert, and it says why */
-.adv-row.moot{opacity:.5}
+/* Moot = greyed & inert. Paler than before, and any accent (Learn-more / see-more
+   links) drops to grey and stops responding to the pointer, so nothing in a disabled
+   row still looks clickable. */
+.adv-row.moot,.adv-edge.moot{opacity:.4}
 .adv-row.moot .adv-tog,.adv-row.moot input{pointer-events:none}
-.adv-row.moot.moot-mkv  .adv-lab > b::after{content:" · not needed with MKV";font-weight:400;color:var(--ink-3)}
-.adv-row.moot.moot-pass .adv-lab > b::after{content:" · not used on passthrough";font-weight:400;color:var(--ink-3)}
+.adv-row.moot .adv-learn,.adv-edge.moot .adv-learn{color:var(--ink-3);pointer-events:none;text-decoration:none;cursor:default}
+.adv-row.moot.moot-mkv  .adv-lab > b::after{content:" · already MKV";font-weight:400;color:var(--ink-3)}
+.adv-row.moot.moot-auto .adv-lab > b::after{content:" · applied automatically by Auto";font-weight:400;color:var(--ink-3)}
+.adv-row.moot.moot-flac .adv-lab > b::after{content:" · not used (FLAC is lossless)";font-weight:400;color:var(--ink-3)}
 /* sub-settings nested under their parent control (e.g. the audio bitrates) */
 .adv-row.adv-sub{padding-left:22px;position:relative}
 .adv-row.adv-sub::before{content:"";position:absolute;left:8px;top:0;bottom:0;width:1px;background:var(--rule)}
@@ -436,11 +449,14 @@ body{
 .adv-sec > h3, .adv-sec-h > h3{font-family:'IBM Plex Mono',monospace;font-size:11px;
   letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin:0 0 10px;
   padding-bottom:6px;border-bottom:1px solid var(--rule)}
-.adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px}
+.adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px;align-items:start}
 .adv-grid.one{grid-template-columns:1fr}
 /* explanatory lead-in under a section heading */
 .adv-intro{font-size:13px;color:var(--ink-2);line-height:1.55;max-width:66ch;margin:0 0 16px}
 .adv-intro b{color:var(--ink)}
+/* a sub-heading inside a section that groups related rows (e.g. "Keep MKV when…") */
+.adv-subhead{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.13em;font-weight:600;
+  text-transform:uppercase;color:var(--accent);margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--rule)}
 /* Every row is the same grid: label column, then a control snapped to a shared
    right-hand spine. Fixed shape = even rhythm and one clean column of controls,
    instead of the ragged space-between the descriptions used to stretch. */
@@ -461,6 +477,11 @@ body{
   color:var(--ink);cursor:pointer}
 .adv-ctrl input[type=number]{width:76px;text-align:right;cursor:text}
 .adv-ctrl .adv-unit{font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace}
+/* Align every number box to ONE right-hand spine regardless of its unit: reserve a
+   fixed-width unit slot after the input (units sit in it; unitless boxes reserve it
+   too), so 'MB', 'kbps', '%' and the plain factor boxes all end at the same edge. */
+.adv-ctrl:has(input[type=number]){position:relative;padding-right:38px}
+.adv-ctrl:has(input[type=number]) .adv-unit{position:absolute;right:0;top:50%;transform:translateY(-50%);width:32px;text-align:left}
 /* segmented control (radio group) */
 .adv-seg{display:inline-flex;border:1px solid var(--rule);border-radius:var(--r);overflow:hidden}
 .adv-seg button{font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:5px 10px;border:0;
@@ -474,6 +495,34 @@ body{
 .adv-tog::after{content:"";position:absolute;top:1px;left:1px;width:18px;height:18px;border-radius:50%;
   background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .12s}
 .adv-tog.on{background:var(--accent)} .adv-tog.on::after{left:19px}
+/* Vertical radio list — one choice of several, each with room for a sentence of
+   explanation. Used for the non-MP4 policy and the MP4 edge-case behaviours, where
+   the options are mutually exclusive and each needs describing. */
+.adv-radio{display:flex;flex-direction:column;gap:3px;margin-top:6px}
+/* No boxes — just the radio dot and its label. The filled orange dot marks the choice;
+   the chosen row's text darkens. Quieter and cleaner than bordered option cards. */
+.adv-radio-opt{display:flex;align-items:flex-start;gap:10px;text-align:left;padding:5px 2px;
+  border:0;background:none;cursor:pointer;font:inherit;color:var(--ink-2);transition:color .15s}
+.adv-radio-opt:hover{color:var(--ink)}
+.adv-radio-opt.on{color:var(--ink)}
+.adv-radio-opt.on .adv-radio-txt{font-weight:500}
+.adv-radio-dot{flex:0 0 auto;width:14px;height:14px;border-radius:50%;border:1.5px solid var(--rule);
+  margin-top:1px;position:relative;transition:border-color .15s}
+.adv-radio-opt.on .adv-radio-dot{border-color:var(--accent)}
+.adv-radio-opt.on .adv-radio-dot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--accent)}
+.adv-radio-txt{font-size:12.5px;line-height:1.4}
+.adv-auto{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);border:1px solid var(--rule);border-radius:2px;padding:0 4px;margin-left:6px;vertical-align:1px}
+/* An edge-case block: a small heading + its radio group. Greyed (and click-through
+   disabled) when the container choice makes the exception irrelevant. */
+.adv-edge{margin-top:16px}
+.adv-edge-head{font-weight:600;font-size:13.5px;color:var(--ink);margin-bottom:1px}
+.adv-edge-head .adv-edge-when{font-weight:400;font-size:11px;color:var(--ink-3);margin-left:8px}
+.adv-edge.moot{opacity:.5;pointer-events:none}
+/* A row whose control is a full-width block (a radio list) sitting UNDER its label,
+   rather than the default label-left / control-right split. */
+.adv-row.adv-row-col{display:block}
+.adv-row.adv-row-col .adv-lab{margin-bottom:2px}
 /* Multi-select chips. Deliberately NOT radio buttons: the whole point is that
    more than one kind can be kept at once, which is exactly what the old
    dropdown could not express. */
@@ -545,16 +594,30 @@ body{
 .c-work > b{display:block;font-size:14.5px;margin-bottom:3px}
 .c-work span{display:block;color:var(--ink-2);font-size:12.5px}
 .c-work.evaluating{border-style:dashed;color:var(--ink-3)}
+/* the evaluating heading compresses like the wordmark — live "still working" feedback */
+.c-work.evaluating > b{display:inline-block;transform-origin:left center;
+  animation:pgsqueeze 2.4s cubic-bezier(.4,0,.3,1) infinite}
 .est-delta{color:var(--ink-3);font-weight:400}
 
 /* ── Per-file software picker ─────────────────────────────────────────────── */
 /* Subtly lifted rather than shouted: the encoder choice is one-shot per file, so
    this is worth noticing on the way past — but it is an offer, not a warning. */
 .sw-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;
-  margin-top:14px;padding:11px 13px;border-radius:var(--r);
-  border:1px solid color-mix(in srgb, var(--accent) 30%, var(--rule));
-  border-left:3px solid var(--accent);
-  background:color-mix(in srgb, var(--accent) 5%, var(--panel))}
+  margin-top:16px;padding:11px 13px;border-radius:var(--r);
+  border:1px solid var(--rule);background:var(--panel)}
+/* ── Confirm: outcome-first layout ──────────────────────────────────────────
+   The space change, the working, and the one irreversible fact are ONE panel at the
+   top — what a person checks before an irreversible action. The settings recap sits
+   quietly beneath as the edit surface. */
+.c-outcome{border:1px solid var(--rule);border-radius:var(--r);padding:6px 16px 15px;
+  margin-bottom:20px;background:var(--panel)}
+.c-outcome .recap-sum{margin-top:12px}
+.c-outcome .recap-sum div{background:none;border:0;border-radius:0;padding:8px 0 0}
+.c-outcome .c-work{border:0;border-top:1px solid var(--rule);margin-top:10px;padding:12px 0 0}
+.c-outcome .c-work.evaluating{border-top:1px solid var(--rule);border-style:solid solid solid solid}
+.c-outcome .sheet-w{margin-top:12px}
+.recap-h{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 5px}
 .sw-entry-t b{color:var(--ink)}
 .sw-entry-t b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
 .sw-entry-t span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
@@ -658,11 +721,21 @@ body{
 .r-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:18px;padding:7px 2px;
   border-bottom:1px solid var(--rule);align-items:center}
 .r-row:last-child{border-bottom:0}
+.r-main{min-width:0;display:flex;flex-direction:column;gap:2px}
 .r-f{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+/* the "what happened" line under the filename */
+.r-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;
+  color:var(--ink-3);font-family:'IBM Plex Mono',monospace;letter-spacing:.01em}
 .r-d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46ch;
   font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:500;justify-self:start}
 .r-t{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:2px}
-.r-star{color:var(--accent);font-weight:700;margin-left:1px;cursor:help}
+/* Problem marker: a fixed-width gutter at the START of the file name, so an error/
+   warning catches the eye first and the marker never nudges the layout (present as
+   blank space on clean rows). The status badge on the right stays a constant size. */
+.r-mark{display:inline-block;width:12px;color:var(--accent);font-weight:700;text-align:left}
+.r-row.problem .r-f{color:var(--ink)}
+.r-row.revealable{cursor:pointer;border-radius:2px}
+.r-row.revealable:hover{background:rgba(38,36,31,.05)}
 .r-t.ok{background:rgba(38,36,31,.08);color:var(--ink-2)}
 .r-t.skip{background:rgba(38,36,31,.05);color:var(--ink-3)}
 .r-t.fail{background:rgba(232,84,31,.14);color:var(--accent)}
@@ -1008,15 +1081,38 @@ body{
 .prose p{font-size:15px;line-height:1.65;color:var(--ink-2);margin-bottom:9px;max-width:80ch}
 .prose p b{color:var(--ink)}
 .doc-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:24px}
-.tbl{width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12.5px}
-.tbl th{text-align:left;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
-  padding:0 7px 5px 0;border-bottom:1px solid var(--rule);font-weight:600}
-.tbl td{padding:5px 7px 5px 0;border-bottom:1px solid rgba(182,179,168,.5);color:var(--ink-2)}
-.tbl td:first-child{color:var(--ink);font-weight:500}
-.tbl .num{text-align:right;font-variant-numeric:tabular-nums}
-.tbl tr.hl td{background:rgba(232,84,31,.07)}
-.myth{border-left:2px solid var(--accent);padding:8px 0 8px 12px;margin:11px 0;font-size:14.5px;color:var(--ink-2);line-height:1.55}
+/* Reference tables. Even column spacing: every cell carries the SAME right gutter so
+   numeric columns don't cram together while a text column hoards the slack. Data cells
+   never wrap (numbers stay on one line); only the final description column wraps. */
+.tbl{width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  padding:0 18px 6px 0;border-bottom:1px solid var(--rule);font-weight:600;white-space:nowrap}
+.tbl td{padding:6px 18px 6px 0;border-bottom:1px solid rgba(182,179,168,.45);color:var(--ink-2);white-space:nowrap}
+.tbl th:last-child,.tbl td:last-child{padding-right:0;white-space:normal}
+.tbl td:first-child{color:var(--ink);font-weight:600}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
+.tbl tr.hl td{background:rgba(232,84,31,.13)}
+#a-lang td:nth-child(3){color:var(--ink);font-weight:600}   /* second code column, bold like the first */
+/* A clearly-a-heading heading: accent mono eyebrow with a rule under it, so a reader
+   scanning the page can SEE where each section starts — as opposed to mid-paragraph
+   bold, which is for emphasis only and must never read like a heading. */
+.a-h{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);font-weight:600;margin:22px 0 9px;padding-bottom:5px;border-bottom:1px solid var(--rule)}
+.a-h:first-child{margin-top:0}
+.a-lede{font-size:15px;line-height:1.55;color:var(--ink);font-weight:600;margin-bottom:12px}
+/* A legible definition/bullet list: a term in ink, its explanation after — replaces
+   run-on "bold-dash" paragraphs where every item ran into the next. */
+.a-list{list-style:none;margin:4px 0 14px;padding:0}
+.a-list li{padding:6px 0 6px 15px;position:relative;color:var(--ink-2);font-size:14px;line-height:1.5;
+  border-bottom:1px solid rgba(182,179,168,.32)}
+.a-list li:last-child{border-bottom:0}
+.a-list li::before{content:"";position:absolute;left:1px;top:12px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.a-list li b{color:var(--ink);font-weight:600}
+.myth{border-left:2px solid var(--accent);padding:6px 0 6px 12px;margin:12px 0;font-size:13.5px;color:var(--ink-2);line-height:1.55}
 .myth b{color:var(--ink)}
+.ref-p{font-size:13px;line-height:1.55;color:var(--ink-2);margin-top:6px}
+.ref-p b{color:var(--ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -1045,6 +1141,8 @@ body{
       <div class="brow-left">
         <div class="rig-l">Encoders</div>
         <div class="rig-v" id="rig-v">Soft <b>ffmpeg</b> · Hard <b>detecting…</b></div>
+        <div class="rig-l" style="margin-top:6px">Quality definitions</div>
+        <div class="rig-v" id="rig-q"><b>Default</b></div>
       </div>
       <div class="wordmark">
         <div class="a">Very Thoughtful</div>
@@ -1222,36 +1320,34 @@ body{
       <div class="about-tabs" id="about-tabs">
         <button class="atab on" data-a="how">How this works</button>
         <button class="atab" data-a="codecs">Codecs &amp; containers</button>
+        <button class="atab" data-a="subs">Subtitles</button>
+        <button class="atab" data-a="report">The report</button>
         <button class="atab" data-a="credits">Licenses &amp; credits</button>
       </div>
       <div class="apane on" id="a-how">
         <div class="docs-two">
           <div class="docs-col prose">
-            <p>Batch tools apply one setting to every file. A library isn't uniform — some files were encoded with generous headroom, others were squeezed dry years ago. Re-encoding the second kind buys almost nothing and costs a generation of quality.</p>
-            <p>So each file is measured first: <b>bits per pixel per frame</b>, derived from its real bitrate, resolution and frame rate. Your tier is a bpp too — a density, not a bitrate — so the target for <em>this</em> file is simply <b>tier bpp × its pixels × its frame rate × the codec factor</b>. A 4K file gets about four times a 1080p one, a 60fps file twice a 30fps one, with no per-resolution rules anywhere.</p>
-            <p>The target is <b>absolute</b>: a function of the tier and the file's own pixels and fps, never a fraction of what the file currently weighs. That distinction is the whole design. Compute a target as "70% of the current bitrate" and every re-run re-anchors to the file it just shrank — 3.5 GB, then 2.2, then 1.2 — grinding the same file down forever. An absolute target converges: one encode lands at the tier, and every run after that sees a file already at tier and leaves it alone.</p>
-            <p>So a file is only re-encoded if it is <b>more than 10% over</b> its target. At or under, it is left exactly as it is — judged by density, not by how big the file looks. H.265, AV1 and VP9 sources are never transcoded at all; re-encoding them only spends a generation of quality. Targets are floored at 1500 kbps and never set above the source, so a file is only ever shrunk, never inflated.</p>
-            <p>Before encoding, the expected output is modelled: if it won't clear your saving threshold, the encode never starts. Afterwards the source is replaced only if the new file exists, is non-empty, and actually beat that threshold. Otherwise the original stays and says so in the run report.</p>
-            <p><b>Subtitles are never silently destroyed.</b> Text tracks (SRT, ASS/SSA, WebVTT) are embedded into the MP4 as <b>mov_text</b>, all of them. If embedding fails they are extracted to sidecar <b>.srt</b> files beside the output, which Plex, VLC and Infuse pick up automatically. Image-based tracks — PGS from Blu-ray, DVD bitmaps — cannot exist in an MP4 and cannot become .srt without OCR, so they have to be dropped. When that happens <b>the original is archived instead of deleted, even if you chose delete</b>. Nothing is irrecoverable, and every case is named in the run report.</p>
-            <p><b>A stopped run picks up where it left off.</b> Every file that reaches a decision is recorded in a resume ledger at the scan root, tagged with a signature of the settings that produced it. Re-run with the same settings and those files are skipped without re-probing. Change any setting and the signature changes, so everything is re-evaluated. Correctness never depends on it — the absolute target already prevents re-cutting — so the ledger is only ever a speed optimisation.</p>
-            <p><b>Honesty note.</b> Quality assumes typical film and TV at 24–30 fps; very grainy or 50/60 fps material may want a tier up. Software (libx264/libx265) uses quality-targeted capped-CRF and is slightly better per bit than hardware VideoToolbox at the same target — hardware is simply much faster. Streaming services hit their numbers with per-shot encoders you don't have, so these anchors sit above theirs on purpose.</p>
+            <p><b>Very Thoughtful Compression evaluates files in a video library according to the quality and device compatibility you want.</b></p>
+            <p>It evaluates every file individually to make lossless changes that improve compatibility and/or to re-encode the files that are genuinely too big given your quality requirements. It leaves everything that is at, or below your quality target exactly as it is to avoid needless degradation.</p>
+            <p><b>Most batch re-encoders don't work this way.</b> They apply <b>one setting to every file</b>, or aim at a <b>relative</b> target like "70% of the current bitrate". If you do this repeatedly, the same movie is ground down run after run (3.5 GB → 2.2 GB → 1.2 GB etc), bleeding a generation of quality each time. A library isn't uniform: some files were encoded with generous headroom, others were squeezed dry years ago. Re-encoding the second kind buys almost nothing and costs quality that never comes back.</p>
+            <p><b>VTC measures before it touches anything.</b> Each file's real density is read — <b>bits per pixel per frame</b>, from its bitrate, resolution and frame rate. Your desired Quality Tier is a bpp too — a density, not a bitrate — so the target for <em>this</em> file is <b>tier bpp × its pixels × its frame rate × the codec factor</b>. No resolution rules anywhere.</p>
+            <p>Because that target is <b>absolute</b> — a function of the tier you choose and the file's own pixels and fps, never a fraction of its current size — it <b>converges</b>: one encode lands a file at the tier, and every run after that sees it already there and leaves it alone.</p>
+            <p>A file is only re-encoded when it's <b>more than 10% over</b> its target; at or under, it is left exactly as it is. Modern codecs (H.265, AV1, VP9) are never transcoded — that usually spends a generation of quality to save very little. Targets are floored and never set above the source, so a file is only ever shrunk, never inflated.</p>
+            <p>Before encoding, the expected output is modelled: if it won't clear your saving threshold, the encode never starts. Afterwards the source is replaced only if the new file exists, is non-empty, ffprobes as a valid video, and actually beat the threshold. If not, the original stays and we report what happened in the run report.</p>
+            <p><b>Nothing is ever silently lost</b> — dropped subtitle tracks archive the original even on delete, and every outcome is named in the report.</p>
+            <p><b>A stopped run picks up where it left off.</b> Every file that reaches a decision is recorded in a resume ledger at the scan root, tagged with a signature of the settings that produced it. Re-run a processed file and it will be skipped — the absolute target has been reached and the ledger check both prevent that happening.</p>
+            <p><b>Quality is part objective, part perceptual.</b> There is measurably more information in a higher-quality file — but exactly what you call that, or how much difference still counts as "the same", is a judgement. Codecs are good at some material and less good at others: grainy sources need more space to encode all that detail, so a tier up can be worth it there. Software encoders (libx264/libx265) are more nuanced — better quality for the same bitrate — while hardware encoders (VideoToolbox) are much, much faster. How much speed is worth trading for how much quality is a call only you can make. We've set <b>Excellent</b> at roughly a streaming platform's 1080p release and banded <b>OK, Good, Stellar</b> and <b>Insane</b> around it the same way — but your eye might land differently, so every tier's density is yours to change in <b>Advanced settings → Quality tiers</b>.</p>
           </div>
           <div class="docs-col ref-col">
             <div class="ref-block">
-              <div class="ref-h mono">Quality tiers</div>
+              <div class="a-h">Quality tiers</div>
               <table class="tbl">
-<thead><tr><th>Tier</th><th class="num">bpp</th><th class="num">H.264</th><th class="num">H.265</th><th>What it's for</th></tr></thead>
-                <tbody>
-                  <tr><td>OK</td><td class="num">0.064</td><td class="num">4.0</td><td class="num">2.4</td><td>Space-first · phones, tablets</td></tr>
-                  <tr><td>Good</td><td class="num">0.080</td><td class="num">5.0</td><td class="num">3.0</td><td>What Netflix delivers at 1080p</td></tr>
-                  <tr class="hl"><td>Excellent</td><td class="num">0.109</td><td class="num">6.8</td><td class="num">4.1</td><td>Top streaming rung + headroom</td></tr>
-                  <tr><td>Stellar</td><td class="num">0.129</td><td class="num">8.0</td><td class="num">4.8</td><td>Blu-ray-lite · grain, motion</td></tr>
-                  <tr><td>Insane</td><td class="num">0.145</td><td class="num">9.0</td><td class="num">5.4</td><td>Near-transparent for WEB-DL</td></tr>
-                </tbody>
+                <thead><tr><th>Tier</th><th class="num">Score*</th><th class="num">H.264</th><th class="num">H.265</th><th>What it's for</th></tr></thead>
+                <tbody id="a-tiers-body"></tbody>
               </table>
-              <div class="mono ref-n">Mbps are H.264 at 1080p30. Every file re-derives its own target from its real pixels and frame rate — 4K ~4×, 60fps ~2×. Floor 1500 kbps; never above the source.</div>
+              <div class="ref-n"><b>*&nbsp;Score</b> — the tier's H.264 bits-per-pixel-per-frame&nbsp;× 1000. Every other codec's target is derived from it by the relative compression strength between them. The <b>H.264</b> and <b>H.265</b> columns are Mbps at 1080p30; each file re-derives its own target from its real pixels and frame rate (4K ~4×, 60fps ~2×). Floor 1500 kbps; never above the source.</div>
+              <div class="ref-n" style="margin-top:8px">These are the shipped defaults — retune any tier in <b>Advanced → Quality tiers</b> and this table shows your values. A source already at or under a tier's density is already efficient and barely shrinks; the number to watch is your source's own score, shown under each preview.</div>
             </div>
-            <div class="myth"><b>The number to watch is your source's own BPP</b>, shown under each preview panel. A file already at or below a tier's density is already efficient — it will barely shrink, and that is the tool working, not failing.</div>
           </div>
         </div>
       </div>
@@ -1259,32 +1355,148 @@ body{
       <div class="apane" id="a-codecs">
         <div class="docs-two">
           <div class="docs-col prose">
-            <p><b>A codec is not a container.</b> The container is the wrapper — .mp4, .mkv, .mov — and it decides what will play your file. The codec is the compression inside it, and it decides how big the file is. The same H.264 video is exactly the same size in an MP4 as it is in an MKV; MKV files are often large because they are used for high-bitrate rips, not because of the wrapper.</p>
-            <div class="ref-h mono" style="margin-top:14px">H.265 / HEVC</div>
-            <p>A modern codec with wide — not universal — support. Can usually get the same quality as H.264 using only 40-55% of the space - and this advantage grows with resolution: you'll save ~60% at 4K and above. Plays on most devices since 2015 — Apple, recent TVs, Plex, VLC, Infuse. The big exceptions are some SmartTVs and Firefox Browser. Unless you need the widest compatibility, choose this.</p>
-            <div class="ref-h mono" style="margin-top:14px">H.264 / AVC</div>
-            <p>The universal baseline — it direct-plays on virtually anything made since 2003 — but about twice the size for the same quality, and increasingly wasteful above 1080p. Choose it when something in your house has to play the file and you are not sure what.</p>
-            <p><b>Sources already in a modern codec are left alone.</b> H.265, AV1 and VP9 files are never transcoded: re-encoding them spends a generation of quality to save very little.</p>
-            <div class="ref-h mono" style="margin-top:14px">Subtitle kinds</div>
-            <p><b>Normal</b> is the complete dialogue subtitle — everything that is said. <b>Forced</b> subtitles appear only where they are needed even for someone who speaks the language: translated signs, on-screen text, and lines in a foreign tongue. <b>HoH / SDH</b> (Hard of Hearing / Subtitles for the Deaf and Hard of hearing) is a full transcript that also describes sound — <i>[door slams]</i>, <i>[ominous music]</i> — and names who is speaking. Keep any combination; VTC filters tracks to just the kinds you tick, in just the languages you list.</p>
+            <p><b>A codec is not a container.</b> The <b>container</b> is the wrapper. It holds the video track, one or more audio tracks, any subtitle tracks, plus chapters and metadata, and keeps them in sync — but it does <b>not</b> decide how big the file is or how good it looks. The <b>codec</b> inside it does that. The same H.264 video is exactly the same size in an MP4 as in an MKV. Rips are often large because they carry high-bitrate video and lossless audio, not because of the wrapper.</p>
+            <p>What differs between containers is <b>what they can hold</b> and <b>what will play them</b>.</p>
+            <ul class="a-list">
+              <li><b>MP4</b> is the universal standard — it plays on essentially everything, but only carries a limited set of audio codecs and can't hold image-based subtitles.</li>
+              <li><b>MKV</b> holds almost anything — any codec, unlimited tracks, image subtitles — but far fewer devices play it directly.</li>
+              <li>Other containers are more specialised or older (see the table).</li>
+            </ul>
+            <p>Whatever the source, VTC delivers your <b>preferred container</b> (MP4 by default): a lossless remux where the codec allows, a transcode where it doesn't (old wrappers like AVI and WMV). On <b>Auto</b> it uses MP4 and falls back to MKV only when MP4 would lose something.</p>
+
+            <div class="a-h">Video codecs</div>
+            <p>VTC outputs H.264 or H.265; what it does with a source depends on how modern that codec already is.</p>
+            <ul class="a-list">
+              <li><b>H.264 / AVC</b> (2003) — the universal baseline, plays on virtually anything, but ~2× the size of H.265.</li>
+              <li><b>H.265 / HEVC</b> (2013) — H.264 quality in 40–55% of the space (~60% smaller at 4K); plays on most things since ~2015, bar some smart TVs and Firefox browser. This is VTC's default output but worth considering H.264 if you are streaming to a wide variety of devices.</li>
+              <li><b>AV1</b> (2018) — likely the future (saves ~30% more space than H.265), royalty-free, but slow to encode and still growing in support. Already modern, so VTC leaves it alone; not currently an output option.</li>
+              <li><b>VP9</b> (2013) — Google's codec, roughly H.265-efficient, common on YouTube and WebM. Modern: left alone, not currently an output option.</li>
+              <li><b>Legacy — MPEG-2, VC-1, Xvid/DivX, WMV</b> — old and inefficient (2–4× H.264). VTC rescues these: transcoded to your chosen modern codec near their original bitrate, so quality holds while the file shrinks, usually dramatically.</li>
+            </ul>
+
+            <div class="a-h">Audio MP4 can't hold</div>
+            <p>Audio is passed through with no quality loss, but there are some cases where that isn't possible in an MP4. An MP4 carries only AAC, AC-3 (Dolby Digital) and E-AC-3 (Dolby Digital Plus). Blu-ray rips often use formats MP4 doesn't support, so you can either convert them to an excellent but lossy alternative (AAC — the channel layout is kept, so a 7.1 track stays 7.1) or keep them as-is by using the MKV format and accept any device-compatibility problems. What each conversion costs:</p>
+            <ul class="a-list">
+              <li><b>DTS / DTS-HD MA</b> — DTS is lossy (like AC-3); DTS-HD Master Audio is lossless. Converting to AAC discards the DTS decode path; from DTS-HD MA you also lose the lossless master.</li>
+              <li><b>Dolby TrueHD</b> (often with Atmos) — a lossless Dolby master. Atmos height data rides on the TrueHD/E-AC-3 stream; plain AAC drops the object-based Atmos layer and the lossless quality.</li>
+              <li><b>LPCM / raw PCM</b> — uncompressed. Re-encoding to AAC is a big size saving for a small, usually inaudible cost.</li>
+            </ul>
           </div>
           <div class="docs-col ref-col">
             <div class="ref-block">
-              <div class="ref-h mono">Codecs at the same quality</div>
+              <div class="a-h">Source containers</div>
               <table class="tbl">
-                <thead><tr><th>Codec</th><th class="num">Space</th><th class="num">Compat</th><th class="num">Stream</th><th class="num">Speed</th></tr></thead>
+                <thead><tr><th>Container</th><th class="num">Plays on</th><th>Holds</th></tr></thead>
                 <tbody>
-                  <tr><td>H.264</td><td class="num">5.5</td><td class="num">10</td><td class="num">9.5</td><td class="num">8 ★</td></tr>
-                  <tr class="hl"><td>H.265</td><td class="num">7.5</td><td class="num">8</td><td class="num">8</td><td class="num">5 ★</td></tr>
-                  <tr><td>VP9</td><td class="num">7</td><td class="num">5.5</td><td class="num">7</td><td class="num">3 ★</td></tr>
-                  <tr><td>AV1</td><td class="num">9</td><td class="num">5.5</td><td class="num">7</td><td class="num">2 ★</td></tr>
-                  <tr><td>Xvid</td><td class="num">3</td><td class="num">6</td><td class="num">2</td><td class="num">8</td></tr>
-                  <tr><td>MPEG-2</td><td class="num">2</td><td class="num">6.5</td><td class="num">3</td><td class="num">9</td></tr>
+                  <tr class="hl"><td>MP4 / M4V</td><td class="num">★★★★★</td><td>AAC/AC-3 audio, text subs</td></tr>
+                  <tr><td>MKV</td><td class="num">★★★</td><td>anything — any codec, any track</td></tr>
+                  <tr><td>MOV</td><td class="num">★★★★</td><td>like MP4 (Apple)</td></tr>
+                  <tr><td>WebM</td><td class="num">★★★</td><td>VP9/AV1 + Opus</td></tr>
+                  <tr><td>TS / M2TS</td><td class="num">★★</td><td>broadcast / disc streams</td></tr>
+                  <tr><td>AVI</td><td class="num">★★</td><td>old; no modern codecs</td></tr>
+                  <tr><td>WMV</td><td class="num">★★</td><td>old Windows Media</td></tr>
                 </tbody>
               </table>
-              <div class="mono ref-n">1–10, higher is better. ★ = near-max with a hardware encoder. Space is a property of the codec — identical in any container.</div>
+              <div class="ref-n">Plays-on is direct device support, higher is wider. <b>Whatever the source</b>, VTC delivers your preferred container — MP4 or MKV: a lossless remux where the codec allows, a transcode where it doesn't. So an AVI or WMV ends up as MP4 like everything else, not forced to MKV.</div>
             </div>
-            <div class="myth"><b>Myth: MKV is smaller than MP4.</b> It isn't. The container decides compatibility. The codec decides size.</div>
+            <div class="ref-block">
+              <div class="a-h">Video codecs</div>
+              <table class="tbl">
+                <thead><tr><th>Codec</th><th class="num">Space</th><th class="num">Compat</th><th>VTC does</th></tr></thead>
+                <tbody>
+                  <tr><td>H.264</td><td class="num">5.5</td><td class="num">10</td><td>output &amp; shrink</td></tr>
+                  <tr class="hl"><td>H.265</td><td class="num">7.5</td><td class="num">8</td><td>output &amp; shrink</td></tr>
+                  <tr><td>VP9</td><td class="num">7</td><td class="num">5.5</td><td>left alone</td></tr>
+                  <tr><td>AV1</td><td class="num">9</td><td class="num">5.5</td><td>left alone</td></tr>
+                  <tr><td>VC-1</td><td class="num">4</td><td class="num">5</td><td>transcoded</td></tr>
+                  <tr><td>Xvid</td><td class="num">3</td><td class="num">6</td><td>transcoded</td></tr>
+                  <tr><td>MPEG-2</td><td class="num">2</td><td class="num">6.5</td><td>transcoded</td></tr>
+                </tbody>
+              </table>
+              <div class="ref-n">Space and Compat are 1–10, higher is better. Space is a property of the codec — identical in any container.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="apane" id="a-subs">
+        <div class="docs-two">
+          <div class="docs-col prose">
+            <p>A single film often carries several subtitle tracks, in different languages and of different <b>kinds</b>. VTC keeps exactly the ones you ask for — by kind and by language — and never destroys a track silently.</p>
+            <div class="a-h">Kinds</div>
+            <p><b>Normal</b> — the complete dialogue: everything that is said. <b>Forced</b> — only what a native speaker still needs: translated on-screen text and signs, and lines spoken in another language (the alien speaking in a subtitled scene). <b>HoH / SDH</b> (Hard of Hearing / Subtitles for the Deaf and Hard of hearing) — a full transcript that also describes sound, <i>[door slams]</i>, <i>[ominous music]</i>, and names who is speaking. In <b>Subtitles</b> you tick any combination of kinds and list the languages to keep; VTC filters every file to just those.</p>
+            <div class="a-h">Text vs image subtitles</div>
+            <p><b>Text</b> subtitles are just words with timings — SRT, ASS/SSA, WebVTT. They're tiny, searchable, and can be restyled by the player. <b>Image</b> subtitles are actually little pictures of each line — <b>PGS</b> from Blu-ray and <b>VobSub</b> from DVD — burned as bitmaps because the disc used a specific font. They look exactly as authored, but can't be searched, restyled, or turned into text without OCR.</p>
+            <div class="a-h">Embedded vs sidecar (.srt)</div>
+            <p><b>Embedded</b> means the subtitle lives <i>inside</i> the video file as its own track — one file, nothing to misplace. A <b>sidecar</b> is a separate <b>.srt</b> file sitting next to the video with the same name (<span class="mono">Movie.srt</span>), which Plex, VLC, Infuse and Kodi pick up automatically. A .srt is plain text, so it's lossless and it plays even more widely than an embedded track.</p>
+            <p><b>What VTC does.</b> Text tracks are embedded into MP4 (as <b>mov_text</b>), all of them. In the rare case one can't embed, it's written to a sidecar <b>.srt</b> instead — lossless, and the default on <b>Auto</b> because it plays more widely than forcing the file to MKV. Image tracks (PGS/VobSub) can't live in an MP4 at all and can't become .srt without OCR, so keeping them means keeping the file as <b>MKV</b> (Auto does this); if you've chosen to drop them, <b>the original is archived rather than deleted</b> always. Every subtitle outcome is named in the run report.</p>
+          </div>
+          <div class="docs-col ref-col">
+            <div class="ref-block">
+              <div class="a-h">Common language codes</div>
+              <table class="tbl" id="a-lang">
+                <thead><tr><th>Code</th><th>Language</th><th>Code</th><th>Language</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">eng</td><td>English</td><td class="mono">jpn</td><td>Japanese</td></tr>
+                  <tr><td class="mono">spa</td><td>Spanish</td><td class="mono">kor</td><td>Korean</td></tr>
+                  <tr><td class="mono">fre</td><td>French</td><td class="mono">zho</td><td>Chinese</td></tr>
+                  <tr><td class="mono">ger</td><td>German</td><td class="mono">rus</td><td>Russian</td></tr>
+                  <tr><td class="mono">ita</td><td>Italian</td><td class="mono">ara</td><td>Arabic</td></tr>
+                  <tr><td class="mono">por</td><td>Portuguese</td><td class="mono">hin</td><td>Hindi</td></tr>
+                  <tr><td class="mono">nld</td><td>Dutch</td><td class="mono">swe</td><td>Swedish</td></tr>
+                  <tr><td class="mono">pol</td><td>Polish</td><td class="mono">dan</td><td>Danish</td></tr>
+                  <tr><td class="mono">tur</td><td>Turkish</td><td class="mono">nor</td><td>Norwegian</td></tr>
+                </tbody>
+              </table>
+              <div class="mono ref-n">ISO 639-2 codes, as used in <b>Subtitles → Languages to keep</b> (comma-separated). French also accepts <span class="mono">fra</span>, German <span class="mono">deu</span>. Leave the field empty to keep every language.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="apane" id="a-report">
+        <div class="docs-two">
+          <div class="docs-col prose">
+            <p class="a-lede">The report sorts every file into three outcomes — <b>Thoughtfully processed</b>, <b>Left alone</b>, and <b>Needs a look</b> — each a tab you can open. Click any row to reveal that file in your file browser; <b>Save log…</b> saves the full log to disk.</p>
+
+            <div class="a-h">Thoughtfully processed</div>
+            <p>The file was rewritten — smaller, or the same size but rehomed into a more compatible container. The detail line leads with the container change, then the video and audio:</p>
+            <ul class="a-list">
+              <li><b>Shrunk</b> — re-encoded to your tier because it was more than 10% over. The one lossy operation.</li>
+              <li><b>Transcoded</b> — a legacy codec (Xvid, MPEG-2…) rescued to a modern one at full fidelity.</li>
+              <li><b>Remuxed / copied</b> — a lossless container change (mkv→mp4). Video and audio are copied byte-for-byte; nothing is re-encoded.</li>
+            </ul>
+
+            <div class="a-h">Left alone</div>
+            <p>Nothing was written; the original is untouched. The row says which of these it was:</p>
+            <ul class="a-list">
+              <li><b>Already efficient</b> — within reach of your tier's density, so re-encoding would spend quality to save almost nothing. This also covers a file an earlier run under the same settings recorded as done and which hasn't changed since (matched on path, size and timestamp), so a repeat run skips it without re-probing.</li>
+              <li><b>Below your quality tier</b> — the source is <em>lower</em> quality than the tier you chose. It's left as-is because VTC never inflates a file (you can't add detail that isn't there) — worth knowing if you'd rather re-source it at higher quality.</li>
+              <li><b>Already modern</b> — H.265, AV1 or VP9, which are never transcoded.</li>
+              <li><b>Already converted</b> — the output for this file already exists from a previous run.</li>
+              <li><b>Saving too small</b> — the encode was tried or modelled and wouldn't clear your saving threshold, so the original was kept.</li>
+              <li><b>Codec kept</b> — a legacy codec you chose not to transcode (Format &amp; container → "only if lossless").</li>
+              <li><b>Left as-is</b> — a non-MP4 file your Format &amp; container choice said to leave untouched.</li>
+              <li><b>Already encoded by this tool</b> — a file VTC itself produced; re-encoding it would cost a second generation of quality, probably for nothing.</li>
+            </ul>
+
+            <div class="a-h">Needs a look</div>
+            <p>Worth a human glance — each marked with an orange <b style="color:var(--accent)">✱</b> at the start of the name. Nothing here was changed; these are files VTC couldn't safely handle:</p>
+            <ul class="a-list">
+              <li><b>Couldn't read file</b> — ffprobe couldn't parse it. Since ffmpeg reads almost every format, this usually means the file is corrupt or truncated, not exotic. Reveal it and try to play it.</li>
+              <li><b>Error</b> — the encode failed. The row shows a short reason; the full text is in the saved log (long errors end in "… see log"). The original is untouched.</li>
+              <li><b>Warning</b> — the file was handled, but with a caveat worth knowing (for example a subtitle written to a sidecar .srt).</li>
+            </ul>
+          </div>
+          <div class="docs-col ref-col">
+            <div class="ref-block">
+              <div class="a-h">Retry in software</div>
+              <p class="ref-p">Hardware encoders are fast but occasionally choke on the odd file. When a run leaves errors, a <b>Retry N in software</b> button appears below the report (it names the file when there's one). It re-runs just those files with the slower libx264/libx265 encoder, which is more forgiving and slightly better per bit. The results replace that file's row.</p>
+            </div>
+            <div class="ref-block">
+              <div class="a-h">"Same size" is not a bug</div>
+              <p class="ref-p">A remux (mkv→mp4) or an already-lean file reads as "7 GB → 7 GB": the wrapper, or nothing, changed — on purpose. The detail line says which. And because the target is an <b>absolute</b> density, one encode lands a file at your tier and every run after leaves it alone; a lossless remux never counts as a re-encode, so a remuxed file stays eligible for a real shrink later.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1299,7 +1511,7 @@ body{
             <p class="mono about-ver">Version 1.2 · Apple Silicon</p>
           </div>
           <div class="docs-col prose">
-            <div class="ref-h mono">Licenses &amp; credits</div>
+            <div class="a-h">Licenses &amp; credits</div>
             <p><b>FFmpeg.</b> This app bundles FFmpeg (ffmpeg + ffprobe) to do the actual decoding and encoding, licensed under the <b>GNU GPL v3</b>. FFmpeg is a separate program invoked as a subprocess; this app's own code is not a derivative work of it. The bundled binaries are unmodified static builds. Corresponding source is available from
               <span class="mono">ffmpeg.org/releases</span> and <span class="mono">github.com/FFmpeg/FFmpeg</span>. The full GPL v3 text and an attribution NOTICE ship in the <span class="mono">licenses/</span> folder beside the app.</p>
             <p><b>Typefaces.</b> Archivo and IBM Plex Mono, both under the SIL Open Font License 1.1, bundled with the app — it makes no network requests of any kind.</p>
@@ -1324,26 +1536,30 @@ body{
       <h2 class="sheet-t">Run these settings on <span id="c-n">—</span>?</h2>
     </div>
     <div class="sheet-b">
-      <div class="recap" id="recap"></div>
-      <p class="recap-hint mono" id="recap-hint">
-        <svg viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="M13 5.5l4 4"/></svg>
-        Click any setting above to change it. Nothing is written until you press Start.
-      </p>
-      <div class="recap-sum">
-        <div><span class="mono">Source</span><b id="c-src">—</b></div>
-        <div><span class="mono">Projected</span><b id="c-proj">—</b></div>
-        <div><span class="mono">Originals</span><b id="c-dest">—</b></div>
+      <!-- The OUTCOME leads: the space change on the files that will actually be
+           re-encoded, what's left alone, and the one irreversible fact. This is what a
+           person checks before starting, so the numbers, the working, and the warning
+           are one panel — not three scattered blocks. -->
+      <div class="c-outcome" id="c-outcome">
+        <div class="recap-sum">
+          <div><span>Selected</span><b id="c-src">—</b></div>
+          <div><span>Projected</span><b id="c-proj">—</b></div>
+          <div><span>Recovered</span><b class="hot" id="c-saved">—</b></div>
+        </div>
+        <div class="c-work" id="c-work" hidden></div>
+        <p class="sheet-w" id="c-warn"></p>
       </div>
-      <!-- Per-file encoder choice. Only shown on a HARDWARE run (on a software
-           run every file already gets the slow encoder), and only in the app —
-           the standalone mock has no file list to offer. -->
+      <!-- The settings you chose — the edit surface, secondary to the outcome. -->
+      <div class="recap-h mono">Settings · tap any to change it</div>
+      <div class="recap" id="recap"></div>
+      <p class="recap-hint mono" id="recap-hint">Nothing is written until you press Start.</p>
+      <!-- Per-file encoder choice. Only on a HARDWARE run, only in the app. A quiet
+           option, not a hazard, so it doesn't compete with the delete warning above. -->
       <div class="sw-entry" id="sw-entry" hidden>
-        <div class="sw-entry-t"><b>Are some files really important?</b>
-          <span id="sw-entry-n">Choose the ones worth the higher-quality, slower software encoder.</span></div>
+        <div class="sw-entry-t"><b>Are some files more important?</b>
+          <span id="sw-entry-n">Select exceptions that will use the software encoder. (higher quality per bit but much slower)</span></div>
         <button class="adv-mini" id="sw-open" style="margin-bottom:0">Choose files…</button>
       </div>
-      <div class="c-work" id="c-work" hidden></div>
-      <p class="sheet-w" id="c-warn"></p>
     </div>
     <div class="sheet-f">
       <button class="btn-ghost" id="c-back">Go back</button>
@@ -1441,23 +1657,48 @@ body{
         <h3>Format / container</h3>
         <div class="adv-grid one">
           <div class="adv-row">
-            <div class="adv-lab"><b>Container</b>
-              <span>MP4 plays almost anywhere. MKV is more flexible — more tracks, and it
-                can hold image subtitles MP4 can't. <b>Auto</b> uses MP4 and switches to MKV
-                only when MP4 would lose something.
+            <div class="adv-lab"><b>Preferred container</b>
+              <span>MP4 plays almost anywhere. MKV is more flexible — holds more tracks, more audio and codec types and it can hold image subtitles. Less predictable playback. <b>Auto</b> uses MP4 and switches to MKV only when MP4 would lose something.
                 <a class="adv-learn" data-about="codecs">Learn more ›</a></span></div>
             <div class="adv-seg" id="adv-container">
               <button data-v="auto">Auto</button><button data-v="mp4">MP4</button><button data-v="mkv">MKV</button>
             </div>
           </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b id="adv-format-lab">Files not already MP4</b>
-              <span id="adv-format-note"></span></div>
-            <div class="adv-seg" id="adv-format">
-              <button data-v="convert">Convert all</button>
-              <button data-v="remux">Only if lossless</button>
-              <button data-v="shrink_keep">Shrink, keep format</button>
-              <button data-v="leave">Leave alone</button>
+          <div class="adv-row adv-row-col">
+            <div class="adv-lab"><b id="adv-format-lab">If the original is not MP4, then…</b></div>
+            <div class="adv-radio" id="adv-format">
+              <button class="adv-radio-opt" data-v="convert"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Shrink &amp; convert to <b class="adv-tgt">MP4</b></span></button>
+              <button class="adv-radio-opt" data-v="shrink_keep"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Shrink &amp; keep its original format</span></button>
+              <button class="adv-radio-opt" data-v="remux"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Convert to <b class="adv-tgt">MP4</b> if lossless, otherwise leave alone</span></button>
+              <button class="adv-radio-opt" data-v="leave"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Leave alone</span></button>
+            </div>
+          </div>
+
+          <div class="adv-subhead" id="adv-mkv-head">Edge-case behaviour</div>
+          <p class="adv-intro" style="margin:-4px 0 6px" id="adv-edge-note">Only adjustable when the container is <b>MP4</b>.
+            <b>Auto</b> picks the least-loss, most-compatible option for each; <b>MKV</b> keeps everything.</p>
+
+          <div class="adv-edge">
+            <div class="adv-edge-head">Audio MP4 can't hold <span class="adv-edge-when">DTS · DTS-HD · TrueHD · raw PCM</span></div>
+            <div class="adv-radio" data-edge="audio">
+              <button class="adv-radio-opt" data-v="convert"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Convert to <b>AAC</b> — channel layout kept (7.1 stays 7.1) <a class="adv-learn" data-about="codecs">see more ›</a></span></button>
+              <button class="adv-radio-opt" data-v="mkv"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Use <b>MKV</b>, audio left untouched <span class="adv-auto">auto</span></span></button>
+            </div>
+          </div>
+
+          <div class="adv-edge">
+            <div class="adv-edge-head">Image subtitles <span class="adv-edge-when">PGS from Blu-ray, DVD bitmaps</span></div>
+            <div class="adv-radio" data-edge="image">
+              <button class="adv-radio-opt" data-v="drop"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Drop them — they can't live in an MP4</span></button>
+              <button class="adv-radio-opt" data-v="mkv"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Use <b>MKV</b>, image subtitles kept <span class="adv-auto">auto</span></span></button>
+            </div>
+          </div>
+
+          <div class="adv-edge">
+            <div class="adv-edge-head">Text subtitles that can't embed in MP4</div>
+            <div class="adv-radio" data-edge="text">
+              <button class="adv-radio-opt" data-v="srt"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Write them to sidecar <b>.srt</b> files — lossless, and plays more widely <span class="adv-auto">auto</span></span></button>
+              <button class="adv-radio-opt" data-v="mkv"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Use <b>MKV</b> with the subtitles embedded</span></button>
             </div>
           </div>
         </div>
@@ -1468,8 +1709,7 @@ body{
         <div class="adv-grid">
           <div class="adv-row">
             <div class="adv-lab"><b>Audio</b>
-              <span>Passthrough (the default) copies every track untouched — no quality loss.
-                Pick a codec only to re-encode; the bitrates below then apply. FLAC forces MKV.</span></div>
+              <span>Passthrough (the default) keeps every track as-is, converting only what a container can't hold — DTS, TrueHD or PCM into MP4 — to AAC at the bitrates below, keeping the channel layout. Choose AAC or AC-3 to re-encode every track; FLAC is lossless (forces MKV).</span></div>
             <div class="adv-ctrl">
               <select id="adv-audio">
                 <option value="passthrough">Passthrough</option>
@@ -1481,12 +1721,12 @@ body{
           </div>
           <div class="adv-row adv-sub">
             <div class="adv-lab"><b>Bitrate · stereo</b>
-              <span>Target for mono/stereo tracks (≤2 channels) when re-encoding.</span></div>
+              <span>Target for mono/stereo tracks (≤2 channels) when audio is converted.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-ab-stereo" min="64" max="640" step="16"><span class="adv-unit">kbps</span></div>
           </div>
           <div class="adv-row adv-sub">
             <div class="adv-lab"><b>Bitrate · 5.1+</b>
-              <span>Target for surround tracks (&gt;2 channels) when re-encoding.</span></div>
+              <span>Target for surround tracks (&gt;2 channels) when audio is converted.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-ab-multi" min="128" max="1024" step="16"><span class="adv-unit">kbps</span></div>
           </div>
         </div>
@@ -1504,7 +1744,7 @@ body{
             <div class="adv-lab"><b>Kinds to keep</b>
               <span><b>Normal</b> is the full dialogue; <b>Forced</b> shows only translated on-screen
                 text and signs; <b>HoH / SDH</b> adds sound-effect and speaker cues for the hard of
-                hearing. Tick any combination. <a class="adv-learn" data-about="codecs">Learn more ›</a></span></div>
+                hearing. Tick any combination. <a class="adv-learn" data-about="subs">Learn more ›</a></span></div>
             <div class="adv-ctrl adv-checks" id="adv-subs-kinds">
               <button type="button" class="adv-chk" data-k="normal"  role="checkbox">Normal</button>
               <button type="button" class="adv-chk" data-k="forced"  role="checkbox">Forced</button>
@@ -1512,19 +1752,26 @@ body{
             </div>
           </div>
           <div class="adv-row">
-            <div class="adv-lab"><b>Keep image subtitles</b>
-              <span>Image subtitles (PGS, DVD) can't go in an MP4. When on, files that have
-                them are saved as MKV instead of dropping the tracks.</span></div>
-            <button class="adv-tog" id="adv-image-subs" role="switch"></button>
-          </div>
-          <div class="adv-row">
-            <div class="adv-lab"><b>Avoid sidecar .srt files</b>
-              <span>Text subtitles embed into the MP4 automatically. If one ever can't be, the
-                file is saved as MKV instead of writing a separate .srt beside it.</span></div>
-            <button class="adv-tog" id="adv-force-mkv-subs" role="switch"></button>
-          </div>
-          <div class="adv-row">
             <div class="adv-lab adv-subs-summary" id="adv-subs-summary"></div>
+          </div>
+          <!-- The subtitle edge-cases, mirrored here from Format & container so they're
+               where you'd look for them. Same ADV values (data-edge), kept in step. -->
+          <div class="adv-subhead" id="adv-subs-mkv-head">Subtitles MP4 can't hold</div>
+          <p class="adv-intro" style="margin:-4px 0 6px">The same choices as in <b>Format &amp; container</b>.
+            Only adjustable when the container is <b>MP4</b>; <b>Auto</b> picks the least-loss, most-compatible option.</p>
+          <div class="adv-edge">
+            <div class="adv-edge-head">Image subtitles <span class="adv-edge-when">PGS from Blu-ray, DVD bitmaps</span></div>
+            <div class="adv-radio" data-edge="image">
+              <button class="adv-radio-opt" data-v="drop"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Drop them — they can't live in an MP4</span></button>
+              <button class="adv-radio-opt" data-v="mkv"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Use <b>MKV</b>, image subtitles kept <span class="adv-auto">auto</span></span></button>
+            </div>
+          </div>
+          <div class="adv-edge">
+            <div class="adv-edge-head">Text subtitles that can't embed in MP4</div>
+            <div class="adv-radio" data-edge="text">
+              <button class="adv-radio-opt" data-v="srt"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Write them to sidecar <b>.srt</b> files — lossless, and plays more widely <span class="adv-auto">auto</span></span></button>
+              <button class="adv-radio-opt" data-v="mkv"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Use <b>MKV</b> with the subtitles embedded</span></button>
+            </div>
           </div>
         </div>
       </section>
@@ -1607,10 +1854,7 @@ body{
           <div class="adv-row">
             <div class="adv-lab"><b>Already processed by VTC</b>
               <span>Files VTC has already compacted are lean, so they're skipped. The one
-                exception: a file first done in H.264 can shrink again if you re-run it in
-                H.265 or another modern codec. VTC keeps a log and stamps each output's
-                metadata comment, so it never re-encodes the same file more than once.
-                Turn this off to process everything again.</span></div>
+                exception: a file processed using H.264 can shrink if you re-run it in H.265 or another modern codec. VTC keeps a log and stamps each output's metadata comment, so it never re-encodes the same file more than once to avoid progressive degradation. Turn this off to allow transcoding again anyway.</span></div>
             <button class="adv-tog" id="adv-ledger" role="switch"></button>
           </div>
           <div class="adv-row">
@@ -1627,8 +1871,7 @@ body{
       <section class="adv-sec" data-sec="tuning">
         <h3>Video tuning</h3>
         <p class="adv-intro">Fine adjustments to how targets are chosen. The HEVC factors set how
-          much less bitrate H.265 needs than H.264 for the same quality — 0.60 means H.265 at 60%
-          of the H.264 bitrate. Its edge grows with resolution, so 4K and 8K sit below HD.
+          much less bitrate H.265 needs than H.264 for the same quality — 0.60 means H.265 at 60% of the H.264 bitrate. Its advantage grows with resolution, so 4K and 8K sit below HD.
           <a class="adv-learn" data-about="how">Learn more ›</a></p>
         <div class="adv-grid">
           <div class="adv-row">
@@ -1665,7 +1908,7 @@ body{
         <h3>Running</h3>
         <div class="adv-grid">
           <div class="adv-row">
-            <div class="adv-lab"><b>Parallel jobs</b><span>How many files are encoded at once. Hardware encoders rarely benefit past 1–2.</span></div>
+            <div class="adv-lab"><b>Parallel jobs</b><span>How many files are encoded at once. Hardware encoders rarely benefit past 2.</span></div>
             <div class="adv-ctrl"><input type="number" id="adv-jobs" min="1" max="16" step="1"></div>
           </div>
         </div>
@@ -1733,7 +1976,7 @@ body{
     <div class="sheet-b">
       <div class="pg-clock-wrap">
         <div class="pg-clock mono" id="pg-clock">--:--</div>
-        <div class="pg-clock-l mono">estimated time remaining</div>
+        <div class="pg-clock-l mono" id="pg-clock-l">estimated time remaining</div>
         <div class="pg-recalc mono" id="pg-recalc">re-estimating…</div>
       </div>
       <div class="pg-top">
@@ -2028,17 +2271,17 @@ const M = [
     ]},
   { id:'quality', short:'QUALITY',
     title:'What quality are you looking for?',
-    sub:'Quality is part objective — how much information is in each frame, measured as Bits per Pixel, per Frame (BPP) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show. We call that quality Excellent and that is what you will get (assuming your source is that good or better). Resolution doesn\'t matter: BPP is a density, so it sets the right bitrate for any resolution + frame rate automatically. Note: a source already at or below a tier\'s BPP is already efficient, so it will barely shrink (or be left alone) — the number to watch is your source\'s own BPP, shown on the preview.',
+    sub:'Quality is part objective — how much information is in each frame, measured as Bits per Pixel, per Frame (BPP) — and part subjective: what you think that looks like. Our baseline is the perceptual quality of a Netflix TV show. We call that quality Excellent and that is what you will get (assuming your source is that good or better). Resolution doesn\'t matter: BPP is a density, so it sets the right bitrate for any resolution + frame rate automatically. Note: a source already at or below a tier\'s BPP is already efficient, so it will barely shrink (or be left alone) when using the same codec.',
     opts:[
-      {k:'OK', recap:'OK · 0.064 BPP', tag:'0.064 BPP', name:'OK',
+      {k:'OK', recap:'OK', tag:'', name:'OK',
        t:'Uses little space. Fine for phones, tablets and older or low-quality material. On a big 1080p TV you will see it soften.', m:[2,10,10,9], hot:0},
-      {k:'GOOD', recap:'Good · 0.080 BPP', tag:'0.080 BPP', name:'Good',
+      {k:'GOOD', recap:'Good', tag:'', name:'Good',
        t:'Solid streaming quality — what most websites deliver, and a little under Netflix and Amazon. On a laptop or smaller TV it is usually more than enough.', m:[4,10,9,8], hot:0},
-      {k:'EXCELLENT', recap:'Excellent · 0.109 BPP', tag:'0.109 BPP · default', name:'Excellent',
-       t:'Matches Netflix\'s top streaming quality. They manage 5.8 Mbps with per-shot encoding you do not have, so we bump our number deliberately above theirs. For almost every library, this is the answer. For excellent sources you want to maintain — or if you use a projector — consider Stellar.', m:[6,9,9,7], hot:0},
-      {k:'STELLAR', recap:'Stellar · 0.129 BPP', tag:'0.129 BPP', name:'Stellar',
+      {k:'EXCELLENT', recap:'Excellent', tag:'', name:'Excellent',
+       t:'Matches Netflix\'s top streaming quality. They manage that with 5.8 Mbps but they have per-shot encoding you do not have, so our bitrate is higher to achieve the same quality. For almost every library, this is the answer. For truly excellent sources you want to maintain — or if you use a projector — consider Stellar.', m:[6,9,9,7], hot:0},
+      {k:'STELLAR', recap:'Stellar', tag:'', name:'Stellar',
        t:'If your source is great, this beats streaming from the big players — heading into Blu-ray territory. For high-quality films, grainy or high-motion footage, or a projector, choose this.', m:[8,7,6,4], hot:0},
-      {k:'INSANE', recap:'Insane · 0.145 BPP', tag:'0.145 BPP', name:'Insane',
+      {k:'INSANE', recap:'Insane', tag:'', name:'Insane',
        t:'Near-transparent from the original on most devices. Past this you may as well keep the original or use a lossless format — archival means lossless, not more bits.', m:[10,5,3,2], hot:0},
     ]},
   { id:'saving', short:'SAVING',
@@ -2046,7 +2289,7 @@ const M = [
     sub:'Your call — the tool has no view on it. We predict the file size of each file according to your quality and codec choice BEFORE encoding starts. A file that won\'t clear your savings expectation is skipped rather than discovered an hour later. We also check the final file to ensure original files are only replaced if it\'s worth it. If we are just doing a lossless conversion, those files will always be the same size.',
     opts:[
       {k:'15%', recap:'Must be 15% smaller — or else keep the original', tag:'Trim the obvious fat', fits:1, name:'15% minimum',
-       t:'The sensible pick if you chose H.264, where a re-encode only shaves headroom off a file rather than changing how it compresses — 15% is a real win there. Expect a lot of files to qualify.', m:[4,10,9,9], hot:0},
+       t:'The sensible pick if you chose H.264, where a re-encode is intended to shave headroom off a file rather than changing how it compresses — 15% is a real win applied across a library. Expect a lot of files to qualify.', m:[4,10,9,9], hot:0},
       {k:'25%', recap:'Must be 25% smaller — or else keep the original', tag:'The healthy-encode bar', fits:0, name:'25% minimum',
        t:'The sensible pick if you chose H.265 or AV1: a healthy re-encode there saves 35–50%, so anything predicting under 25% was already pretty efficient — and re-encoding it spends a generation of quality for almost nothing.', m:[7,9,9,6], hot:0},
       {k:'40%', recap:'Must be 40% smaller — or else keep the original', tag:'Only the truly bloated', name:'40% minimum',
@@ -2060,13 +2303,13 @@ const M = [
     sub:'A working VideoToolbox encoder was detected on this machine, so you get the choice. Without one, this question doesn\'t appear.',
     opts:[
       {k:'Hardware', tag:'VideoToolbox · default', name:'Hardware (VideoToolbox)',
-       t:'Many times faster, using a fixed-function block on the chip. It targets an average bitrate rather than a quality level, so here the tier target IS the quality knob — which is exactly why the bpp calibration matters most on this path. Slightly blunter than software at the same target; the difference is small and the time saved is not.', m:[6,9,9,10], hot:3},
+       t:'Many times faster, using a fixed-function block on the chip. It targets an average bitrate rather than a quality level, so here the tier target IS the quality knob — which is exactly why the bpp calibration matters most on this path. Slightly blunter than software at the same target; the size difference is small to moderate and the time saved is huge.', m:[6,9,9,10], hot:3},
       {k:'Software', tag:'libx265 / libx264', name:'Software (libx26x)',
        t:'Capped CRF: crf=21 for H.265, crf=20 for H.264, preset medium. CRF is a constant-quality target and the tier bitrate becomes a ceiling on peaks via maxrate and bufsize — quality first, with the target as a limit rather than a goal. Better per bit. Considerably slower. Correct if time is genuinely no object.', m:[8,9,9,3], hot:0},
     ]},
   { id:'dest', short:'DESTINATION',
     title:'What happens to the originals?',
-    sub:'The last decision, and the only irreversible one. Verification runs first regardless — a source is never replaced unless the new file exists, is non-empty, and is meaningfully smaller.',
+    sub:'The last decision, and the only irreversible one. Verification runs first regardless — a source is never replaced unless the new file exists, is the right play length, probes successfully as valid and is meaningfully smaller.',
     opts:[
       {k:'Replace · archive', recap:'Replace in place · originals archived', tag:'Keeps libraries tidy · default', name:'Replace in place, archive originals',
        t:'The new file takes the original\'s exact name and location, so Plex and Jellyfin libraries don\'t notice a thing. Each original is moved to an archive folder (at the source root by default, or one you choose) — you decide if and when to trash originals.', m:[6,10,10,9], hot:0},
@@ -2443,6 +2686,8 @@ $('#commit').onclick=()=>{
     step=next===-1?step:next;
     armed=answers[M[step].id]??null;
     render(); drawRegions(q.id);
+    gateStart();   // re-gate Start on EVERY commit — drawEstimate's async/scanning
+                   // paths could skip it, leaving the last answer needing a second click
     // Only come back to the modal when the user CAME from it — they changed one
     // answer from the recap and re-committed it, so returning is finishing what
     // they started. Completing the last question does NOT open it: the last
@@ -2535,10 +2780,40 @@ const TIER_LABEL = { OK:'OK', GOOD:'Good', EXCELLENT:'Excellent', STELLAR:'Stell
 // from it. H.264 @1080p30 anchors = 6.0 / 8.0 / 10.5 / 13.0 / 15.5 Mbps (must match
 // Tier in model.py). "Reset tiers" restores exactly these.
 const BPP_DEFAULTS = { OK:0.0965, GOOD:0.1286, EXCELLENT:0.1688, STELLAR:0.2090, INSANE:0.2492 };
+// One source of truth for every tier number the UI shows. A tier IS its H.264 bpp;
+// the score is that bpp ×1000 (a readable integer), the H.264 Mbps is the bpp at
+// 1080p30, and H.265 is that × the HEVC-HD factor. Reads the LIVE value from ADV.bpp,
+// so a tier the user retuned in Advanced shows their number everywhere — the flow tag,
+// the recap, and the About table — never a stale constant.
+const _REF_PX_FPS = 1920 * 1080 * 30;
+function tierNums(k){
+  const bpp = (window.ADV && ADV.bpp && ADV.bpp[k]) || BPP_DEFAULTS[k] || 0;
+  const h264 = bpp * _REF_PX_FPS / 1e6;
+  const h265 = h264 * ((window.ADV && ADV.hevcHd) || 0.60);
+  return { bpp, score: Math.round(bpp * 1000), h264, h265 };
+}
+// Short, accurate tier descriptions for the About table — Excellent (not Good) is the
+// Netflix rung, matching the quality picker in the flow.
+const TIER_ABOUT = {
+  OK:"Space-saving; softens on a big 1080p TV",
+  GOOD:"Solid streaming — a little under Netflix",
+  EXCELLENT:"Netflix's top 1080p, with headroom",
+  STELLAR:"Beats streaming — Blu-ray territory; grain, motion",
+  INSANE:"Near-transparent from the original",
+};
+function renderAboutTiers(){
+  const tb = document.getElementById('a-tiers-body'); if(!tb) return;
+  tb.innerHTML = TIER_ORDER.map(k=>{
+    const n = tierNums(k), hl = k==='EXCELLENT' ? ' class="hl"' : '';
+    return `<tr${hl}><td>${TIER_LABEL[k]}</td><td class="num">${n.score}</td>`
+      + `<td class="num">${n.h264.toFixed(1)}</td><td class="num">${n.h265.toFixed(1)}</td>`
+      + `<td>${TIER_ABOUT[k]}${k==='EXCELLENT'?' · default':''}</td></tr>`;
+  }).join('');
+}
 const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], subLangs:[],
   floor:1500, tol:10, hevcHd:0.60, hevc4k:0.50, hevc8k:0.45,
   container:'auto', audio:'passthrough', abStereo:256, abMulti:448,
-  imageSubs:true, forceMkvSubs:false, jobs:1, ledger:true,
+  imageSubs:true, keepMkvAudio:true, forceMkvSubs:false, jobs:1, ledger:true,
   bpp:Object.assign({}, BPP_DEFAULTS),
   // Ignore rules. '' means the rule is off (not 0 — zero is a real size).
   ignUnderMb:'', ignOverMb:'', ignExts:[], ignNames:[] };
@@ -2645,6 +2920,29 @@ function advBppNotes(){
       : '';                        // the "higher bpp = bigger files" note now leads the section
   }
   applyTierTags();
+  renderQualityRig();              // header reflects default vs customised densities
+}
+// The brow's "Quality definitions" line: Default when every tier sits at its shipped
+// density, else Customised with a one-click reset. Keeps the header honest about
+// whether the numbers driving the run are ours or yours.
+function qualityIsCustom(){
+  return TIER_ORDER.some(k => Math.abs((ADV.bpp[k] ?? BPP_DEFAULTS[k]) - BPP_DEFAULTS[k]) > 1e-6);
+}
+function renderQualityRig(){
+  const el = document.getElementById('rig-q'); if(!el) return;
+  if(qualityIsCustom()){
+    el.innerHTML = '<b>User customised</b> · <span class="rig-reset" id="rig-reset" role="button" tabindex="0">reset</span>';
+    const r = document.getElementById('rig-reset');
+    if(r) r.onclick = ()=>{
+      TIER_ORDER.forEach(k=> ADV.bpp[k] = BPP_DEFAULTS[k]);
+      if(typeof advToForm==='function') advToForm();      // reflect in Advanced if open
+      if(typeof advBppNotes==='function') advBppNotes();  // repaint tier notes + flow tags
+      if(document.getElementById('a-tiers-body')) renderAboutTiers();
+      renderQualityRig(); advPush();
+    };
+  } else {
+    el.innerHTML = '<b>Default</b>';
+  }
 }
 // Rewrite the QUALITY question's tags/recaps from the current densities, so the
 // flow can't advertise 0.109 bpp while the engine is using something else.
@@ -2677,7 +2975,11 @@ function advIgnSummary(){
   if((ADV.ignExts||[]).length)  bits.push((ADV.ignExts||[]).map(e=>'.'+e).join(', '));
   if((ADV.ignNames||[]).length) bits.push('named like ' + (ADV.ignNames||[]).join(', '));
   el.classList.remove('warn');
-  if(!bits.length){ el.textContent = 'No ignore rules — every video file in the folder is considered.'; return; }
+  const rb = $('#adv-ign-reset');
+  // No rules: nothing to summarise and nothing to clear. Drop the dangling status line
+  // and disable the button, rather than leave inert text with no action beside it.
+  if(!bits.length){ el.textContent = ''; if(rb) rb.disabled = true; return; }
+  if(rb) rb.disabled = false;
   // Contradictory bounds ignore the entire library, which is worth saying out
   // loud before someone starts a run that finds nothing.
   const u = parseFloat(ADV.ignUnderMb), o = parseFloat(ADV.ignOverMb);
@@ -2727,8 +3029,7 @@ function advToForm(){                                  // ADV -> controls
   advHistoryInfo();
   $('#adv-format').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.format));
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
-  $('#adv-image-subs').classList.toggle('on', !!ADV.imageSubs);
-  $('#adv-force-mkv-subs').classList.toggle('on', !!ADV.forceMkvSubs);
+  advRenderEdgeRadios();
   $('#adv-ledger').classList.toggle('on', !!ADV.ledger);
   advFormatLabels();
   advApplyAudioContext();
@@ -2738,14 +3039,11 @@ function advToForm(){                                  // ADV -> controls
 // map to the same engine behaviour either way (convert · lossless-only · shrink in
 // place · leave), so only the wording changes.
 function advFormatLabels(){
-  const lab=$('#adv-format-lab'), note=$('#adv-format-note'); if(!lab||!note) return;
-  const mkv = ADV.container==='mkv';
-  const tgt = mkv ? 'MKV' : 'MP4';
-  lab.textContent = `Files not already ${tgt}`;
-  note.textContent = `Convert every non-${tgt} file to ${tgt}, only losslessly rehome the`
-    + ` ones that can be, shrink them while keeping their own format, or leave them`
-    + ` untouched. Also asked up front when a scan finds files that aren't ${tgt}.`;
-  advApplyContainerContext();          // MKV makes the subtitle toggles moot
+  const tgt = ADV.container==='mkv' ? 'MKV' : 'MP4';
+  const lab=$('#adv-format-lab'); if(lab) lab.textContent = `If the original is not ${tgt}, then…`;
+  // The explicit option text names the target container; keep those in step.
+  document.querySelectorAll('#adv-format .adv-tgt').forEach(el=>el.textContent=tgt);
+  advApplyContainerContext();          // container choice greys/updates the edge cases
 }
 function advBind(){                                    // controls -> ADV
   const num=(id,key,{min,max,float}={})=>{ const el=$(id); if(!el) return;
@@ -2753,7 +3051,7 @@ function advBind(){                                    // controls -> ADV
       if(!isFinite(v)) return;                          // let them keep typing
       if(min!=null) v=Math.max(min,v); if(max!=null) v=Math.min(max,v);
       ADV[key]=v; };
-    el.onblur=()=>{ if(!isFinite(float?parseFloat(el.value):parseInt(el.value,10))) el.value=ADV[key]; };
+    el.onblur=()=>{ if(!isFinite(float?parseFloat(el.value):parseInt(el.value,10))) el.value=ADV[key]; advPush(); };
   };
   num('#adv-floor','floor',{min:200,max:20000});
   num('#adv-tol','tol',{min:0,max:100});
@@ -2768,6 +3066,7 @@ function advBind(){                                    // controls -> ADV
     ADV.subLangs = e.target.value.split(',').map(s=>s.trim()).filter(Boolean);
     advSubsSummary();
   };
+  $('#adv-subs-langs').onblur=()=>advPush();          // persist once typing settles
   $('#adv-subs-kinds').querySelectorAll('.adv-chk').forEach(b=>{
     b.onclick=()=>{
       const k=b.dataset.k, list=ADV.subKinds||(ADV.subKinds=[]);
@@ -2775,18 +3074,17 @@ function advBind(){                                    // controls -> ADV
       if(i>=0) list.splice(i,1); else list.push(k);
       b.classList.toggle('on', i<0);
       b.setAttribute('aria-checked', i<0 ? 'true' : 'false');
-      advSubsSummary();
+      advSubsSummary(); advPush();
     };
   });
-  $('#adv-format').querySelectorAll('button').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
+  $('#adv-format').querySelectorAll('button').forEach(b=>b.onclick=()=>{ setFormat(b.dataset.v); advPush(); });
   $('#adv-container').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     ADV.container=b.dataset.v;
     $('#adv-container').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
     advFormatLabels();                 // the non-MP4/non-MKV wording follows the container
     advPush(); });
-  $('#adv-image-subs').onclick=()=>{ ADV.imageSubs=!ADV.imageSubs; $('#adv-image-subs').classList.toggle('on',ADV.imageSubs); advPush(); };
-  $('#adv-force-mkv-subs').onclick=()=>{ ADV.forceMkvSubs=!ADV.forceMkvSubs; $('#adv-force-mkv-subs').classList.toggle('on',ADV.forceMkvSubs); advPush(); };
-  $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); };
+  advBindEdgeRadios();
+  $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); advPush(); };
 
   // Tier densities. Typing is left alone until it parses (so "0." isn't
   // rewritten mid-keystroke); a box left unreadable snaps back on blur.
@@ -2848,6 +3146,7 @@ function advBind(){                                    // controls -> ADV
 }
 advBind();
 applyTierTags();                       // the flow's tier tags start from ADV too
+renderQualityRig();                     // and the brow shows default vs customised
 function openAdv(){ advToForm(); openSheet('#adv-sheet'); }
 $('#gear').onclick=openAdv;
 // Closing the modal is the moment to settle up: push everything, and redraw the
@@ -2920,7 +3219,7 @@ function swFoot(){
   const n = $('#sw-entry-n');
   if(n) n.textContent = picked.length
     ? `${picked.length} file${picked.length===1?'':'s'} picked · about ${swHuman(sw)} of slow encoding`
-    : 'Choose the ones worth the higher-quality, slower software encoder.';
+    : 'Select exceptions that will use the software encoder. (higher quality per bit but much slower)';
 }
 function swOpen(){
   openSheet('#sw-sheet');
@@ -2980,7 +3279,7 @@ function maybeAskCompat(){
   setFormat(ADV.format);                          // reflect current choice
   openSheet('#compat-sheet');
 }
-$('#compat-opts').querySelectorAll('.compat-opt').forEach(b=>b.onclick=()=>setFormat(b.dataset.v));
+$('#compat-opts').querySelectorAll('.compat-opt').forEach(b=>b.onclick=()=>{ setFormat(b.dataset.v); advPush(); });
 $('#compat-go').onclick=()=>shutSheet('#compat-sheet');
 $('#compat-sheet').onclick=e=>{ if(e.target===$('#compat-sheet')) shutSheet('#compat-sheet'); };
 
@@ -3064,9 +3363,10 @@ function pgStart(total, est, queue){
   $('#pg-total').textContent = preparing ? '…' : PG.total.toLocaleString();
   $('#pg-done').textContent='0'; $('#pg-pct').textContent = preparing ? '' : '0%';
   $('#pg-overall').style.width='0'; $('#pg-cur-f').style.width='0';
-  $('#pg-cur-n').textContent = preparing ? 'Scanning your library…' : 'Starting…';
+  $('#pg-cur-n').textContent = preparing ? 'Checking each file to build the list…' : 'Starting…';
   $('#pg-stats').textContent=''; $('#pg-recent').innerHTML=''; $('#pg-recalc').style.opacity='0';
-  $('#pg-clock').textContent = est ? fmtClock(est) : (preparing ? 'scanning…' : 'estimating…');
+  $('#pg-clock').innerHTML = est ? fmtClock(est) : (preparing ? '<span class="ba-busy" style="font-size:.34em">preparing…</span>' : 'estimating…');
+  const cl=$('#pg-clock-l'); if(cl) cl.textContent = (!est && preparing) ? 'building the work list' : 'estimated time remaining';
   // With more than one worker there are several files IN FLIGHT, and a stop lets
   // every one of them finish — including any that only just started. Saying
   // "current file" there reads as a promise to stop within seconds, when it can
@@ -3313,6 +3613,16 @@ function confirmWork(){
         CONFIRM_EST = e;
         $('#c-go').disabled = false;
         el.className = 'c-work';
+        // Now measured: the SOURCE / PROJECTED boxes describe the worked cohort only.
+        if(e.work_files){
+          $('#c-src').textContent = `${e.work_files.toLocaleString()} files · ${bytesStr(e.work_bytes)}`;
+          $('#c-proj').textContent = bytesStr(e.work_out_bytes);
+          $('#c-saved').textContent = `${bytesStr(e.work_saved_bytes)} · −${e.work_saved_pct}%`;
+        } else {
+          $('#c-src').textContent = `0 of ${SRC.files.toLocaleString()} files`;
+          $('#c-proj').textContent = 'no change';
+          $('#c-saved').textContent = 'nothing';
+        }
         const left = Math.max(0, SRC.files - e.work_files);
         if(!e.work_files){
           el.innerHTML = '<b>Nothing here needs re-encoding.</b>'
@@ -3364,15 +3674,14 @@ function openConfirm(){
       step=s; armed=answers[M[s].id]??null; render();
     };
   });
-  $('#c-src').textContent=`${SRC.files.toLocaleString()} files · ${tbStr(SRC.tb)}`;
-  // The confirm SOURCE/PROJECTED pair is the WHOLE library (your 4.68 TB folder
-  // becomes N TB), so it reads the full-folder projected, not the deck's worked-cohort
-  // headline. The work detail sits below in confirmWork().
-  $('#c-proj').textContent = (window.__lastEst && typeof window.__lastEst.out_tb==='number')
-    ? tbStr(window.__lastEst.out_tb) : $('#est').textContent;
+  // SOURCE / PROJECTED describe the files that will actually be re-encoded — filled
+  // in by confirmWork() once the library is measured. Until then no projection: an
+  // unmeasured guess reads as a promise it can't keep.
+  $('#c-src').innerHTML = '<span class="ba-busy" style="font-size:15px">Working…</span>';
+  $('#c-proj').textContent = '—';
+  $('#c-saved').textContent = '—';
   confirmWork();          // measure, then report on the files that will be touched
-  const destK=M.find(q=>q.id==='dest').opts[answers.dest].k;
-  $('#c-dest').textContent=destK;
+  // Destination lives in the recap below (the "Destination" row); no separate box.
   // the warning is specific to what they actually chose, not a blanket disclaimer
   $('#c-warn').innerHTML = answers.dest===1
     ? '<b>Originals are deleted</b> after each file verifies — the new file must exist, be non-empty, and be smaller. A file that fails verification keeps its original. There is no undo.'
@@ -3488,21 +3797,46 @@ function drawReport(){
   $('#r-list').innerHTML = rows.length
     ? rows.map(r=>{
         const esc=s=>(s||'').replace(/"/g,'&quot;');
-        // the "*" marks a row with a note worth reading; the full caption is the
-        // row's hover title and every caption is written into the saved log.
-        const star = r.star ? '<span class="r-star" title="'+esc(r.detail)+'">*</span>' : '';
+        // A problem (error/warn) gets an orange marker at the START of the name, where
+        // the eye lands first; clean rows keep the same gutter blank so nothing shifts.
+        const mark = r.problem ? '<span class="r-mark" title="needs a look">*</span>' : '<span class="r-mark"></span>';
         const label = r.t==='ok'?'done':r.t==='skip'?'left alone':r.sev==='err'?'error':r.sev==='warn'?'warn':'note';
-        const rowTitle = r.detail ? esc(r.f+' — '+r.detail) : esc(r.f);
-        return `<div class="r-row" title="${rowTitle}"><span class="r-f">${r.f}</span>
-        <span class="r-d" title="${esc(r.d)}">${r.d}</span><span class="r-t ${r.t} ${r.sev||''}">${label}${star}</span></div>`;
+        // Clicking a row reveals the file in Finder/Explorer (real app only) so the user
+        // can check a flagged file with their own eyes — say so in the tooltip.
+        const canReveal = !!(window.__vtcReveal && r.path);
+        const rowTitle = (r.detail ? esc(r.f+' — '+r.detail) : esc(r.f))
+          + (canReveal ? ' · click to reveal in '+(window.__vtcFileMgr||'Finder') : '');
+        // The name AND a plain-English "what happened" line, so a row that barely
+        // changed size (a remux, an already-lean file, a file kept as MKV) explains
+        // itself instead of reading as a broken "7 GB → 7 GB".
+        const desc = r.detail ? `<span class="r-detail">${esc(r.detail)}</span>` : '';
+        return `<div class="r-row${r.problem?' problem':''}${canReveal?' revealable':''}" title="${rowTitle}"${canReveal?` data-path="${esc(r.path)}"`:''}><span class="r-main"><span class="r-f">${mark}${r.f}</span>${desc}</span>
+        <span class="r-d" title="${esc(r.d)}">${r.d}</span><span class="r-t ${r.t} ${r.sev||''}">${label}</span></div>`;
       }).join('')
       + (counts[rTab]>rows.length
           ? `<div class="r-empty">Showing ${rows.length} of ${counts[rTab].toLocaleString()} — save the log for the rest.</div>` : '')
     : `<div class="r-empty">Nothing here${rTab==='fail'?' — which is the good outcome':''}.</div>`;
-  // Offer to retry files that errored (e.g. a quirky hardware encode) in software.
+  // Click a row to reveal that file in Finder/Explorer (real app only).
+  if(window.__vtcReveal){
+    $('#r-list').querySelectorAll('.r-row.revealable').forEach(row=>{
+      row.onclick=()=>{ const p=row.dataset.path; if(p) window.__vtcReveal(p); };
+    });
+  }
+  // Offer to retry files that errored (e.g. a quirky hardware encode) in software —
+  // and NAME the file(s) it refers to, so "Retry 1" isn't a mystery.
+  const errRows = R.rows.filter(r=>r.t==='fail' && r.sev==='err');
   const nRetry = R.failedRetryable||0;
   const rb=$('#r-retry');
-  if(rb){ rb.hidden = !nRetry; rb.textContent = nRetry ? `Retry ${nRetry} in software` : 'Retry in software'; }
+  if(rb){
+    rb.hidden = !nRetry;
+    if(nRetry===1 && errRows.length){
+      const nm=errRows[0].f, shortNm = nm.length>30 ? nm.slice(0,28)+'…' : nm;
+      rb.textContent = `Retry “${shortNm}” in software`;
+    } else {
+      rb.textContent = nRetry ? `Retry ${nRetry} files in software` : 'Retry in software';
+    }
+    rb.title = errRows.length ? 'Retry in software: '+errRows.map(r=>r.f).join(', ') : '';
+  }
 }
 // Leaving the report is a choice, not just a close: run the same settings on a
 // new folder, or wipe every choice and start from the top.
@@ -3586,7 +3920,7 @@ $('#picks').querySelectorAll('.pick').forEach(b=>{
 // The explainer and the credits used to be tabs in the deck, competing with the
 // previews for height they didn't need continuously. They are reading, so they
 // are a modal now: opened from the bottom of the page, dismissed by clicking off.
-function openAbout(){ openSheet('#about-sheet'); }
+function openAbout(){ renderAboutTiers(); openSheet('#about-sheet'); }   // tiers reflect the LIVE ADV.bpp
 $('#about-open').onclick=openAbout;
 $('#about-close').onclick=()=>shutSheet('#about-sheet');
 $('#about-sheet').onclick=e=>{ if(e.target===$('#about-sheet')) shutSheet('#about-sheet'); };
@@ -3612,6 +3946,7 @@ document.querySelectorAll('.atab').forEach(t=>{
 // page — the place for the long explanation, so the setting itself stays brief.
 function advOpenAbout(tab){
   shutSheet('#adv-sheet');
+  renderAboutTiers();                 // reflect any tier the user just retuned
   openSheet('#about-sheet');
   const t=[...document.querySelectorAll('.atab')].find(x=>x.dataset.a===tab);
   if(t && t.onclick) t.onclick();
@@ -3620,22 +3955,59 @@ document.querySelectorAll('.adv-learn').forEach(a=>{ a.onclick=()=>advOpenAbout(
 // When the container is MKV, the two "use MKV for subtitles" toggles can't do
 // anything (MKV already keeps every subtitle) — dim and disable them, and they
 // say why. Re-evaluated whenever the container changes.
-function advApplyContainerContext(){
-  const mkv = !!(window.ADV && ADV.container==='mkv');
-  ['adv-image-subs','adv-force-mkv-subs'].forEach(id=>{
-    const btn=$('#'+id); if(!btn) return;
-    btn.disabled = mkv;
-    const row=btn.closest('.adv-row'); if(row){ row.classList.toggle('moot', mkv); row.classList.toggle('moot-mkv', mkv); }
+// The three MP4 edge-case choices are A/B radios that appear in two places (Format &
+// container, and Subtitles for the two subtitle ones) — matched by data-edge, one ADV
+// value each ("mkv" = keep MKV for that case; the other value is the MP4 outcome). The
+// edge→ADV-key map is a local const in each user below, not a module-level one, so an
+// early advToForm() at load can't hit its temporal dead zone.
+function advEdgeSelection(){
+  // What each radio SHOWS for the current container. On MP4 it's the user's stored
+  // choice. On Auto it's the least-loss/most-compatible pick — keep MKV where that's
+  // the only lossless option (audio, image subs), but .srt for text (lossless AND more
+  // compatible than MKV). On MKV everything is MKV.
+  const c = (window.ADV && ADV.container) || 'auto';
+  if(c==='mkv')  return { audio:'mkv',  image:'mkv',  text:'mkv' };
+  if(c==='auto') return { audio:'mkv',  image:'mkv',  text:'srt' };
+  return { audio: ADV.keepMkvAudio?'mkv':'convert',
+           image: ADV.imageSubs?'mkv':'drop',
+           text:  ADV.forceMkvSubs?'mkv':'srt' };
+}
+function advRenderEdgeRadios(){
+  const sel = advEdgeSelection();
+  ['audio','image','text'].forEach(edge=>{
+    document.querySelectorAll(`.adv-radio[data-edge="${edge}"] .adv-radio-opt`).forEach(b=>
+      b.classList.toggle('on', b.dataset.v===sel[edge]));
   });
+}
+function advBindEdgeRadios(){
+  const KEY = { audio:'keepMkvAudio', image:'imageSubs', text:'forceMkvSubs' };
+  Object.entries(KEY).forEach(([edge,key])=>{
+    document.querySelectorAll(`.adv-radio[data-edge="${edge}"] .adv-radio-opt`).forEach(b=>{
+      b.onclick=()=>{ ADV[key] = (b.dataset.v==='mkv'); advRenderEdgeRadios(); advPush(); };
+    });
+  });
+}
+function advApplyContainerContext(){
+  // The edge cases are the exceptions to a forced MP4, so they're only adjustable on
+  // MP4; grey them (and dim the headings) on Auto/MKV, then reflect the effective pick.
+  const moot = ((window.ADV && ADV.container) || 'auto') !== 'mp4';
+  document.querySelectorAll('.adv-edge').forEach(e=>e.classList.toggle('moot', moot));
+  ['adv-mkv-head','adv-subs-mkv-head'].forEach(id=>{
+    const head=$('#'+id); if(head) head.style.opacity = moot ? '.5' : '';
+  });
+  advRenderEdgeRadios();
 }
 // The audio bitrates apply only when re-encoding to AAC/AC-3; on passthrough (the
 // default) or lossless FLAC they do nothing, so grey them out and say why.
 function advApplyAudioContext(){
-  const usesBitrate = !!(window.ADV && (ADV.audio==='aac' || ADV.audio==='ac3'));
+  // The bitrates apply whenever audio is CONVERTED — which includes Passthrough's
+  // forced conversions (DTS/TrueHD a container can't hold go to AAC at these bitrates),
+  // not only an explicit AAC/AC-3 choice. Only FLAC (lossless) has no bitrate.
+  const usesBitrate = !!(window.ADV && ADV.audio !== 'flac');
   ['adv-ab-stereo','adv-ab-multi'].forEach(id=>{
     const el=$('#'+id); if(!el) return;
     el.disabled = !usesBitrate;
-    const row=el.closest('.adv-row'); if(row){ row.classList.toggle('moot', !usesBitrate); row.classList.toggle('moot-pass', !usesBitrate); }
+    const row=el.closest('.adv-row'); if(row){ row.classList.toggle('moot', !usesBitrate); row.classList.toggle('moot-flac', !usesBitrate); }
   });
 }
 
@@ -3915,6 +4287,23 @@ function pvSeek(t){
   pvVideos().forEach(v=>{ try{ v.currentTime=t; }catch(e){} });
   pvSyncUI();
 }
+// Force every PAUSED panel to actually PAINT the frame it's parked on. The source
+// panel is a mid-GOP stream copy carrying an mp4 edit list, and WKWebView will not
+// re-present it on a bare currentTime set — so it goes BLACK while paused (worst in
+// the fullscreen wipe, where one half drops out). Nudging a hair away and back makes
+// the 'seeked' round-trip repaint the landed frame. Call it once we come to rest, not
+// during an active scrub (playback/drag already paints every frame).
+function pvSettle(){
+  const dur=PV.dur||5, t=PV.pos;
+  pvVideos().forEach(v=>{
+    if(!v || v.readyState < 2) return;
+    const away = (t + 0.04 <= dur - 0.03) ? t + 0.04 : Math.max(0, t - 0.04);
+    if(Math.abs(away - t) < 0.005){ try{ v.currentTime = t; }catch(e){} return; }
+    const land = ()=>{ v.removeEventListener('seeked', land); try{ v.currentTime = t; }catch(e){} };
+    v.addEventListener('seeked', land);
+    try{ v.currentTime = away; }catch(e){}
+  });
+}
 // Frame-accurate alignment while PAUSED. The source panel is a pristine stream copy
 // whose mp4 edit list makes WKWebView PRESENT a frame a few ms off the re-encoded
 // tiers — small, but enough to straddle a 40ms frame boundary and read as "one frame
@@ -3946,12 +4335,13 @@ function pvPlay(){
     const t=pvLeader()?pvLeader().currentTime:0;
     PV.pos=t;
     pvVideos().forEach(v=>{ v.pause(); try{v.currentTime=t;}catch(e){} });   // re-sync on pause
+    pvSettle();                                 // and force a repaint so nothing goes black
   }
   pvSyncUI();
 }
 $('#play').onclick=pvPlay;
-$('#prev').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)-1/(PV.fps||24)); };
-$('#next').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)+1/(PV.fps||24)); };
+$('#prev').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)-1/(PV.fps||24)); pvSettle(); };
+$('#next').onclick=()=>{ PV.playing=false; pvVideos().forEach(v=>v.pause()); pvSeek(((pvLeader()&&pvLeader().currentTime)||0)+1/(PV.fps||24)); pvSettle(); };
 $('#rates').querySelectorAll('button').forEach(b=>{ b.onclick=()=>{
   const r=+b.dataset.r; PV.rate=r; pvVideos().forEach(v=>v.playbackRate=r);
   $('#rates').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); }; });
@@ -3959,7 +4349,7 @@ $('#scrub').onpointerdown=e=>{
   const set=ev=>{ const r=$('#scrub').getBoundingClientRect();
     pvSeek((ev.clientX-r.left)/r.width*(PV.dur||5)); };
   PV.playing=false; pvVideos().forEach(v=>v.pause()); set(e);
-  const mv=ev=>set(ev), up=()=>{ removeEventListener('pointermove',mv); removeEventListener('pointerup',up); };
+  const mv=ev=>set(ev), up=()=>{ removeEventListener('pointermove',mv); removeEventListener('pointerup',up); pvSettle(); };
   addEventListener('pointermove',mv); addEventListener('pointerup',up);
 };
 // ── pan the crop: drag any panel; every panel moves together ──────────────────
@@ -4095,6 +4485,10 @@ function openCompare(ai, bi){
     pvPark(va, true); pvPark(vb, true);        // both sides open on the same frame
     requestAnimationFrame(pvApply); pvSyncUI(); };
   va.onloadedmetadata=ready; vb.onloadedmetadata=ready;
+  // loadedmetadata is readyState 1 — a seek there repaints nothing (see pvPark). The
+  // nudge that actually paints the opening frame has to wait for canplay (>= HAVE_CURRENT_DATA),
+  // or the wipe opens with one half black.
+  va.oncanplay=()=>pvPark(va, true); vb.oncanplay=()=>pvPark(vb, true);
   va._pvNudged=false; vb._pvNudged=false;      // fresh sources: both must re-seek to agree
   va.src=A.url; vb.src=B.url; va.load(); vb.load();
   $('#big-sheet').classList.add('on');

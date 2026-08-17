@@ -96,6 +96,36 @@ def test_wait_for_volume_can_be_aborted():
     print("  ok  wait-for-volume -> abort while the share is down returns False")
 
 
+def test_wait_reachable_up_is_silent():
+    """A reachable volume returns True immediately and raises no banner."""
+    events: list[str] = []
+    ok = netmove.wait_reachable(Path("/x"), notify=lambda e, p: events.append(e),
+                                reachable=lambda p: True, poll=0)
+    assert ok is True and events == []
+    print("  ok  wait_reachable -> silent when the volume is up")
+
+
+def test_wait_reachable_banners_then_gives_up():
+    """A dead volume raises STUCK once; give_up (user hit stop) breaks the wait."""
+    events: list[str] = []
+    calls = {"n": 0}
+    def give_up():
+        calls["n"] += 1
+        return calls["n"] > 1                      # let it STUCK once, then bail
+    ok = netmove.wait_reachable(Path("/gone"), notify=lambda e, p: events.append(e),
+                                give_up=give_up, reachable=lambda p: False, poll=0)
+    assert ok is False and events == [netmove.STUCK]
+    print("  ok  wait_reachable -> STUCK then honours stop/abort on a dead volume")
+
+
+def test_reachable_stat_only_skips_the_write_probe():
+    """write=False must not leave a .vtc_reach probe file behind (no share chatter)."""
+    d = _tmp()
+    assert netmove._reachable(d, write=False) is True
+    assert not list(d.glob(".vtc_reach*")), "stat-only probe must not write"
+    print("  ok  _reachable(write=False) -> stat only, no probe file written")
+
+
 def _run_all():
     import inspect
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

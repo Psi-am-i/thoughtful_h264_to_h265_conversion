@@ -26,3 +26,6 @@ packaging/dist/
 build/
 dist/
 *.spec.bak
+
+# scratch: extracted UI copy for review, not source
+VTC-UI-text.md
