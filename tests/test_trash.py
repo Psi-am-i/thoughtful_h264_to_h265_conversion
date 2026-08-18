@@ -1,9 +1,10 @@
 """Move-to-Trash tests — the Api.move_to_trash cleanup convenience.
 
 It is only ever pointed at files the run LEFT UNTOUCHED (the broken / unreadable
-ones under "needs a look"). It must: report an accurate trashed/failed tally,
-never raise, skip files that are already gone, and delegate the actual delete to
-the OS trash (recoverable) rather than unlinking anything itself.
+ones under "needs a look"). It must: prefer the OS Trash, fall back to a
+same-volume "VTC Trashed Files" folder when the volume has no Trash (SMB/NAS),
+report accurate per-file results, never raise, skip files that are already gone,
+and never hard-delete.
 
 Run:  python tests/test_trash.py
 """
@@ -19,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from vtc import webapp  # noqa: E402
 
 
-def test_move_to_trash_tally_and_never_hard_deletes():
+def test_trash_tally_and_never_hard_deletes():
     d = Path(tempfile.mkdtemp())
     good1, good2, gone = d / "a.mkv", d / "b.mp4", d / "missing.avi"
     good1.write_text("x"); good2.write_text("y")
@@ -30,52 +31,86 @@ def test_move_to_trash_tally_and_never_hard_deletes():
     # delete — the real _os_trash sends to Trash/Recycle Bin, never unlink().
     webapp._os_trash = lambda p: trashed_paths.append(Path(p))
     try:
-        api = webapp.Api()
-        res = api.move_to_trash([str(good1), str(good2), str(gone)])
+        res = webapp.Api().move_to_trash([str(good1), str(good2), str(gone)])
     finally:
         webapp._os_trash = real
 
-    assert res["trashed"] == 2, res
-    assert len(res["failed"]) == 1 and res["failed"][0]["path"] == str(gone), res
+    assert res["trashed"] == 2 and res["moved"] == 0 and res["failed"] == 1, res
+    oks = {r["path"] for r in res["results"] if r["ok"]}
+    assert oks == {str(good1), str(good2)}, res
     assert {p.name for p in trashed_paths} == {"a.mkv", "b.mp4"}, trashed_paths
-    # The files still exist on disk — we never hard-deleted; the OS trash is mocked.
-    assert good1.exists() and good2.exists()
-    print("  ok  move_to_trash counts trashed vs failed, skips missing, no hard delete")
+    assert good1.exists() and good2.exists()          # never hard-deleted (trash mocked)
+    print("  ok  counts trashed vs failed, skips missing, no hard delete")
 
 
-def test_move_to_trash_reports_per_file_error_and_never_raises():
+def test_no_volume_trash_falls_back_to_same_volume_folder():
+    """The SMB/NAS case (Beast 8TB): the volume has no Trash, so the file is moved
+    to a recoverable 'VTC Trashed Files' folder instead of failing."""
     d = Path(tempfile.mkdtemp())
-    f1, f2 = d / "ok.mkv", d / "locked.mkv"
-    f1.write_text("x"); f2.write_text("y")
+    f = d / "broken.mkv"; f.write_text("data")
 
     real = webapp._os_trash
-
-    def flaky(p):
-        if Path(p).name == "locked.mkv":
-            raise OSError("permission denied")
-    webapp._os_trash = flaky
+    def no_trash(p):
+        raise webapp._NoVolumeTrash('the volume "Beast 8TB" doesn\'t have one')
+    webapp._os_trash = no_trash
     try:
-        api = webapp.Api()
-        res = api.move_to_trash([str(f1), str(f2)])
+        res = webapp.Api().move_to_trash([str(f)])
     finally:
         webapp._os_trash = real
 
-    assert res["trashed"] == 1, res
-    assert len(res["failed"]) == 1 and "permission" in res["failed"][0]["error"], res
-    print("  ok  a per-file trash error is reported, not raised")
+    assert res["trashed"] == 0 and res["moved"] == 1 and res["failed"] == 0, res
+    row = res["results"][0]
+    assert row["ok"] and row["where"] == "folder", row
+    dest = Path(row["dest"])
+    assert dest.exists() and dest.parent.name == "VTC Trashed Files", dest
+    assert not f.exists(), "source should have been moved out of the library"
+    assert res["folders"] == [str(dest.parent)], res
+    print("  ok  no-volume-trash -> recoverable same-volume folder")
 
 
-def test_move_to_trash_accepts_a_bare_string():
+def test_generic_trash_error_also_tries_the_folder():
+    """Any trash failure (not just the tidy _NoVolumeTrash) still tries the folder
+    before giving up — the user's intent is 'get this out of my library'."""
+    d = Path(tempfile.mkdtemp())
+    f = d / "weird.mp4"; f.write_text("x")
+    real = webapp._os_trash
+    webapp._os_trash = lambda p: (_ for _ in ()).throw(OSError("some odd trash error"))
+    try:
+        res = webapp.Api().move_to_trash([str(f)])
+    finally:
+        webapp._os_trash = real
+    assert res["moved"] == 1 and res["failed"] == 0, res
+    assert not f.exists()
+    print("  ok  a generic trash error still falls back to the folder")
+
+
+def test_reports_failure_when_even_the_folder_move_fails():
+    d = Path(tempfile.mkdtemp())
+    f = d / "stuck.mkv"; f.write_text("x")
+    real_t, real_q = webapp._os_trash, webapp._quarantine
+    webapp._os_trash = lambda p: (_ for _ in ()).throw(webapp._NoVolumeTrash("no trash"))
+    webapp._quarantine = lambda p, base=None: (_ for _ in ()).throw(OSError("read-only volume"))
+    try:
+        res = webapp.Api().move_to_trash([str(f)])
+    finally:
+        webapp._os_trash, webapp._quarantine = real_t, real_q
+    assert res["failed"] == 1 and res["trashed"] == 0 and res["moved"] == 0, res
+    assert "read-only" in res["results"][0]["error"], res
+    assert f.exists()                                  # nothing lost
+    print("  ok  when both trash and folder fail, the row is reported, file kept")
+
+
+def test_accepts_a_bare_string():
     d = Path(tempfile.mkdtemp())
     f = d / "one.mp4"; f.write_text("x")
     real = webapp._os_trash
     webapp._os_trash = lambda p: None
     try:
-        res = webapp.Api().move_to_trash(str(f))     # a single path, not a list
+        res = webapp.Api().move_to_trash(str(f))       # a single path, not a list
     finally:
         webapp._os_trash = real
-    assert res["trashed"] == 1 and res["failed"] == [], res
-    print("  ok  move_to_trash accepts a single path string")
+    assert res["trashed"] == 1 and res["failed"] == 0, res
+    print("  ok  accepts a single path string")
 
 
 def _run_all():

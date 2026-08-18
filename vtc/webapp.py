@@ -639,6 +639,9 @@ _BRIDGE_JS = r"""
       failedRetryable=summary.failed_retryable||0; tb=summary.tb;
     }
     RUN = { rows, done, skip, fail, failedRetryable, tb, mins: summary.mins, stopped: !!summary.stopped };
+    // A new report is a clean slate for the trash controls — clear any stale banner
+    // and disarm the bulk button.
+    try { trashStatus = null; trashArmed = false; } catch(e) {}
     drawReport(); openSheet('#report-sheet');
   };
   window.runNow = ()=>{
@@ -749,10 +752,70 @@ def _settings_path() -> Path:
     return base / "settings.json"
 
 
+class _NoVolumeTrash(Exception):
+    """The file's volume has no system Trash (common on SMB/NAS mounts). The caller
+    falls back to a same-volume quarantine folder instead of failing outright."""
+
+
+def _looks_like_no_volume_trash(msg: str) -> bool:
+    m = (msg or "").lower()
+    # macOS: "…because the volume "X" doesn't have one." Windows/gio give their own,
+    # but the same-volume fallback is harmless there too, so keep the net wide.
+    return ("doesn't have" in m or "does not have" in m or "no trash" in m
+            or "trash is unavailable" in m or "unsupported" in m)
+
+
+def _mount_point(p: Path) -> Path:
+    """The volume root that contains p — walk up until the OS says 'mount point'."""
+    p = p.resolve()
+    while p != p.parent and not os.path.ismount(p):
+        p = p.parent
+    return p
+
+
+def _quarantine(p: Path, base: Path | None = None) -> Path:
+    """Recoverable fallback when the volume has no system Trash: move the file into a
+    plainly-named "VTC Trashed Files" folder on its OWN volume — an instant rename (no
+    multi-GB copy), fully recoverable, and the user empties it themselves.
+
+    Location, in order of preference: the run's source folder (base, if the file is on
+    the same volume) → the volume root → the file's own folder. We try each until one
+    is writable, so a read-only volume root (e.g. macOS "/") can't strand the move."""
+    p = p.resolve()
+    candidates: list[Path] = []
+    if base:
+        try:
+            b = Path(base).resolve()
+            if _mount_point(b) == _mount_point(p):     # only if truly same volume
+                candidates.append(b)
+        except Exception:  # noqa: BLE001
+            pass
+    candidates.append(_mount_point(p))
+    candidates.append(p.parent)
+
+    last: Exception | None = None
+    for c in candidates:
+        try:
+            qdir = c / "VTC Trashed Files"
+            qdir.mkdir(exist_ok=True)
+            dest = qdir / p.name
+            if dest.exists():                 # never clobber a same-named file already there
+                i = 2
+                while (qdir / f"{dest.stem} ({i}){dest.suffix}").exists():
+                    i += 1
+                dest = qdir / f"{dest.stem} ({i}){dest.suffix}"
+            os.replace(p, dest)               # atomic within a volume
+            return dest
+        except Exception as e:  # noqa: BLE001 — try the next candidate location
+            last = e
+    raise last or OSError("could not move the file anywhere recoverable")
+
+
 def _os_trash(p: Path) -> None:
     """Move one file to the OS Trash / Recycle Bin (recoverable). Native per platform —
     no third-party dependency (the app is deliberately dependency-free). Raises on
-    failure so the caller can report which files couldn't be trashed."""
+    failure so the caller can report which files couldn't be trashed; raises
+    _NoVolumeTrash when the volume simply has no Trash (SMB/NAS)."""
     if sys.platform == "darwin":
         try:
             # pyobjc's Foundation is bundled in the built app (the window uses AppKit).
@@ -762,7 +825,8 @@ def _os_trash(p: Path) -> None:
             ok, _res, err = NSFileManager.defaultManager()\
                 .trashItemAtURL_resultingItemURL_error_(url, None, None)
             if not ok:
-                raise OSError(str(err.localizedDescription()) if err else "trashItemAtURL failed")
+                msg = str(err.localizedDescription()) if err else "trashItemAtURL failed"
+                raise (_NoVolumeTrash if _looks_like_no_volume_trash(msg) else OSError)(msg)
         except ImportError:
             # No pyobjc (e.g. a bare dev venv) — fall back to Finder via osascript,
             # which also moves the file to the Trash, recoverably.
@@ -771,7 +835,8 @@ def _os_trash(p: Path) -> None:
             r = subprocess.run(["osascript", "-e", script],
                                capture_output=True, text=True, **NO_WINDOW)
             if r.returncode != 0:
-                raise OSError((r.stderr or "osascript trash failed").strip())
+                msg = (r.stderr or "osascript trash failed").strip()
+                raise (_NoVolumeTrash if _looks_like_no_volume_trash(msg) else OSError)(msg)
     elif os.name == "nt":
         # SHFileOperationW with FOF_ALLOWUNDO sends to the Recycle Bin (recoverable).
         import ctypes  # noqa: PLC0415
@@ -792,9 +857,11 @@ def _os_trash(p: Path) -> None:
         if rc != 0:
             raise OSError(f"SHFileOperation failed (code {rc})")
     else:
-        r = subprocess.run(["gio", "trash", str(p)], **NO_WINDOW)
+        r = subprocess.run(["gio", "trash", str(p)], capture_output=True,
+                           text=True, **NO_WINDOW)
         if r.returncode != 0:
-            raise OSError("gio trash failed")
+            msg = (r.stderr or "gio trash failed").strip()
+            raise (_NoVolumeTrash if _looks_like_no_volume_trash(msg) else OSError)(msg)
 
 
 def _load_settings() -> dict:
@@ -1491,25 +1558,52 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def move_to_trash(self, paths):
-        """Move the given file(s) to the OS Trash / Recycle Bin — RECOVERABLE, never a
-        hard delete. Only ever invoked for files the run LEFT UNTOUCHED (the broken /
-        unreadable ones under 'needs a look'), as a cleanup convenience. Returns
-        {trashed, failed:[{path,error}]}; never raises."""
+        """Move the given file(s) somewhere RECOVERABLE — never a hard delete. Only ever
+        invoked for files the run LEFT UNTOUCHED (the broken / unreadable ones under
+        'needs a look'), as a cleanup convenience.
+
+        First choice is the OS Trash / Recycle Bin. When the file's volume has no Trash
+        (common on SMB/NAS shares like "Beast 8TB"), it falls back to a same-volume
+        "VTC Trashed Files" folder — still recoverable, and an instant rename rather
+        than a multi-GB copy. Returns per-file results so the UI can update each row:
+          {results:[{path, ok, where:'trash'|'folder', dest, error}], trashed, moved,
+           failed, folders:[...]}
+        Never raises."""
         if isinstance(paths, str):
             paths = [paths]
-        trashed, failed = 0, []
+        results, folders = [], set()
         for raw in (paths or []):
+            p = Path(raw)
+            if not p.exists():
+                results.append({"path": raw, "ok": False, "where": None,
+                                "error": "already gone"})
+                continue
             try:
-                p = Path(raw)
-                if not p.exists():
-                    failed.append({"path": raw, "error": "not found"}); continue
                 _os_trash(p)
-                trashed += 1
                 log.info("moved to trash: %s", p)
-            except Exception as e:  # noqa: BLE001 — report per file, never crash the app
+                results.append({"path": raw, "ok": True, "where": "trash"})
+                continue
+            except _NoVolumeTrash:
+                pass  # expected on SMB/NAS — fall through to the same-volume folder
+            except Exception as e:  # noqa: BLE001 — try the folder before giving up
+                log.info("trash failed for %s (%s) — trying quarantine folder", p, e)
+            try:
+                dest = _quarantine(p, base=self._src)
+                folders.add(str(dest.parent))
+                log.info("quarantined (no volume trash): %s -> %s", p, dest)
+                results.append({"path": raw, "ok": True, "where": "folder",
+                                "dest": str(dest)})
+            except Exception as e:  # noqa: BLE001 — report per file, never crash
                 log.warning("move_to_trash(%s): %s", raw, e)
-                failed.append({"path": raw, "error": str(e)})
-        return {"trashed": trashed, "failed": failed}
+                results.append({"path": raw, "ok": False, "where": None,
+                                "error": str(e)})
+        return {
+            "results": results,
+            "trashed": sum(1 for r in results if r["ok"] and r["where"] == "trash"),
+            "moved":   sum(1 for r in results if r["ok"] and r["where"] == "folder"),
+            "failed":  sum(1 for r in results if not r["ok"]),
+            "folders": sorted(folders),
+        }
 
     def retry_failed_software(self):
         """Re-run just the files that ERRORed in the last run, in software — a quirky
