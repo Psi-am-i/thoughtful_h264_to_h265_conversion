@@ -1,6 +1,6 @@
 [project]
 name = "vtc"
-version = "1.3.1"
+version = "1.3.2"
 description = "Very Thoughtful Compression — codec-aware, quality-density video re-encoder"
 readme = "README.md"
 requires-python = ">=3.11"

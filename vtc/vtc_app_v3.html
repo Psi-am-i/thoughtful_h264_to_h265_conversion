@@ -379,6 +379,12 @@ body{
   letter-spacing:.14em;text-transform:uppercase;padding:11px 16px;cursor:pointer;
   background:none;border:1px solid var(--rule);border-radius:var(--r);color:var(--ink-2)}
 .btn-ghost:hover{background:var(--panel);color:var(--ink)}
+/* Trash is destructive-ish (recoverable, but still a delete) — it stays quiet until
+   hovered, then goes red, and turns solid red once armed so the second, committing
+   click is unmistakable. */
+.btn-ghost.r-danger:hover{background:rgba(200,50,30,.08);border-color:#c8321e;color:#c8321e}
+.btn-ghost.r-danger.armed{background:#c8321e;border-color:#c8321e;color:#fff}
+.btn-ghost.r-danger.armed:hover{background:#a82815;color:#fff}
 .sheet-w{font-size:14.5px;color:var(--ink-2);line-height:1.6;margin-top:12px;
   padding:10px 12px;background:var(--panel);border-left:3px solid var(--accent);
   border-radius:0 var(--r) var(--r) 0}
@@ -2021,6 +2027,7 @@ body{
     <div class="sheet-f">
       <button class="btn-ghost" id="r-log">Save log…</button>
       <button class="btn-ghost" id="r-retry" hidden>Retry in software</button>
+      <button class="btn-ghost r-danger" id="r-trash" hidden>Move to Trash</button>
       <button class="btn-ghost" id="r-reset">Start over</button>
       <button class="btn-run" id="r-again" style="width:auto;margin:0;padding:11px 22px">New folder · same settings</button>
     </div>
@@ -3743,6 +3750,7 @@ function modelRun(){
   };
 }
 let rTab='ok';
+let trashArmed=false;   // two-click arm for the destructive "Move to Trash" action
 // Plain English for how close the estimate landed. Within 10% is "as estimated";
 // beyond that, say which way it went, because "we promised 3 GB and recovered 6"
 // is information about the tool, not just about this run.
@@ -3786,13 +3794,13 @@ function drawReport(){
     <div class="r-s tab ${rTab==='skip'?'sel':''}" data-t="skip"><div class="r-s-l">Left alone</div><div class="r-s-v">${R.skip.toLocaleString()}</div></div>
     <div class="r-s tab ${rTab==='fail'?'sel':''} ${R.fail?'warn':''}" data-t="fail"><div class="r-s-l">Needs a look</div><div class="r-s-v">${R.fail.toLocaleString()}</div></div>
     <div class="r-s"><div class="r-s-l">${net>=0?'Recovered':'Added'}</div><div class="r-s-v">${human2(Math.abs(net)).split(' ')[0]}<span style="font-size:10px"> ${human2(Math.abs(net)).split(' ')[1]}</span></div></div>`;
-  $('#r-stats').querySelectorAll('.r-s.tab').forEach(s=>s.onclick=()=>{ rTab=s.dataset.t; drawReport(); });
+  $('#r-stats').querySelectorAll('.r-s.tab').forEach(s=>s.onclick=()=>{ rTab=s.dataset.t; trashArmed=false; drawReport(); });
   // The tabs count the FULL run, not the sample of rows shown beneath them.
   // Showing "Needs a look · 3" under a block reading 107 was just confusing.
   const counts={ok:R.done, fail:R.fail, skip:R.skip};
   $('#r-tabs').innerHTML=[['ok','Success'],['skip','Left alone'],['fail','Needs a look']]
     .map(([k,l])=>`<button data-t="${k}" class="${rTab===k?'on':''}">${l} · ${counts[k].toLocaleString()}</button>`).join('');
-  $('#r-tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{ rTab=b.dataset.t; drawReport(); });
+  $('#r-tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{ rTab=b.dataset.t; trashArmed=false; drawReport(); });
   const rows=R.rows.filter(r=>r.t===rTab);
   $('#r-list').innerHTML = rows.length
     ? rows.map(r=>{
@@ -3837,6 +3845,27 @@ function drawReport(){
     }
     rb.title = errRows.length ? 'Retry in software: '+errRows.map(r=>r.f).join(', ') : '';
   }
+  // "Move to Trash" — only on the Needs-a-look tab, only in the real app, only for
+  // rows we can point at a real file. These are files VTC LEFT UNTOUCHED (broken /
+  // unreadable); trashing them is a cleanup convenience, never part of encoding.
+  // Recoverable (Trash / Recycle Bin), and armed: the first click asks, the second
+  // commits — so it can't be a stray click on hundreds of files.
+  const tb=$('#r-trash');
+  if(tb){
+    const trashable = (rTab==='fail' && window.__vtcTrash)
+      ? R.rows.filter(r=>r.t==='fail' && r.path) : [];
+    tb.hidden = !trashable.length;
+    if(!trashable.length){ tb.classList.remove('armed'); trashArmed=false; }
+    else {
+      const n=trashable.length, mgr=window.__vtcFileMgr||'Finder';
+      const bin = mgr==='Explorer' ? 'Recycle Bin' : 'Trash';
+      tb.textContent = trashArmed
+        ? `Click again — move ${n} to ${bin}`
+        : (n===1 ? `Move to ${bin}` : `Move ${n} to ${bin}`);
+      tb.classList.toggle('armed', trashArmed);
+      tb.title = `Move the ${n} flagged file${n>1?'s':''} to the ${bin} (recoverable). VTC never changed ${n>1?'them':'it'}.`;
+    }
+  }
 }
 // Leaving the report is a choice, not just a close: run the same settings on a
 // new folder, or wipe every choice and start from the top.
@@ -3859,6 +3888,34 @@ $('#r-again').onclick=newFolderSameSettings;
 // retry the files that errored, in software (a new run over just those files)
 $('#r-retry').onclick=()=>{
   if(window.__vtcRetryFailed){ shutSheet('#report-sheet'); window.__vtcRetryFailed(); }
+};
+// First click arms (button goes solid red + relabels), second click commits. The files
+// go to the OS Trash / Recycle Bin — recoverable, never a hard delete — and the report
+// rows for the trashed files are dropped so the counts stay honest.
+$('#r-trash').onclick=async()=>{
+  if(!window.__vtcTrash) return;
+  if(!trashArmed){ trashArmed=true; drawReport(); return; }
+  const targets = RUN.rows.filter(r=>r.t==='fail' && r.path);
+  const paths = targets.map(r=>r.path);
+  trashArmed=false;
+  const tb=$('#r-trash'); if(tb){ tb.disabled=true; tb.textContent='Moving…'; }
+  let res={trashed:0,failed:[]};
+  try{ res = await window.__vtcTrash(paths) || res; }catch(e){}
+  if(tb) tb.disabled=false;
+  // Drop the successfully-trashed rows from the report. A file counts as trashed
+  // unless it's named in failed[]; recompute the Needs-a-look total to match.
+  const bad = new Set((res.failed||[]).map(f=>f.path));
+  const gone = new Set(paths.filter(p=>!bad.has(p)));
+  RUN.rows = RUN.rows.filter(r=>!(r.t==='fail' && r.path && gone.has(r.path)));
+  RUN.fail = RUN.rows.filter(r=>r.t==='fail').length;
+  RUN.failedRetryable = RUN.rows.filter(r=>r.t==='fail' && r.sev==='err').length;
+  if(!RUN.fail) rTab='ok';   // nothing left to look at — land back on the good news
+  drawReport();
+  if((res.failed||[]).length){
+    // Be honest about anything that couldn't be trashed (permissions, already gone).
+    alert(`${gone.size} moved to Trash. ${res.failed.length} could not be moved:\n`
+      + res.failed.map(f=>'· '+(f.path||'')+' — '+(f.error||'')).join('\n'));
+  }
 };
 $('#r-log').onclick=()=>{
   // Building the log is deferred into buildLog() so the real app can open the

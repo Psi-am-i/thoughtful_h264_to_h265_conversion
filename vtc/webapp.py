@@ -587,14 +587,15 @@ _BRIDGE_JS = r"""
   window.__vtcAbort = ()=> { try { api.abort_run(); } catch(e){} };      // Stop NOW button
   window.__vtcRegenPreviews = (codec, start)=> { try { api.regenerate_previews(codec||'h265', start); } catch(e){} };
   window.__vtcRetryFailed = ()=> {
-    // Show the working screen AT ONCE and start the retry report fresh — otherwise the
-    // main interface flashes until the file walk finishes, and the retry's results pile
-    // on top of the old run's rows instead of replacing them.
-    acc.length = 0;
+    // Retry MERGES into the existing report: the retried files are updated in place and
+    // every other file (the hundreds already done) stays. Show the working screen at
+    // once, but do NOT wipe the report — losing that record was the bug.
+    window.__vtcRetrying = true;
     try { pgStart(0, 0); } catch(e){}
     try { api.retry_failed_software(); } catch(e){}
   };
   window.__vtcReveal = (p)=> { try { api.reveal_in_finder(p); } catch(e){} };   // show a file in Finder/Explorer
+  window.__vtcTrash = (paths)=> { try { return Promise.resolve(api.move_to_trash(paths)); } catch(e){ return Promise.resolve({trashed:0,failed:[]}); } };
   // Two-phase save: ask for the path FIRST (nothing but a filename crosses the
   // bridge, so the native dialog opens immediately), then build the log text and
   // ship it. Passing a builder means a huge report isn't assembled at all if the
@@ -608,20 +609,36 @@ _BRIDGE_JS = r"""
     } catch(e){}
   };
   window.__vtcOnResult = (r)=>{                                          // r: {name,t,d,sev,work}
-    acc.push(r);                                     // every file lands in the report
+    if(window.__vtcRetrying){
+      const i = r.path ? acc.findIndex(x=>x.path===r.path) : -1;   // update the retried row in place
+      if(i>=0) acc[i]=r; else acc.push(r);
+    } else {
+      acc.push(r);                                   // every file lands in the report
+    }
     // ...but only the files being WORKED ON move the progress bar. The rest are
     // instant skips; counting them made the bar race to 90% and then crawl.
     if(r.work !== false) pgDone1({ f:r.name, t:r.t, sev:r.sev, problem:r.problem, detail:r.detail });
   };
   window.__vtcOnDone = (summary)=>{
     pgFinish();
-    RUN = {
-      rows: acc.map(r=>({ f:r.name, path:r.path||'', t:r.t, d:r.d, sev:r.sev,
-                          detail:r.detail||'', problem:!!r.problem, sbytes:r.sbytes||0, obytes:r.obytes||0 })),
-      done: summary.done, skip: summary.skip, fail: summary.fail,
-      failedRetryable: summary.failed_retryable||0,
-      tb: summary.tb, mins: summary.mins, stopped: !!summary.stopped,
-    };
+    const rows = acc.map(r=>({ f:r.name, path:r.path||'', t:r.t, d:r.d, sev:r.sev,
+                               detail:r.detail||'', problem:!!r.problem, sbytes:r.sbytes||0, obytes:r.obytes||0 }));
+    // A retry's backend summary counts ONLY the retried files, so recompute the totals
+    // from the FULL merged report — otherwise the headline collapses to "5 processed"
+    // and the whole run's record looks lost.
+    let done, skip, fail, failedRetryable, tb;
+    if(window.__vtcRetrying){
+      done = rows.filter(r=>r.t==='ok').length;
+      skip = rows.filter(r=>r.t==='skip').length;
+      fail = rows.filter(r=>r.t==='fail').length;
+      failedRetryable = rows.filter(r=>r.t==='fail' && r.sev==='err').length;
+      tb = rows.filter(r=>r.t==='ok').reduce((s,x)=>s+Math.max(0,(x.sbytes||0)-(x.obytes||0)),0)/1e12;
+      window.__vtcRetrying = false;
+    } else {
+      done=summary.done; skip=summary.skip; fail=summary.fail;
+      failedRetryable=summary.failed_retryable||0; tb=summary.tb;
+    }
+    RUN = { rows, done, skip, fail, failedRetryable, tb, mins: summary.mins, stopped: !!summary.stopped };
     drawReport(); openSheet('#report-sheet');
   };
   window.runNow = ()=>{
@@ -730,6 +747,54 @@ def _settings_path() -> Path:
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "vtc"
     return base / "settings.json"
+
+
+def _os_trash(p: Path) -> None:
+    """Move one file to the OS Trash / Recycle Bin (recoverable). Native per platform —
+    no third-party dependency (the app is deliberately dependency-free). Raises on
+    failure so the caller can report which files couldn't be trashed."""
+    if sys.platform == "darwin":
+        try:
+            # pyobjc's Foundation is bundled in the built app (the window uses AppKit).
+            # NSFileManager moves to the user's Trash with no Finder-automation prompt.
+            from Foundation import NSURL, NSFileManager  # noqa: PLC0415
+            url = NSURL.fileURLWithPath_(str(p))
+            ok, _res, err = NSFileManager.defaultManager()\
+                .trashItemAtURL_resultingItemURL_error_(url, None, None)
+            if not ok:
+                raise OSError(str(err.localizedDescription()) if err else "trashItemAtURL failed")
+        except ImportError:
+            # No pyobjc (e.g. a bare dev venv) — fall back to Finder via osascript,
+            # which also moves the file to the Trash, recoverably.
+            script = ('tell application "Finder" to delete '
+                      f'(POSIX file {json.dumps(str(p))} as alias)')
+            r = subprocess.run(["osascript", "-e", script],
+                               capture_output=True, text=True, **NO_WINDOW)
+            if r.returncode != 0:
+                raise OSError((r.stderr or "osascript trash failed").strip())
+    elif os.name == "nt":
+        # SHFileOperationW with FOF_ALLOWUNDO sends to the Recycle Bin (recoverable).
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+
+        class _SHFILEOPSTRUCTW(ctypes.Structure):
+            _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT),
+                        ("pFrom", wintypes.LPCWSTR), ("pTo", wintypes.LPCWSTR),
+                        ("fFlags", ctypes.c_uint16), ("fAnyOperationsAborted", wintypes.BOOL),
+                        ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+        FO_DELETE = 3
+        FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, FOF_NOERRORUI = 0x40, 0x10, 0x04, 0x400
+        op = _SHFILEOPSTRUCTW()
+        op.wFunc = FO_DELETE
+        op.pFrom = str(p) + "\0\0"                          # pFrom is double-null-terminated
+        op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+        rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+        if rc != 0:
+            raise OSError(f"SHFileOperation failed (code {rc})")
+    else:
+        r = subprocess.run(["gio", "trash", str(p)], **NO_WINDOW)
+        if r.returncode != 0:
+            raise OSError("gio trash failed")
 
 
 def _load_settings() -> dict:
@@ -1424,6 +1489,27 @@ class Api:
         except Exception as e:  # noqa: BLE001 — a nicety, never worth crashing over
             log.warning("reveal_in_finder(%s): %s", path, e)
             return {"ok": False, "error": str(e)}
+
+    def move_to_trash(self, paths):
+        """Move the given file(s) to the OS Trash / Recycle Bin — RECOVERABLE, never a
+        hard delete. Only ever invoked for files the run LEFT UNTOUCHED (the broken /
+        unreadable ones under 'needs a look'), as a cleanup convenience. Returns
+        {trashed, failed:[{path,error}]}; never raises."""
+        if isinstance(paths, str):
+            paths = [paths]
+        trashed, failed = 0, []
+        for raw in (paths or []):
+            try:
+                p = Path(raw)
+                if not p.exists():
+                    failed.append({"path": raw, "error": "not found"}); continue
+                _os_trash(p)
+                trashed += 1
+                log.info("moved to trash: %s", p)
+            except Exception as e:  # noqa: BLE001 — report per file, never crash the app
+                log.warning("move_to_trash(%s): %s", raw, e)
+                failed.append({"path": raw, "error": str(e)})
+        return {"trashed": trashed, "failed": failed}
 
     def retry_failed_software(self):
         """Re-run just the files that ERRORed in the last run, in software — a quirky
