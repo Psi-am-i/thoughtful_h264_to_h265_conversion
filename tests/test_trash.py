@@ -1,10 +1,11 @@
-"""Move-to-Trash tests — the Api.move_to_trash cleanup convenience.
+"""Move-to-Trash / permanent-delete tests.
 
-It is only ever pointed at files the run LEFT UNTOUCHED (the broken / unreadable
-ones under "needs a look"). It must: prefer the OS Trash, fall back to a
-same-volume "VTC Trashed Files" folder when the volume has no Trash (SMB/NAS),
-report accurate per-file results, never raise, skip files that are already gone,
-and never hard-delete.
+Only ever pointed at files the run LEFT UNTOUCHED (the broken / unreadable ones
+under "needs a look"). Rules:
+  - Local drive: move to the OS Trash (recoverable). Never a hard delete here.
+  - No-Trash drive (SMB/NAS, e.g. Beast 8TB): can't be trashed — reported as
+    where:'no_trash' so the UI can ask, then delete_permanently() removes it.
+  - Never raises; skips files already gone.
 
 Run:  python tests/test_trash.py
 """
@@ -35,17 +36,17 @@ def test_trash_tally_and_never_hard_deletes():
     finally:
         webapp._os_trash = real
 
-    assert res["trashed"] == 2 and res["moved"] == 0 and res["failed"] == 1, res
+    assert res["trashed"] == 2 and res["no_trash"] == 0 and res["failed"] == 1, res
     oks = {r["path"] for r in res["results"] if r["ok"]}
     assert oks == {str(good1), str(good2)}, res
     assert {p.name for p in trashed_paths} == {"a.mkv", "b.mp4"}, trashed_paths
     assert good1.exists() and good2.exists()          # never hard-deleted (trash mocked)
-    print("  ok  counts trashed vs failed, skips missing, no hard delete")
+    print("  ok  local: counts trashed vs failed, skips missing, no hard delete")
 
 
-def test_no_volume_trash_falls_back_to_same_volume_folder():
-    """The SMB/NAS case (Beast 8TB): the volume has no Trash, so the file is moved
-    to a recoverable 'VTC Trashed Files' folder instead of failing."""
+def test_no_trash_drive_is_flagged_not_deleted():
+    """The SMB/NAS case: move_to_trash must NOT delete — it flags the file 'no_trash'
+    and leaves it on disk for the UI to ask about."""
     d = Path(tempfile.mkdtemp())
     f = d / "broken.mkv"; f.write_text("data")
 
@@ -58,19 +59,43 @@ def test_no_volume_trash_falls_back_to_same_volume_folder():
     finally:
         webapp._os_trash = real
 
-    assert res["trashed"] == 0 and res["moved"] == 1 and res["failed"] == 0, res
+    assert res["trashed"] == 0 and res["no_trash"] == 1 and res["failed"] == 0, res
     row = res["results"][0]
-    assert row["ok"] and row["where"] == "folder", row
-    dest = Path(row["dest"])
-    assert dest.exists() and dest.parent.name == "VTC Trashed Files", dest
-    assert not f.exists(), "source should have been moved out of the library"
-    assert res["folders"] == [str(dest.parent)], res
-    print("  ok  no-volume-trash -> recoverable same-volume folder")
+    assert (not row["ok"]) and row["where"] == "no_trash", row
+    assert f.exists(), "move_to_trash must not delete — only the confirmed delete does"
+    print("  ok  no-trash drive -> flagged 'no_trash', file left intact")
 
 
-def test_generic_trash_error_also_tries_the_folder():
-    """Any trash failure (not just the tidy _NoVolumeTrash) still tries the folder
-    before giving up — the user's intent is 'get this out of my library'."""
+def test_delete_permanently_removes_files():
+    d = Path(tempfile.mkdtemp())
+    f1, f2, gone = d / "x.mkv", d / "y.mp4", d / "already-gone.avi"
+    f1.write_text("x"); f2.write_text("y")
+    res = webapp.Api().delete_permanently([str(f1), str(f2), str(gone)])
+    assert res["deleted"] == 3 and res["failed"] == [], res   # missing counts as done
+    assert not f1.exists() and not f2.exists()
+    print("  ok  delete_permanently removes files (and treats already-gone as done)")
+
+
+def test_delete_permanently_reports_per_file_error():
+    d = Path(tempfile.mkdtemp())
+    f = d / "z.mkv"; f.write_text("x")
+    real = os.remove
+    def boom(p):
+        raise OSError("permission denied")
+    os.remove = boom
+    try:
+        res = webapp.Api().delete_permanently([str(f)])
+    finally:
+        os.remove = real
+    assert res["deleted"] == 0 and len(res["failed"]) == 1, res
+    assert "permission" in res["failed"][0]["error"], res
+    assert f.exists()                                  # nothing lost on error
+    print("  ok  delete_permanently reports a per-file error, keeps the file")
+
+
+def test_other_trash_error_is_reported_as_failed_not_deleted():
+    """A non-'no trash' error (e.g. a genuine permission problem) must NOT be treated as
+    a delete case — it's reported as failed and the file is left alone."""
     d = Path(tempfile.mkdtemp())
     f = d / "weird.mp4"; f.write_text("x")
     real = webapp._os_trash
@@ -79,25 +104,9 @@ def test_generic_trash_error_also_tries_the_folder():
         res = webapp.Api().move_to_trash([str(f)])
     finally:
         webapp._os_trash = real
-    assert res["moved"] == 1 and res["failed"] == 0, res
-    assert not f.exists()
-    print("  ok  a generic trash error still falls back to the folder")
-
-
-def test_reports_failure_when_even_the_folder_move_fails():
-    d = Path(tempfile.mkdtemp())
-    f = d / "stuck.mkv"; f.write_text("x")
-    real_t, real_q = webapp._os_trash, webapp._quarantine
-    webapp._os_trash = lambda p: (_ for _ in ()).throw(webapp._NoVolumeTrash("no trash"))
-    webapp._quarantine = lambda p, base=None: (_ for _ in ()).throw(OSError("read-only volume"))
-    try:
-        res = webapp.Api().move_to_trash([str(f)])
-    finally:
-        webapp._os_trash, webapp._quarantine = real_t, real_q
-    assert res["failed"] == 1 and res["trashed"] == 0 and res["moved"] == 0, res
-    assert "read-only" in res["results"][0]["error"], res
-    assert f.exists()                                  # nothing lost
-    print("  ok  when both trash and folder fail, the row is reported, file kept")
+    assert res["failed"] == 1 and res["no_trash"] == 0 and res["trashed"] == 0, res
+    assert f.exists()
+    print("  ok  a generic trash error is reported failed, never auto-deleted")
 
 
 def test_accepts_a_bare_string():

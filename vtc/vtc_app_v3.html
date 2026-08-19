@@ -3877,17 +3877,11 @@ function drawReport(){
       doTrash([btn.dataset.path]);
     };
   });
-  // Show the outcome of the last trash op (concise — no giant modal), and where any
-  // non-trashable files were moved instead, with a button to open that folder.
+  // Show the outcome of the last trash/delete op — one concise line, never a modal.
   const ts=$('#r-trash-status');
   if(ts){
     if(rTab==='fail' && trashStatus && trashStatus.text){
-      ts.hidden=false;
-      ts.innerHTML = `<span>${trashStatus.text}</span>`
-        + (trashStatus.folder && window.__vtcReveal
-            ? ` <button class="r-ts-link" type="button">Open folder</button>` : '');
-      const lk=ts.querySelector('.r-ts-link');
-      if(lk) lk.onclick=()=>window.__vtcReveal(trashStatus.folder);
+      ts.hidden=false; ts.innerHTML = `<span>${trashStatus.text}</span>`;
     } else { ts.hidden=true; ts.innerHTML=''; }
   }
   // Offer to retry files that errored (e.g. a quirky hardware encode) in software —
@@ -3923,7 +3917,7 @@ function drawReport(){
         ? `Click again — move ${n} to ${bin}`
         : (n===1 ? `Move to ${bin}` : `Move ${n} to ${bin}`);
       tb.classList.toggle('armed', trashArmed);
-      tb.title = `Move the ${n} flagged file${n>1?'s':''} to the ${bin} (recoverable). VTC never changed ${n>1?'them':'it'}.`;
+      tb.title = `Remove the ${n} flagged file${n>1?'s':''}. Files on a normal drive go to the ${bin} (recoverable); files on a network drive will ask before deleting. VTC never changed ${n>1?'them':'it'}.`;
     }
   }
 }
@@ -3950,31 +3944,55 @@ $('#r-again').onclick=newFolderSameSettings;
 $('#r-retry').onclick=()=>{
   if(window.__vtcRetryFailed){ shutSheet('#report-sheet'); window.__vtcRetryFailed(); }
 };
-// Move a set of files somewhere recoverable (OS Trash, or a same-volume folder when
-// the volume has no Trash). Used by BOTH the per-row buttons and the bulk button.
-// Successful rows drop out; any that couldn't be moved stay, marked in red with the
-// reason. A one-line banner (not a modal) summarises what happened.
+// Remove a set of files. Used by BOTH the per-row buttons and the bulk button.
+// Local drives → the OS Trash (recoverable). Files on a drive with no Trash (a network
+// share) can't be trashed — exactly like Finder, we ASK before deleting those for good.
+// Rows that go drop out; anything that couldn't be removed stays, marked red inline.
+// A one-line banner (not a modal) summarises what happened.
 async function doTrash(paths){
   if(!window.__vtcTrash || !paths || !paths.length) return;
   let res=null;
   try{ res = await window.__vtcTrash(paths); }catch(e){}
   res = res || {results:[]};
   const results = res.results || [];
-  const okPaths = new Set(results.filter(r=>r.ok).map(r=>r.path));
-  const errFor  = new Map(results.filter(r=>!r.ok).map(r=>[r.path, r.error||'unknown error']));
-  // Drop moved rows; annotate the ones that failed so the reason shows inline.
-  RUN.rows = RUN.rows.filter(r=>!(r.path && okPaths.has(r.path)));
+  const gone   = new Set(results.filter(r=>r.ok).map(r=>r.path));            // in the Trash now
+  const noTrash = results.filter(r=>r.where==='no_trash').map(r=>r.path);     // need a delete decision
+  const errFor  = new Map(results.filter(r=>!r.ok && r.where!=='no_trash')
+                          .map(r=>[r.path, r.error||'unknown error']));
+
+  // The network-share case: these can only be removed by a permanent delete. Ask once
+  // for the whole batch, naming the count and that it can't be undone.
+  let deleted=0, delFailed=0;
+  if(noTrash.length){
+    const n=noTrash.length;
+    const ok = window.confirm(
+      `${n} file${n>1?'s are':' is'} on a drive with no Trash (a network or removable drive), `
+      + `so ${n>1?'they':'it'} can’t be moved to the Trash.\n\n`
+      + `Delete ${n>1?('all '+n+' permanently'):'it permanently'}? This can’t be undone.`);
+    if(ok && window.__vtcDeleteForever){
+      let del=null; try{ del = await window.__vtcDeleteForever(noTrash); }catch(e){}
+      del = del || {deleted:0, failed:[]};
+      const df = new Map((del.failed||[]).map(f=>[f.path, f.error||'delete failed']));
+      noTrash.forEach(p=>{ if(df.has(p)){ errFor.set(p, df.get(p)); delFailed++; } else { gone.add(p); deleted++; } });
+    } else {
+      // Cancelled — leave those files exactly where they are, and say so on the rows.
+      noTrash.forEach(p=>errFor.set(p, 'on a drive with no Trash — not deleted'));
+    }
+  }
+
+  // Drop removed rows; annotate the ones that stayed with the reason.
+  RUN.rows = RUN.rows.filter(r=>!(r.path && gone.has(r.path)));
   RUN.rows.forEach(r=>{ if(r.path && errFor.has(r.path)) r.trashErr=errFor.get(r.path); });
   RUN.fail = RUN.rows.filter(r=>r.t==='fail').length;
   RUN.failedRetryable = RUN.rows.filter(r=>r.t==='fail' && r.sev==='err').length;
+
   // Compose a short, honest summary line.
   const parts=[];
   if(res.trashed) parts.push(`${res.trashed} moved to Trash`);
-  if(res.moved)   parts.push(`${res.moved} moved to a “VTC Trashed Files” folder (this volume has no Trash)`);
-  if(res.failed)  parts.push(`${res.failed} couldn’t be moved — see the row${res.failed>1?'s':''} below`);
-  trashStatus = parts.length
-    ? { text: parts.join(' · '), folder: (res.folders && res.folders[0]) || '' }
-    : null;
+  if(deleted)     parts.push(`${deleted} permanently deleted (no Trash on that drive)`);
+  const stayed = errFor.size;
+  if(stayed)      parts.push(`${stayed} left in place — see the row${stayed>1?'s':''} below`);
+  trashStatus = parts.length ? { text: parts.join(' · ') } : null;
   if(!RUN.fail) rTab='ok';   // nothing left to look at — land back on the good news
   drawReport();
 }

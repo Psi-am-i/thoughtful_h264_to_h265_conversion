@@ -595,7 +595,8 @@ _BRIDGE_JS = r"""
     try { api.retry_failed_software(); } catch(e){}
   };
   window.__vtcReveal = (p)=> { try { api.reveal_in_finder(p); } catch(e){} };   // show a file in Finder/Explorer
-  window.__vtcTrash = (paths)=> { try { return Promise.resolve(api.move_to_trash(paths)); } catch(e){ return Promise.resolve({trashed:0,failed:[]}); } };
+  window.__vtcTrash = (paths)=> { try { return Promise.resolve(api.move_to_trash(paths)); } catch(e){ return Promise.resolve({results:[],trashed:0,no_trash:0,failed:0}); } };
+  window.__vtcDeleteForever = (paths)=> { try { return Promise.resolve(api.delete_permanently(paths)); } catch(e){ return Promise.resolve({deleted:0,failed:[]}); } };
   // Two-phase save: ask for the path FIRST (nothing but a filename crosses the
   // bridge, so the native dialog opens immediately), then build the log text and
   // ship it. Passing a builder means a huge report isn't assembled at all if the
@@ -753,62 +754,17 @@ def _settings_path() -> Path:
 
 
 class _NoVolumeTrash(Exception):
-    """The file's volume has no system Trash (common on SMB/NAS mounts). The caller
-    falls back to a same-volume quarantine folder instead of failing outright."""
+    """The file's volume has no system Trash (common on SMB/NAS mounts). Such a file
+    CANNOT be trashed recoverably — the only way to remove it is a permanent delete,
+    so the UI asks the user before doing that (exactly like Finder on a network drive)."""
 
 
 def _looks_like_no_volume_trash(msg: str) -> bool:
     m = (msg or "").lower()
-    # macOS: "…because the volume "X" doesn't have one." Windows/gio give their own,
-    # but the same-volume fallback is harmless there too, so keep the net wide.
+    # macOS: "…because the volume "X" doesn't have one." Windows/gio phrase it their own
+    # way; keep the net wide so a network drive reliably routes to the delete prompt.
     return ("doesn't have" in m or "does not have" in m or "no trash" in m
             or "trash is unavailable" in m or "unsupported" in m)
-
-
-def _mount_point(p: Path) -> Path:
-    """The volume root that contains p — walk up until the OS says 'mount point'."""
-    p = p.resolve()
-    while p != p.parent and not os.path.ismount(p):
-        p = p.parent
-    return p
-
-
-def _quarantine(p: Path, base: Path | None = None) -> Path:
-    """Recoverable fallback when the volume has no system Trash: move the file into a
-    plainly-named "VTC Trashed Files" folder on its OWN volume — an instant rename (no
-    multi-GB copy), fully recoverable, and the user empties it themselves.
-
-    Location, in order of preference: the run's source folder (base, if the file is on
-    the same volume) → the volume root → the file's own folder. We try each until one
-    is writable, so a read-only volume root (e.g. macOS "/") can't strand the move."""
-    p = p.resolve()
-    candidates: list[Path] = []
-    if base:
-        try:
-            b = Path(base).resolve()
-            if _mount_point(b) == _mount_point(p):     # only if truly same volume
-                candidates.append(b)
-        except Exception:  # noqa: BLE001
-            pass
-    candidates.append(_mount_point(p))
-    candidates.append(p.parent)
-
-    last: Exception | None = None
-    for c in candidates:
-        try:
-            qdir = c / "VTC Trashed Files"
-            qdir.mkdir(exist_ok=True)
-            dest = qdir / p.name
-            if dest.exists():                 # never clobber a same-named file already there
-                i = 2
-                while (qdir / f"{dest.stem} ({i}){dest.suffix}").exists():
-                    i += 1
-                dest = qdir / f"{dest.stem} ({i}){dest.suffix}"
-            os.replace(p, dest)               # atomic within a volume
-            return dest
-        except Exception as e:  # noqa: BLE001 — try the next candidate location
-            last = e
-    raise last or OSError("could not move the file anywhere recoverable")
 
 
 def _os_trash(p: Path) -> None:
@@ -1558,20 +1514,21 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def move_to_trash(self, paths):
-        """Move the given file(s) somewhere RECOVERABLE — never a hard delete. Only ever
-        invoked for files the run LEFT UNTOUCHED (the broken / unreadable ones under
-        'needs a look'), as a cleanup convenience.
+        """Move the given file(s) to the OS Trash / Recycle Bin — RECOVERABLE, never a
+        hard delete. Only ever invoked for files the run LEFT UNTOUCHED (the broken /
+        unreadable ones under 'needs a look').
 
-        First choice is the OS Trash / Recycle Bin. When the file's volume has no Trash
-        (common on SMB/NAS shares like "Beast 8TB"), it falls back to a same-volume
-        "VTC Trashed Files" folder — still recoverable, and an instant rename rather
-        than a multi-GB copy. Returns per-file results so the UI can update each row:
-          {results:[{path, ok, where:'trash'|'folder', dest, error}], trashed, moved,
-           failed, folders:[...]}
+        A file on a volume with no Trash (SMB/NAS shares like "Beast 8TB") CANNOT be
+        trashed — there's nowhere recoverable to put it. Rather than silently doing
+        something else, such files come back tagged where:'no_trash' so the UI can ask
+        whether to delete them permanently (see delete_permanently). Returns per-file
+        results:
+          {results:[{path, ok, where:'trash'|'no_trash'|None, error}],
+           trashed, no_trash, failed}
         Never raises."""
         if isinstance(paths, str):
             paths = [paths]
-        results, folders = [], set()
+        results = []
         for raw in (paths or []):
             p = Path(raw)
             if not p.exists():
@@ -1582,28 +1539,42 @@ class Api:
                 _os_trash(p)
                 log.info("moved to trash: %s", p)
                 results.append({"path": raw, "ok": True, "where": "trash"})
-                continue
             except _NoVolumeTrash:
-                pass  # expected on SMB/NAS — fall through to the same-volume folder
-            except Exception as e:  # noqa: BLE001 — try the folder before giving up
-                log.info("trash failed for %s (%s) — trying quarantine folder", p, e)
-            try:
-                dest = _quarantine(p, base=self._src)
-                folders.add(str(dest.parent))
-                log.info("quarantined (no volume trash): %s -> %s", p, dest)
-                results.append({"path": raw, "ok": True, "where": "folder",
-                                "dest": str(dest)})
+                # network/removable drive with no Trash — needs an explicit delete.
+                results.append({"path": raw, "ok": False, "where": "no_trash",
+                                "error": "this drive has no Trash"})
             except Exception as e:  # noqa: BLE001 — report per file, never crash
                 log.warning("move_to_trash(%s): %s", raw, e)
                 results.append({"path": raw, "ok": False, "where": None,
                                 "error": str(e)})
         return {
             "results": results,
-            "trashed": sum(1 for r in results if r["ok"] and r["where"] == "trash"),
-            "moved":   sum(1 for r in results if r["ok"] and r["where"] == "folder"),
-            "failed":  sum(1 for r in results if not r["ok"]),
-            "folders": sorted(folders),
+            "trashed":  sum(1 for r in results if r["ok"] and r["where"] == "trash"),
+            "no_trash": sum(1 for r in results if r["where"] == "no_trash"),
+            "failed":   sum(1 for r in results if not r["ok"] and r["where"] != "no_trash"),
         }
+
+    def delete_permanently(self, paths):
+        """Permanently delete the given file(s) — NO undo. This is only reached after the
+        UI has told the user the drive has no Trash and they've explicitly confirmed, so
+        it behaves like Finder's 'delete immediately' on a network volume. Still scoped
+        to the broken 'needs a look' files. Returns {deleted, failed:[{path,error}]}."""
+        if isinstance(paths, str):
+            paths = [paths]
+        deleted, failed = 0, []
+        for raw in (paths or []):
+            try:
+                p = Path(raw)
+                if not p.exists():
+                    deleted += 1                      # already gone == the desired end state
+                    continue
+                os.remove(p)
+                deleted += 1
+                log.info("permanently deleted (no-trash drive, user confirmed): %s", p)
+            except Exception as e:  # noqa: BLE001 — report per file, never crash
+                log.warning("delete_permanently(%s): %s", raw, e)
+                failed.append({"path": raw, "error": str(e)})
+        return {"deleted": deleted, "failed": failed}
 
     def retry_failed_software(self):
         """Re-run just the files that ERRORed in the last run, in software — a quirky
