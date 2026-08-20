@@ -767,6 +767,25 @@ def _looks_like_no_volume_trash(msg: str) -> bool:
             or "trash is unavailable" in m or "unsupported" in m)
 
 
+def _win_is_recyclable(p: Path) -> bool:
+    """True only for a FIXED local drive, where the Recycle Bin is real and recoverable.
+    Network (UNC / mapped) and removable drives have no dependable Recycle Bin, so those
+    are treated as 'no trash' and routed to the app's explicit delete prompt instead of
+    being silently permanent-deleted by SHFileOperation."""
+    import ctypes  # noqa: PLC0415
+    s = os.fspath(p)
+    if s.startswith("\\\\") or s.startswith("//"):
+        return False                                   # UNC network path — no Recycle Bin
+    drive = os.path.splitdrive(os.path.abspath(s))[0]  # e.g. "C:"
+    if not drive:
+        return False
+    DRIVE_FIXED = 3
+    try:
+        return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == DRIVE_FIXED
+    except Exception:  # noqa: BLE001 — if we can't tell, don't risk a silent hard delete
+        return False
+
+
 def _os_trash(p: Path) -> None:
     """Move one file to the OS Trash / Recycle Bin (recoverable). Native per platform —
     no third-party dependency (the app is deliberately dependency-free). Raises on
@@ -794,6 +813,13 @@ def _os_trash(p: Path) -> None:
                 msg = (r.stderr or "osascript trash failed").strip()
                 raise (_NoVolumeTrash if _looks_like_no_volume_trash(msg) else OSError)(msg)
     elif os.name == "nt":
+        # The Recycle Bin only exists on a FIXED local drive. On a network (UNC/mapped)
+        # or removable drive there is none, and SHFileOperation with FOF_NOCONFIRMATION
+        # would SILENTLY permanent-delete — exactly the thing we must never do without
+        # asking. So route those to _NoVolumeTrash, and the app prompts first (same as
+        # macOS on an SMB share). Only a genuine fixed drive gets the recycle path.
+        if not _win_is_recyclable(p):
+            raise _NoVolumeTrash("this drive has no Recycle Bin")
         # SHFileOperationW with FOF_ALLOWUNDO sends to the Recycle Bin (recoverable).
         import ctypes  # noqa: PLC0415
         from ctypes import wintypes  # noqa: PLC0415

@@ -3951,6 +3951,7 @@ $('#r-retry').onclick=()=>{
 // A one-line banner (not a modal) summarises what happened.
 async function doTrash(paths){
   if(!window.__vtcTrash || !paths || !paths.length) return;
+  const bin = (window.__vtcFileMgr==='Explorer') ? 'Recycle Bin' : 'Trash';
   let res=null;
   try{ res = await window.__vtcTrash(paths); }catch(e){}
   res = res || {results:[]};
@@ -3966,8 +3967,8 @@ async function doTrash(paths){
   if(noTrash.length){
     const n=noTrash.length;
     const ok = window.confirm(
-      `${n} file${n>1?'s are':' is'} on a drive with no Trash (a network or removable drive), `
-      + `so ${n>1?'they':'it'} can’t be moved to the Trash.\n\n`
+      `${n} file${n>1?'s are':' is'} on a drive with no ${bin} (a network or removable drive), `
+      + `so ${n>1?'they':'it'} can’t be moved to the ${bin}.\n\n`
       + `Delete ${n>1?('all '+n+' permanently'):'it permanently'}? This can’t be undone.`);
     if(ok && window.__vtcDeleteForever){
       let del=null; try{ del = await window.__vtcDeleteForever(noTrash); }catch(e){}
@@ -3976,7 +3977,7 @@ async function doTrash(paths){
       noTrash.forEach(p=>{ if(df.has(p)){ errFor.set(p, df.get(p)); delFailed++; } else { gone.add(p); deleted++; } });
     } else {
       // Cancelled — leave those files exactly where they are, and say so on the rows.
-      noTrash.forEach(p=>errFor.set(p, 'on a drive with no Trash — not deleted'));
+      noTrash.forEach(p=>errFor.set(p, `on a drive with no ${bin} — not deleted`));
     }
   }
 
@@ -3989,7 +3990,7 @@ async function doTrash(paths){
   // Compose a short, honest summary line.
   const parts=[];
   if(res.trashed) parts.push(`${res.trashed} moved to Trash`);
-  if(deleted)     parts.push(`${deleted} permanently deleted (no Trash on that drive)`);
+  if(deleted)     parts.push(`${deleted} permanently deleted (no ${bin} on that drive)`);
   const stayed = errFor.size;
   if(stayed)      parts.push(`${stayed} left in place — see the row${stayed>1?'s':''} below`);
   trashStatus = parts.length ? { text: parts.join(' · ') } : null;

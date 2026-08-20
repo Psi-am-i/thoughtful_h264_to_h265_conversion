@@ -109,6 +109,15 @@ def test_other_trash_error_is_reported_as_failed_not_deleted():
     print("  ok  a generic trash error is reported failed, never auto-deleted")
 
 
+def test_win_unc_path_is_not_recyclable():
+    """A Windows UNC / network path has no Recycle Bin, so it must be routed to the
+    delete prompt rather than silently permanent-deleted. (The UNC check returns before
+    any Windows-only ctypes call, so this is safe to assert on any OS.)"""
+    assert webapp._win_is_recyclable(Path(r"\\nas\media\movie.mkv")) is False
+    assert webapp._win_is_recyclable(Path("//nas/media/movie.mkv")) is False
+    print("  ok  a Windows UNC/network path is treated as no-Recycle-Bin")
+
+
 def test_accepts_a_bare_string():
     d = Path(tempfile.mkdtemp())
     f = d / "one.mp4"; f.write_text("x")
