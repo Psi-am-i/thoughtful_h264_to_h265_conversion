@@ -109,6 +109,27 @@ def test_other_trash_error_is_reported_as_failed_not_deleted():
     print("  ok  a generic trash error is reported failed, never auto-deleted")
 
 
+def test_macos_no_trash_message_with_curly_apostrophe_is_detected():
+    """The real macOS error uses a typographic apostrophe (U+2019) in "doesn't". The
+    detector must still recognise it, or the file is reported as a plain failure and the
+    permanent-delete prompt never fires (the exact bug seen on the RAID network drive)."""
+    real = 'The volume “RAID” doesn’t have one.'   # curly quotes + apostrophe
+    assert webapp._looks_like_no_volume_trash(real) is True, real
+    # And routed correctly end to end. Mirror what the real darwin branch does: classify
+    # the message, raising _NoVolumeTrash when it matches (so move_to_trash flags it).
+    d = Path(tempfile.mkdtemp()); f = d / "x.mkv"; f.write_text("x")
+    orig = webapp._os_trash
+    exc = webapp._NoVolumeTrash if webapp._looks_like_no_volume_trash(real) else OSError
+    webapp._os_trash = lambda p: (_ for _ in ()).throw(exc(real))
+    try:
+        res = webapp.Api().move_to_trash([str(f)])
+    finally:
+        webapp._os_trash = orig
+    assert res["no_trash"] == 1 and res["failed"] == 0, res
+    assert res["results"][0]["where"] == "no_trash", res
+    print("  ok  macOS curly-apostrophe 'doesn’t have one' routes to the delete prompt")
+
+
 def test_win_unc_path_is_not_recyclable():
     """A Windows UNC / network path has no Recycle Bin, so it must be routed to the
     delete prompt rather than silently permanent-deleted. (The UNC check returns before

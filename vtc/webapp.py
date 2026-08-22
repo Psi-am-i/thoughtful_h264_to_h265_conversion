@@ -760,11 +760,15 @@ class _NoVolumeTrash(Exception):
 
 
 def _looks_like_no_volume_trash(msg: str) -> bool:
-    m = (msg or "").lower()
-    # macOS: "…because the volume "X" doesn't have one." Windows/gio phrase it their own
-    # way; keep the net wide so a network drive reliably routes to the delete prompt.
-    return ("doesn't have" in m or "does not have" in m or "no trash" in m
-            or "trash is unavailable" in m or "unsupported" in m)
+    # macOS: "…because the volume "X" doesn't have one." The system message uses a
+    # TYPOGRAPHIC apostrophe (U+2019) in "doesn't", so normalise curly quotes to ASCII
+    # before matching — otherwise a plain "doesn't have" test silently misses it and the
+    # network-drive delete prompt never fires. "have one" is the apostrophe-free tail and
+    # a reliable catch on its own (this only runs after a trash attempt already failed).
+    m = (msg or "").lower().replace("’", "'").replace("‘", "'").replace("ʼ", "'")
+    return ("doesn't have" in m or "does not have" in m or "have one" in m
+            or "no trash" in m or "trash is unavailable" in m or "unsupported" in m
+            or ("no such" in m and "trash" in m))
 
 
 def _win_is_recyclable(p: Path) -> bool:
