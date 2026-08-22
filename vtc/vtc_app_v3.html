@@ -3640,8 +3640,25 @@ function confirmWork(){
         if(!$('#confirm-sheet').classList.contains('on')) return;   // they left
         if(!e || e.error || !e.measured){ setTimeout(poll, 700); return; }
         CONFIRM_EST = e;
-        $('#c-go').disabled = false;
         el.className = 'c-work';
+        // The folder has nothing to run on because the ignore rules removed every file
+        // (or there are no videos here). This used to look like a hang — now it says so,
+        // names the cause, and keeps Start disabled since a run would do nothing.
+        if(e.empty){
+          const ig = e.ignored||0;
+          $('#c-go').disabled = true;
+          $('#c-src').textContent = ig ? `0 files · ${ig.toLocaleString()} ignored` : '0 files';
+          $('#c-proj').textContent = 'no change'; $('#c-saved').textContent = 'nothing';
+          el.innerHTML = ig
+            ? `<b>No files to run on — all ${ig.toLocaleString()} were ignored by your rules.</b>`
+              + `<span>Your Advanced ignore rules removed every file in this folder — most likely the `
+              + `<b>“ignore files under a size”</b> rule (these files are smaller than it). `
+              + `Open <b>Advanced → Ignore rules</b> to change it, then this folder will show its files.</span>`
+            : `<b>No video files here.</b>`
+              + `<span>Nothing in this folder is a video type VTC can process.</span>`;
+          return;
+        }
+        $('#c-go').disabled = false;
         // Now measured: the SOURCE / PROJECTED boxes describe the worked cohort only.
         if(e.work_files){
           $('#c-src').textContent = `${e.work_files.toLocaleString()} files · ${bytesStr(e.work_bytes)}`;

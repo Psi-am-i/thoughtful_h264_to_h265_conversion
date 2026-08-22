@@ -1278,7 +1278,20 @@ class Api:
         except ValueError as e:
             return {"error": str(e)}
         if not self._probes:
-            return {"error": "probing", "measured": False}    # nothing probed yet -> JS keeps modelled
+            # Distinguish "still counting" from "finished, but there's nothing to work
+            # on". The latter happens when the folder has no video files, or — the case
+            # that looked like a hang — every file was removed by the ignore rules. If we
+            # keep returning "probing" here, the confirm sheet spins on "Evaluating your
+            # library…" forever. Once probing is DONE, say so with the reason.
+            if self._probed_for != self._src:
+                return {"error": "probing", "measured": False}   # genuinely still probing
+            return {
+                "measured": True, "empty": True,
+                "ignored": self._ignored, "total_files": self._total_files,
+                "work_files": 0, "work_bytes": 0, "work_out_bytes": 0,
+                "work_saved_bytes": 0, "work_saved_pct": 0,
+                "reencoded": 0, "skipped": 0, "out_tb": 0.0, "saved_pct": 0,
+            }
         from .result import Mode
         src_bytes = out_bytes = 0
         reencoded = skipped = 0
