@@ -299,6 +299,25 @@ body{
 .fill{height:100%;background:var(--ink);width:0;transition:width .6s cubic-bezier(.2,.7,.3,1)}
 .fill.hot{background:var(--accent)}
 
+/* Inline extras under the DESTINATION choice — only the "new folder" option shows a
+   target folder + structure toggle here (archive's location lives in Advanced). */
+.dest-extra{margin:2px 0 10px;padding:12px 14px;background:var(--panel);border-radius:6px;
+  border-left:3px solid var(--accent);display:flex;flex-direction:column;gap:11px}
+.de-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.de-lab{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);min-width:78px}
+.de-path{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.de-path.unset{color:var(--ink-3);font-style:italic}
+.de-btn{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;cursor:pointer;background:none;border:1px solid var(--rule);
+  border-radius:4px;padding:5px 11px;color:var(--ink-2);white-space:nowrap}
+.de-btn:hover{border-color:var(--accent);color:var(--accent)}
+.de-seg{display:inline-flex;border:1px solid var(--rule);border-radius:5px;overflow:hidden}
+.de-seg button{font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;
+  letter-spacing:.08em;cursor:pointer;background:none;border:0;padding:5px 12px;color:var(--ink-3)}
+.de-seg button.on{background:var(--accent);color:#fff}
+.de-hint{font-size:11.5px;color:var(--ink-3);line-height:1.5}
 .commit{display:flex;align-items:center;gap:13px;padding-top:16px;flex:0 0 auto}
 .btn-commit{font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;letter-spacing:.17em;
   text-transform:uppercase;padding:11px 24px;background:var(--accent);color:#fff;border:0;
@@ -1214,6 +1233,7 @@ body{
         <h1 class="q-title" id="title"></h1>
         <p class="q-sub" id="sub"></p>
         <div class="keys" id="keys"></div>
+        <div class="dest-extra" id="dest-extra" hidden></div>
         <div class="meters" id="meters"></div>
         <div class="commit">
           <button class="btn-commit" id="commit" disabled>Confirm</button>
@@ -1669,6 +1689,7 @@ body{
         <button class="adv-nav on" data-sec="format">Format &amp; container</button>
         <button class="adv-nav" data-sec="audio">Audio</button>
         <button class="adv-nav" data-sec="subs">Subtitles</button>
+        <button class="adv-nav" data-sec="destination">Destination</button>
         <div class="adv-rail-grp">Quality</div>
         <button class="adv-nav" data-sec="tiers">Quality tiers</button>
         <button class="adv-nav" data-sec="tuning">Video tuning</button>
@@ -1800,6 +1821,25 @@ body{
               <button class="adv-radio-opt" data-v="mkv"><span class="adv-radio-dot"></span><span class="adv-radio-txt">Use <b>MKV</b> with the subtitles embedded</span></button>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Destination: where replaced ORIGINALS are archived. The new-folder target and
+           mirror/flat live inline with the destination choice, not here. -->
+      <section class="adv-sec" data-sec="destination">
+        <h3>Destination · archive location</h3>
+        <p class="adv-intro">Only used when the destination is <b>“Replace · archive original”</b>.
+          It sets where each replaced original is moved to (it is never deleted).</p>
+        <div class="adv-row">
+          <div class="adv-lab"><b>Where do archived originals go?</b></div>
+          <div class="adv-radio" id="adv-archive-where">
+            <button class="adv-radio-opt" data-v="root"><span class="adv-radio-dot"></span><span class="adv-radio-txt">An <b>“originals”</b> folder at the source root <span class="adv-auto">default</span></span></button>
+            <button class="adv-radio-opt" data-v="custom"><span class="adv-radio-dot"></span><span class="adv-radio-txt">A folder I choose</span></button>
+          </div>
+        </div>
+        <div class="adv-row" id="adv-archive-pick-row" style="display:none">
+          <div class="adv-lab adv-subs-summary" id="adv-archive-path">No folder chosen</div>
+          <div class="adv-ctrl"><button class="de-btn" id="adv-archive-pick">Choose…</button></div>
         </div>
       </section>
 
@@ -2340,12 +2380,12 @@ const M = [
     title:'What happens to the originals?',
     sub:'The last decision, and the only irreversible one. Verification runs first regardless — a source is never replaced unless the new file exists, is the right play length, probes successfully as valid and is meaningfully smaller.',
     opts:[
-      {k:'Replace · archive', recap:'Replace in place · originals archived', tag:'Keeps libraries tidy · default', name:'Replace in place, archive originals',
-       t:'The new file takes the original\'s exact name and location, so Plex and Jellyfin libraries don\'t notice a thing. Each original is moved to an archive folder (at the source root by default, or one you choose) — you decide if and when to trash originals.', m:[6,10,10,9], hot:0},
-      {k:'Replace · delete', recap:'Replace in place · originals deleted', tag:'Most space, no undo', name:'Replace in place, delete originals',
-       t:'The new file takes the original\'s name and location; the original is deleted once verification passes. Maximum space saved immediately, no undo. The run report still tells you exactly what happened to every file.', m:[10,10,10,9], hot:1},
-      {k:'New folder', recap:'New files to a folder · originals untouched', tag:'Non-destructive', name:'Save to a new folder',
-       t:'New files are written to a folder you choose — flat, or mirroring the source tree. Nothing is removed or moved: your originals stay exactly where they are. Uses the most disk during the run, and lets you A/B at leisure.', m:[2,10,10,9], hot:0},
+      {k:'Replace · archive original', recap:'Replace in place · original archived', tag:'Original kept, moved aside · default', name:'Replace in place, archive original',
+       t:'The new file takes the original\'s exact name and location, so Plex and Jellyfin libraries don\'t notice a thing. The original is not lost — it is moved to an archive folder (an “originals” folder at the source root by default; set another location under Advanced → Destination). You decide if and when to clear the archive.', m:[6,10,10,9], hot:0},
+      {k:'Replace · delete original', recap:'Replace in place · original deleted', tag:'Most space · no undo', name:'Replace in place, delete original',
+       t:'The new file takes the original\'s name and location; the original is deleted once the new file verifies. Maximum space saved immediately, and the only option with no undo. The run report still names exactly what happened to every file.', m:[10,10,10,9], hot:1},
+      {k:'New folder · keep original', recap:'New files to a folder · originals untouched', tag:'Originals untouched', name:'New files in a new folder',
+       t:'New files are written to a folder you choose; your originals stay exactly where they are, untouched. Pick the target folder and whether to mirror the source subfolder tree or write everything flat in the controls just below. Uses the most disk during the run, and lets you A/B at leisure.', m:[2,10,10,9], hot:0},
     ]},
 ];
 const METERS = ['Space','Compat','Stream','Speed'];
@@ -2675,7 +2715,51 @@ function render(){
   $('#commit').textContent=answers[q.id]!==undefined?'Update':'Confirm';
   $('#hint').textContent=armed===null?'Nothing armed':`Armed: ${q.opts[armed].k}`;
   if(armed!==null) show(armed); else clearWell();
+  renderDestExtra();
   drawRegions(); drawEstimate();
+}
+// The DESTINATION question carries inline extras: "new folder" gets a target-folder
+// picker + a mirror/flat structure toggle right here; "archive" gets a one-line pointer
+// to its location setting in Advanced; "delete" needs nothing. Shown for whichever
+// option is armed (or already chosen when you revisit the question).
+function renderDestExtra(){
+  const el=$('#dest-extra'); if(!el) return;
+  const q=M[step];
+  const choice = (armed!==null ? armed : (q ? answers[q.id] : undefined));
+  if(!q || q.id!=='dest' || choice===undefined){ el.hidden=true; el.innerHTML=''; return; }
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  if(choice===2){                                   // New folder
+    const dir = window.__outputDir||'';
+    const flat = !!(window.ADV && ADV.outFlat);
+    el.hidden=false;
+    el.innerHTML =
+      `<div class="de-row"><span class="de-lab">Folder</span>`
+      + `<span class="de-path ${dir?'':'unset'}" title="${esc(dir)}">${dir?esc(dir):'No folder chosen yet — originals stay put'}</span>`
+      + `<button class="de-btn" id="de-pick">${dir?'Change…':'Choose…'}</button></div>`
+      + `<div class="de-row"><span class="de-lab">Structure</span>`
+      + `<span class="de-seg"><button data-flat="0" class="${flat?'':'on'}">Mirror folders</button>`
+      + `<button data-flat="1" class="${flat?'on':''}">Flat</button></span></div>`
+      + `<div class="de-hint">${flat
+          ? 'Every new file goes straight into that one folder (same-named files in different source subfolders would clash).'
+          : 'The source’s subfolder tree is recreated inside that folder, so nothing can collide.'}</div>`;
+    const pk=$('#de-pick');
+    if(pk) pk.onclick=async()=>{
+      if(!window.__pickOutputDir) return;
+      const d = await window.__pickOutputDir();
+      if(d){ if(!window.ADV) window.ADV={}; ADV.outputDir=d; if(window.advPush) advPush(); }
+      renderDestExtra(); drawEstimate();
+    };
+    el.querySelectorAll('.de-seg button').forEach(b=>b.onclick=()=>{
+      if(!window.ADV) window.ADV={}; ADV.outFlat = b.dataset.flat==='1';
+      if(window.advPush) advPush(); renderDestExtra();
+    });
+  } else if(choice===0){                            // Replace · archive original
+    const custom = window.ADV && ADV.archiveDir;
+    el.hidden=false;
+    el.innerHTML = `<div class="de-hint">Replaced originals move to `
+      + (custom ? `<b>${esc(ADV.archiveDir)}</b>` : `an <b>“originals”</b> folder at the source root`)
+      + `. Nothing is deleted — change the archive location under <b>Advanced → Destination</b>.</div>`;
+  } else { el.hidden=true; el.innerHTML=''; }        // Replace · delete — no extras
 }
 function show(i){
   const o=M[step].opts[i];
@@ -2709,7 +2793,14 @@ $('#commit').onclick=()=>{
   fly(keyEl,q.id,oi,()=>{
     answers[q.id]=oi;
     // "New folder" destination → let them pick where the output goes (real app only).
-    if(q.id==='dest' && oi===2 && window.__pickOutputDir){ window.__pickOutputDir(); }
+    // Only auto-open when no folder is chosen yet, so revisiting the choice doesn't
+    // force a re-pick; the inline panel's "Choose…" button is always there regardless.
+    if(q.id==='dest' && oi===2 && window.__pickOutputDir && !window.__outputDir){
+      window.__pickOutputDir().then(d=>{
+        if(d){ if(!window.ADV) window.ADV={}; ADV.outputDir=d; if(window.advPush) advPush(); }
+        renderDestExtra(); drawEstimate();
+      });
+    }
     const nowComplete = SRC && M.every(x=>answers[x.id]!==undefined);
     const next=M.findIndex(x=>answers[x.id]===undefined);
     step=next===-1?step:next;
@@ -2845,7 +2936,11 @@ const ADV_DEFAULTS = { format:'convert', subKinds:['normal','forced','hoh'], sub
   imageSubs:true, keepMkvAudio:true, forceMkvSubs:false, jobs:1, ledger:true,
   bpp:Object.assign({}, BPP_DEFAULTS),
   // Ignore rules. '' means the rule is off (not 0 — zero is a real size).
-  ignUnderMb:'', ignOverMb:'', ignExts:[], ignNames:[] };
+  ignUnderMb:'', ignOverMb:'', ignExts:[], ignNames:[],
+  // Destination extras. outFlat: new-folder writes flat vs mirroring the source tree.
+  // archiveDir: where replaced originals go ('' = an "originals" folder at the source
+  // root). outputDir: the remembered new-folder target.
+  outFlat:false, archiveDir:'', outputDir:'' };
 // A plain Object.assign would share the one bpp object between ADV and the
 // defaults, so editing a tier would quietly rewrite what "Reset" restores.
 const advDefaults = ()=> Object.assign({}, ADV_DEFAULTS, {
@@ -2875,6 +2970,7 @@ window.__vtcApplySavedAdv = (saved)=>{
     const b = saved.bpp;
     Object.keys(saved).forEach(k=>{ if(k!=='bpp' && (k in ADV)) ADV[k]=saved[k]; });
     if(b && typeof b==='object') Object.keys(b).forEach(k=>{ if(k in ADV.bpp) ADV.bpp[k]=+b[k]||ADV.bpp[k]; });
+    if(ADV.outputDir) window.__outputDir = ADV.outputDir;   // remember last new-folder target
     if(typeof advToForm==='function') advToForm();
     if(typeof advBppNotes==='function') advBppNotes();
     if(typeof applyTierTags==='function') applyTierTags();
@@ -3060,8 +3156,18 @@ function advToForm(){                                  // ADV -> controls
   $('#adv-container').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===ADV.container));
   advRenderEdgeRadios();
   $('#adv-ledger').classList.toggle('on', !!ADV.ledger);
+  advArchiveForm();
   advFormatLabels();
   advApplyAudioContext();
+}
+// Reflect ADV.archiveDir into the Destination section: which radio is lit, whether the
+// pick row shows, and the chosen path.
+function advArchiveForm(){
+  const grp=$('#adv-archive-where'); if(!grp) return;
+  const custom = !!ADV.archiveDir;
+  grp.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===(custom?'custom':'root')));
+  const row=$('#adv-archive-pick-row'); if(row) row.style.display = custom?'':'none';
+  const path=$('#adv-archive-path'); if(path) path.textContent = ADV.archiveDir || 'No folder chosen';
 }
 // The "files not already …" heading and blurb track the chosen container: MP4 or
 // Auto reads about non-MP4 files; MKV reads about non-MKV files. The four options
@@ -3114,6 +3220,23 @@ function advBind(){                                    // controls -> ADV
     advPush(); });
   advBindEdgeRadios();
   $('#adv-ledger').onclick=()=>{ ADV.ledger=!ADV.ledger; $('#adv-ledger').classList.toggle('on',ADV.ledger); advPush(); };
+
+  // Archive location (only used by "Replace · archive original"). "Source root" clears
+  // the custom path; "A folder I choose" opens a picker. Empty archiveDir = the default.
+  const awGrp=$('#adv-archive-where');
+  if(awGrp) awGrp.querySelectorAll('button').forEach(b=>b.onclick=async()=>{
+    if(b.dataset.v==='root'){ ADV.archiveDir=''; advArchiveForm(); advPush(); return; }
+    // custom: reveal the row; open a picker if nothing chosen yet.
+    if(!ADV.archiveDir && window.pywebview && window.pywebview.api.pick_output_folder){
+      try{ const d = await window.pywebview.api.pick_output_folder(); if(d && d.dir) ADV.archiveDir=d.dir; }catch(e){}
+    }
+    advArchiveForm(); advPush();
+  });
+  const awPick=$('#adv-archive-pick');
+  if(awPick) awPick.onclick=async()=>{
+    if(!(window.pywebview && window.pywebview.api.pick_output_folder)) return;
+    try{ const d = await window.pywebview.api.pick_output_folder(); if(d && d.dir){ ADV.archiveDir=d.dir; advArchiveForm(); advPush(); } }catch(e){}
+  };
 
   // Tier densities. Typing is left alone until it parses (so "0." isn't
   // rewritten mid-keystroke); a box left unreadable snaps back on blur.

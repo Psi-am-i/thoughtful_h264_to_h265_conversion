@@ -29,3 +29,6 @@ dist/
 
 # scratch: extracted UI copy for review, not source
 VTC-UI-text.md
+
+# frontend-verifier screenshot scratch
+vtc/verification/

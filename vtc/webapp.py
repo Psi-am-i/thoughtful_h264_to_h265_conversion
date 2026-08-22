@@ -324,6 +324,15 @@ def build_config(src: Path, a: dict) -> RunConfig:
         output_mode=output_mode, output_dir=output_dir, source_action=source_action,
         ffmpeg=FFMPEG, ffprobe=FFPROBE,
     )
+    # Destination sub-options (engine already supports both):
+    #  - New folder: mirror the source subfolder tree, or write everything flat.
+    #  - Archive: where the replaced originals go (blank = <src>/originals at the root).
+    if dest == 2:
+        cfg.output_flat = bool(adv.get("outFlat"))
+    elif dest == 0:
+        archive = adv.get("archiveDir")
+        if archive:
+            cfg.archive_dir = Path(archive)
     # Files the user ticked for the slow encoder. Sent as resolved paths, so the
     # engine can match them without re-deriving anything.
     picked = a.get("softwareFiles")
